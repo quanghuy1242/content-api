@@ -1,0 +1,23 @@
+node_modules/
+
+# Package manager
+package-lock.json
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Cloudflare / Wrangler
+.wrangler/
+.dev.vars
+.mf/
+
+# Build and coverage output
+dist/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

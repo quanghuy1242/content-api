@@ -1,0 +1,4 @@
+interface:
+  display_name: "Content API Architecture"
+  short_description: "Preserve content-api clean architecture"
+  default_prompt: "Use $content-api-architecture to modify content-api routes, schemas, repositories, policies, or architecture boundaries."

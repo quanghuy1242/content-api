@@ -1,0 +1,153 @@
+import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
+import type { AppEnv } from "@/http/app-env";
+import {
+  bearerSecurity,
+  commonErrorResponses,
+  dataResponseSchema,
+  jsonContent,
+  jsonRequestBody,
+  listResponseSchema,
+} from "@/http/openapi";
+import { presentPost } from "@/http/presenters/post.presenter";
+import { requireActor } from "@/http/routes/helpers";
+import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { createPostBodySchema, postResponseSchema, updatePostBodySchema } from "@/http/schemas/posts.schema";
+
+const postListRoute = createRoute({
+  method: "get",
+  path: "/posts",
+  tags: ["posts"],
+  request: { query: listResourceQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(postResponseSchema), "List readable posts"),
+    ...commonErrorResponses,
+  },
+});
+
+const postCreateRoute = createRoute({
+  method: "post",
+  path: "/posts",
+  tags: ["posts"],
+  security: bearerSecurity,
+  request: { body: jsonRequestBody(createPostBodySchema, "Post create payload") },
+  responses: {
+    201: jsonContent(dataResponseSchema(postResponseSchema), "Created post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postGetRoute = createRoute({
+  method: "get",
+  path: "/posts/{id}",
+  tags: ["posts"],
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Post by id"),
+    ...commonErrorResponses,
+  },
+});
+
+const postUpdateRoute = createRoute({
+  method: "patch",
+  path: "/posts/{id}",
+  tags: ["posts"],
+  security: bearerSecurity,
+  request: {
+    params: idParamSchema,
+    body: jsonRequestBody(updatePostBodySchema, "Post update payload"),
+  },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Updated post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postPublishRoute = createRoute({
+  method: "post",
+  path: "/posts/{id}/publish",
+  tags: ["posts"],
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Published post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postUnpublishRoute = createRoute({
+  method: "post",
+  path: "/posts/{id}/unpublish",
+  tags: ["posts"],
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Unpublished post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postDeleteRoute = createRoute({
+  method: "delete",
+  path: "/posts/{id}",
+  tags: ["posts"],
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    204: { description: "Post deleted" },
+    ...commonErrorResponses,
+  },
+});
+
+export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
+  app.openapi(postListRoute, async (c) => {
+    const query = c.req.valid("query");
+    const result = await c.get("container").posts.list.execute({
+      actor: c.get("actor"),
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPost), page: result.page }, 200);
+  });
+
+  app.openapi(postCreateRoute, async (c) => {
+    const actor = requireActor(c);
+    const body = c.req.valid("json");
+    const result = await c.get("container").posts.create.execute({ actor, input: body });
+    return c.json({ data: presentPost(result) }, 201);
+  });
+
+  app.openapi(postGetRoute, async (c) => {
+    const params = c.req.valid("param");
+    const result = await c.get("container").posts.get.execute({ actor: c.get("actor"), postId: params.id });
+    return c.json({ data: presentPost(result) }, 200);
+  });
+
+  app.openapi(postUpdateRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const body = c.req.valid("json");
+    const result = await c.get("container").posts.update.execute({ actor, postId: params.id, input: body });
+    return c.json({ data: presentPost(result) }, 200);
+  });
+
+  app.openapi(postPublishRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").posts.publish.execute({ actor, postId: params.id });
+    return c.json({ data: presentPost(result) }, 200);
+  });
+
+  app.openapi(postUnpublishRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").posts.unpublish.execute({ actor, postId: params.id });
+    return c.json({ data: presentPost(result) }, 200);
+  });
+
+  app.openapi(postDeleteRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").posts.delete.execute({ actor, postId: params.id });
+    return c.body(null, 204);
+  });
+}

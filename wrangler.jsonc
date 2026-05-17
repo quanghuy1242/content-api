@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "content-api",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-05-17",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "content_api",
+      "database_id": "content-api-local"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "http://localhost:3001",
+    "AUTH_AUDIENCE": "payload-content-api",
+    "AUTH_JWKS_URL": "http://localhost:3001/api/auth/jwks"
+  }
+}

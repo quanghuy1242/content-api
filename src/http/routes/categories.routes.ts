@@ -15,7 +15,7 @@ import {
   categoryResponseSchema,
   categoryUpdateSchema,
 } from "@/http/schemas/categories.schema";
-import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 
 const categoryListRoute = createRoute({
   method: "get",
@@ -34,7 +34,10 @@ const categoryCreateRoute = createRoute({
   path: "/categories",
   tags: ["categories"],
   security: bearerSecurity,
-  request: { body: jsonRequestBody(categoryCreateSchema, "Category create payload") },
+  request: {
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(categoryCreateSchema, "Category create payload"),
+  },
   responses: {
     201: jsonContent(dataResponseSchema(categoryResponseSchema), "Created category"),
     ...commonErrorResponses,
@@ -94,8 +97,13 @@ export function registerCategoryRoutes(app: OpenAPIHono<AppEnv>) {
 
   app.openapi(categoryCreateRoute, async (c) => {
     const actor = requireActor(c);
+    const headers = c.req.valid("header");
     const body = c.req.valid("json");
-    const result = await c.get("container").categories.create.execute({ actor, input: body });
+    const result = await c.get("container").categories.create.execute({
+      actor,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+    });
     return c.json({ data: presentCategory(result) }, 201);
   });
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, real, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { integer, real, sqliteTable, text, uniqueIndex, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -117,5 +117,23 @@ export const relationships = sqliteTable(
     ),
     index("relationships_subject_idx").on(table.subjectType, table.subjectId),
     index("relationships_object_idx").on(table.objectType, table.objectId),
+  ],
+);
+
+export const idempotencyKeys = sqliteTable(
+  "idempotency_keys",
+  {
+    key: text("key").notNull(),
+    actorId: text("actor_id").notNull(),
+    route: text("route").notNull(),
+    requestHash: text("request_hash").notNull(),
+    responseJson: text("response_json"),
+    status: integer("status").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.key, table.actorId, table.route] }),
+    index("idempotency_actor_route_expires_idx").on(table.actorId, table.route, table.expiresAt),
   ],
 );

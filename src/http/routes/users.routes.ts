@@ -10,7 +10,7 @@ import {
 } from "@/http/openapi";
 import { presentUser } from "@/http/presenters/user.presenter";
 import { requireActor } from "@/http/routes/helpers";
-import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { userCreateSchema, userResponseSchema, userUpdateSchema } from "@/http/schemas/users.schema";
 
 const userListRoute = createRoute({
@@ -33,6 +33,7 @@ const userCreateRoute = createRoute({
   tags: ["users"],
   security: bearerSecurity,
   request: {
+    headers: idempotencyHeaderSchema,
     body: jsonRequestBody(userCreateSchema, "User create payload"),
   },
   responses: {
@@ -98,9 +99,11 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>) {
 
   app.openapi(userCreateRoute, async (c) => {
     const actor = requireActor(c);
+    const headers = c.req.valid("header");
     const body = c.req.valid("json");
     const result = await c.get("container").users.create.execute({
       actor,
+      idempotencyKey: headers["idempotency-key"],
       input: {
         ...body,
         avatar: body.avatar ?? null,

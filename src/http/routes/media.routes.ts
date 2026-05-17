@@ -10,7 +10,7 @@ import {
 } from "@/http/openapi";
 import { presentMedia } from "@/http/presenters/media.presenter";
 import { requireActor } from "@/http/routes/helpers";
-import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { mediaCreateSchema, mediaResponseSchema, mediaUpdateSchema } from "@/http/schemas/media.schema";
 
 const mediaListRoute = createRoute({
@@ -29,7 +29,10 @@ const mediaCreateRoute = createRoute({
   path: "/media",
   tags: ["media"],
   security: bearerSecurity,
-  request: { body: jsonRequestBody(mediaCreateSchema, "Media metadata create payload") },
+  request: {
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(mediaCreateSchema, "Media metadata create payload"),
+  },
   responses: {
     201: jsonContent(dataResponseSchema(mediaResponseSchema), "Created media metadata"),
     ...commonErrorResponses,
@@ -111,8 +114,13 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
 
   app.openapi(mediaCreateRoute, async (c) => {
     const actor = requireActor(c);
+    const headers = c.req.valid("header");
     const body = c.req.valid("json");
-    const result = await c.get("container").media.create.execute({ actor, input: body });
+    const result = await c.get("container").media.create.execute({
+      actor,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+    });
     return c.json({ data: presentMedia(result) }, 201);
   });
 

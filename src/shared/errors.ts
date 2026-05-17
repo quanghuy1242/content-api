@@ -54,6 +54,21 @@ export class ConflictError extends AppError {
 }
 
 /**
+ * Internal cross-layer signal for a concurrent idempotency reservation race.
+ *
+ * Infrastructure raises this after translating the storage-specific unique
+ * constraint failure. Application use cases catch it to re-read the active
+ * idempotency row and replay the cached response. It is intentionally not an
+ * `AppError` because clients should only see the final replay or a normal
+ * application conflict, never this reservation detail.
+ */
+export class IdempotencyReservationConflictError extends Error {
+  constructor() {
+    super("Idempotency reservation already exists");
+  }
+}
+
+/**
  * Converts unknown failures into the single documented JSON error envelope.
  * This is intentionally shared by middleware only; route handlers should throw
  * typed errors and let the global error boundary shape the response.

@@ -10,7 +10,7 @@ import {
 } from "@/http/openapi";
 import { presentPost } from "@/http/presenters/post.presenter";
 import { requireActor } from "@/http/routes/helpers";
-import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { createPostBodySchema, postResponseSchema, updatePostBodySchema } from "@/http/schemas/posts.schema";
 
 const postListRoute = createRoute({
@@ -29,7 +29,10 @@ const postCreateRoute = createRoute({
   path: "/posts",
   tags: ["posts"],
   security: bearerSecurity,
-  request: { body: jsonRequestBody(createPostBodySchema, "Post create payload") },
+  request: {
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createPostBodySchema, "Post create payload"),
+  },
   responses: {
     201: jsonContent(dataResponseSchema(postResponseSchema), "Created post"),
     ...commonErrorResponses,
@@ -111,8 +114,13 @@ export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
 
   app.openapi(postCreateRoute, async (c) => {
     const actor = requireActor(c);
+    const headers = c.req.valid("header");
     const body = c.req.valid("json");
-    const result = await c.get("container").posts.create.execute({ actor, input: body });
+    const result = await c.get("container").posts.create.execute({
+      actor,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+    });
     return c.json({ data: presentPost(result) }, 201);
   });
 

@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt, inArray, lt, or, type SQL } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { AnySQLiteColumn, AnySQLiteTable } from "drizzle-orm/sqlite-core";
 import { decodeCursor, encodeCursor, type CursorPage } from "@/shared/pagination/cursor";
@@ -42,6 +43,18 @@ export type CrudListOptions<Row> = {
  */
 export class CrudAdapter {
   constructor(private readonly db: Db) {}
+
+  /**
+   * Builds a Drizzle insert statement without executing it.
+   *
+   * Repositories should usually call `insertRow()` for immediate writes. This
+   * helper exists for workflow-specific infrastructure code that must compose
+   * multiple insert statements into a single `db.batch(...)` call while still
+   * using the shared adapter as the insert construction boundary.
+   */
+  buildInsert(table: AnySQLiteTable, values: Record<string, unknown>): BatchItem<"sqlite"> {
+    return this.buildInsertQuery(table, values) as unknown as BatchItem<"sqlite">;
+  }
 
   /**
    * Returns a cursor page using the API's stable `(createdAt, id)` seek cursor.
@@ -92,6 +105,10 @@ export class CrudAdapter {
     };
   }
 
+  /**
+   * Reads one row by a resource id column. This keeps the common id lookup
+   * shape centralized while allowing repositories to map the returned row.
+   */
   async findRowById<Row>(table: AnySQLiteTable, idColumn: AnySQLiteColumn, id: string): Promise<Row | null> {
     return this.findFirstRow<Row>(table, eq(idColumn, id));
   }
@@ -123,15 +140,7 @@ export class CrudAdapter {
    * style synchronization code.
    */
   async insertRow(table: AnySQLiteTable, values: Record<string, unknown>, options?: { onConflictDoNothing?: boolean }) {
-    const query = (this.db as never as {
-      insert: (table: AnySQLiteTable) => {
-        values: (values: Record<string, unknown>) => Promise<unknown> & {
-          onConflictDoNothing: () => Promise<unknown>;
-        };
-      };
-    })
-      .insert(table)
-      .values(values);
+    const query = this.buildInsertQuery(table, values);
 
     if (options?.onConflictDoNothing) {
       await query.onConflictDoNothing();
@@ -173,8 +182,35 @@ export class CrudAdapter {
     return (result.meta?.changes ?? 0) > 0;
   }
 
+  /**
+   * Deletes rows matched by a repository-supplied predicate and returns D1's
+   * reported change count. Use this for scoped infrastructure cleanup, such as
+   * removing expired idempotency rows, instead of hand-writing delete queries
+   * in individual repositories.
+   */
+  async deleteRows(table: AnySQLiteTable, condition: SQL<unknown>): Promise<number> {
+    const result = await (this.db as never as {
+      delete: (table: AnySQLiteTable) => {
+        where: (condition: SQL<unknown>) => Promise<{ meta?: { changes?: number } }>;
+      };
+    })
+      .delete(table)
+      .where(condition);
+
+    return result.meta?.changes ?? 0;
+  }
+
+  /**
+   * Builds the shared "column is any of these values" predicate used by
+   * relationship-backed repositories, so they do not each choose their own
+   * equivalent `inArray` expression.
+   */
   relationAnyCondition(column: AnySQLiteColumn, values: string[]) {
     return inArray(column, values);
+  }
+
+  private buildInsertQuery(table: AnySQLiteTable, values: Record<string, unknown>) {
+    return this.db.insert(table).values(values);
   }
 
   private buildFilterConditions(

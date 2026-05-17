@@ -58,6 +58,48 @@ When docs and code disagree, fix code or stop and ask if the docs are ambiguous.
 - reusable validation fields
 - no resource-specific behavior and no unused generic abstractions
 
+## Error Placement Rule
+
+Typed errors that cross layer boundaries belong in `src/shared/errors.ts`.
+
+- API-visible failures should extend `AppError` and be rendered only by the HTTP error middleware.
+- Internal cross-layer control-flow signals may extend `Error`, but still belong in `shared/errors.ts` when application and infrastructure both need the type.
+- Storage-driver error parsing belongs in infrastructure helpers, such as `src/infrastructure/persistence/*.ts`.
+- Never parse SQLite, D1, Drizzle, or Cloudflare error messages in `src/application/**`, `src/domain/**`, or `src/http/**`.
+- Repositories and workflow implementations must translate storage failures into shared typed errors or let unknown failures bubble to the global `INTERNAL_ERROR` envelope.
+
+## Mapper Placement Rule
+
+Persistence mapping is infrastructure:
+
+- `src/infrastructure/repositories/mappers/*.mapper.ts` owns row-to-domain and domain-to-row conversion.
+- Repositories and infrastructure workflow ports call mappers at the persistence boundary.
+- Domain entities must not know Drizzle column names.
+- Application use cases must not build Drizzle rows, call row mappers, or shape response DTOs.
+- HTTP presenters are separate from persistence mappers; presenters map domain objects to documented API JSON.
+- Do not import infrastructure mappers from `domain`, `application`, `http`, or `shared`.
+
+## New Entity Rule
+
+Before adding a new domain entity or resource, read an existing comparable resource from entity through tests and copy the repo's established shape:
+
+- Use `posts` as the reference for content resources with lifecycle behavior, publish state, and richer domain methods.
+- Use `media` as the reference for class-based entities with private props, `create`, `reconstitute`, `toSnapshot`, and mutation methods.
+- Use `categories` as the reference for simple object-shaped entities and straightforward CRUD.
+- Use `users` as the reference for identity/profile records and presenter-level field visibility.
+- Use `relationships`, `grant-mirror`, and `deferred-grants` as references for authz/supporting persistence records.
+
+Check the full setup, not just the entity file:
+
+- domain entity, repository interface, and policy
+- application use cases
+- HTTP schema, presenter, and routes
+- infrastructure schema, repository, mapper, and migrations
+- request-container wiring
+- API tests and OpenAPI assertions
+
+New entities should match existing construction, reconstitution, timestamp, update, mapper, and presenter conventions. Add a new pattern only when the docs require behavior that none of the existing resources model.
+
 ## CRUD Adapter Rule
 
 The docs say most resource persistence is common CRUD. Keep that common behavior in `CrudAdapter`, not duplicated in each repository:
@@ -71,6 +113,20 @@ The docs say most resource persistence is common CRUD. Keep that common behavior
 - simple equality filters and stable cursor conditions
 
 Repositories may provide table-specific predicates, mapping, and specialized lookups. They should still call `CrudAdapter` for common insert/update/delete/list/find behavior.
+
+Every public `CrudAdapter` method needs JSDoc that states the invariant it centralizes. If a repository needs common behavior that is not covered by the adapter, add a small adapter method instead of duplicating raw Drizzle mechanics in each repository.
+
+## Idempotency Rule
+
+Idempotent create workflows are split across application and infrastructure:
+
+- HTTP routes validate the optional `Idempotency-Key` header through OpenAPI schemas and pass it to a single use case.
+- Application use cases own request hashing, active replay lookup, request-hash conflict checks, expired scoped-key cleanup, cached response rehydration, and concurrent replay after a reservation conflict.
+- Idempotency rows are scoped by `(key, actorId, route)`.
+- Workflow ports in `domain/<resource>/<resource>-create.workflow.ts` describe the atomic create write shape.
+- Drizzle workflow implementations build `db.batch(...)` statements for the idempotency row plus business rows.
+- SQLite/D1 error-message parsing belongs only in infrastructure. Translate idempotency unique-key failures into the shared reservation conflict error before crossing back to application.
+- `IdempotencyRepository` should only expose idempotency record lookup/cleanup. It must not create resource rows or relationships.
 
 ## OpenAPI Route Rule
 
@@ -146,6 +202,8 @@ Useful audits:
 rg -n "app\\.(get|post|patch|delete)\\(" src/http src/main.ts
 rg -n "\\.insert\\(|\\.update\\(|\\.delete\\(" src/infrastructure src/application src/domain src/http
 rg -n "@/infrastructure|@/http" src/domain src/application
+rg -n "UNIQUE constraint failed|SQLite|D1" src/application src/domain src/http
+rg -n "repositories/mappers" src/application src/domain src/http src/shared
 rg -n "from \"zod\"" src/http/schemas src/shared/validation src/shared/pagination
 rg -n "Entry|entries" src tests
 ```
@@ -155,6 +213,8 @@ Expected exceptions:
 - `app.doc("/openapi.json", ...)` in `src/main.ts`
 - Drizzle insert/update/delete only inside `src/infrastructure/persistence/crud-adapter.ts`
 - `Object.entries` is not an architecture naming violation
+- SQLite/D1 error parsing inside `src/infrastructure/persistence/**`
+- mapper imports inside `src/infrastructure/**`
 
 Tests should cover:
 

@@ -46,12 +46,17 @@ import { PostPolicy } from "@/domain/posts/post.policy";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
+import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
 import { DrizzleDeferredGrantRepository } from "@/infrastructure/repositories/drizzle-deferred-grant.repository";
 import { DrizzleGrantMirrorRepository } from "@/infrastructure/repositories/drizzle-grant-mirror.repository";
+import { DrizzleIdempotencyRepository } from "@/infrastructure/repositories/drizzle-idempotency.repository";
 import { DrizzleMediaRepository } from "@/infrastructure/repositories/drizzle-media.repository";
+import { DrizzleMediaCreateWorkflow } from "@/infrastructure/repositories/drizzle-media-create.workflow";
 import { DrizzlePostRepository } from "@/infrastructure/repositories/drizzle-post.repository";
+import { DrizzlePostCreateWorkflow } from "@/infrastructure/repositories/drizzle-post-create.workflow";
 import { DrizzleRelationshipRepository } from "@/infrastructure/repositories/drizzle-relationship.repository";
 import { DrizzleUserRepository } from "@/infrastructure/repositories/drizzle-user.repository";
+import { DrizzleUserCreateWorkflow } from "@/infrastructure/repositories/drizzle-user-create.workflow";
 
 /**
  * Builds the request-scoped object graph at the outer edge of the Worker.
@@ -71,6 +76,11 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const deferredGrantRepository = new DrizzleDeferredGrantRepository(db);
   const relationshipRepository = new DrizzleRelationshipRepository(db);
   const postRepository = new DrizzlePostRepository(db);
+  const idempotencyRepository = new DrizzleIdempotencyRepository(db);
+  const postCreateWorkflow = new DrizzlePostCreateWorkflow(db);
+  const mediaCreateWorkflow = new DrizzleMediaCreateWorkflow(db);
+  const categoryCreateWorkflow = new DrizzleCategoryCreateWorkflow(db);
+  const userCreateWorkflow = new DrizzleUserCreateWorkflow(db);
   const userPolicy = new UserPolicy();
   const categoryPolicy = new CategoryPolicy(relationshipRepository);
   const mediaPolicy = new MediaPolicy(relationshipRepository);
@@ -91,21 +101,33 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     users: {
       list: new ListUsersUseCase(userRepository, userPolicy),
       get: new GetUserUseCase(userRepository, userPolicy),
-      create: new CreateUserUseCase(userRepository, userPolicy),
+      create: new CreateUserUseCase(userRepository, idempotencyRepository, userCreateWorkflow, userPolicy),
       update: new UpdateUserUseCase(userRepository, userPolicy),
       delete: new DeleteUserUseCase(userRepository, userPolicy),
     },
     categories: {
       list: new ListCategoriesUseCase(categoryRepository, categoryPolicy),
       get: new GetCategoryUseCase(categoryRepository, categoryPolicy),
-      create: new CreateCategoryUseCase(categoryRepository, relationshipRepository, categoryPolicy),
+      create: new CreateCategoryUseCase(
+        categoryRepository,
+        relationshipRepository,
+        idempotencyRepository,
+        categoryCreateWorkflow,
+        categoryPolicy,
+      ),
       update: new UpdateCategoryUseCase(categoryRepository, categoryPolicy),
       delete: new DeleteCategoryUseCase(categoryRepository, categoryPolicy),
     },
     posts: {
       list: new ListPostsUseCase(postRepository),
       get: new GetPostUseCase(postRepository, postPolicy),
-      create: new CreatePostUseCase(postRepository, relationshipRepository, postPolicy),
+      create: new CreatePostUseCase(
+        postRepository,
+        relationshipRepository,
+        idempotencyRepository,
+        postCreateWorkflow,
+        postPolicy,
+      ),
       update: new UpdatePostUseCase(postRepository, postPolicy),
       publish: new PublishPostUseCase(postRepository, postPolicy),
       unpublish: new UnpublishPostUseCase(postRepository, postPolicy),
@@ -114,7 +136,13 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     media: {
       list: new ListMediaUseCase(mediaRepository),
       get: new GetMediaUseCase(mediaRepository, mediaPolicy),
-      create: new CreateMediaUseCase(mediaRepository, relationshipRepository, mediaPolicy),
+      create: new CreateMediaUseCase(
+        mediaRepository,
+        relationshipRepository,
+        idempotencyRepository,
+        mediaCreateWorkflow,
+        mediaPolicy,
+      ),
       update: new UpdateMediaUseCase(mediaRepository, mediaPolicy),
       publish: new PublishMediaUseCase(mediaRepository, mediaPolicy),
       unpublish: new UnpublishMediaUseCase(mediaRepository, mediaPolicy),

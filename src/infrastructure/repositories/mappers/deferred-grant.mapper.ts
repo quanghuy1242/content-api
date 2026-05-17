@@ -27,12 +27,36 @@ export function deferredGrantRowToEntity(row: DeferredGrantRow): DeferredGrant {
  * Keeps deferred-grant insert mapping centralized beside its row rehydration.
  */
 export function deferredGrantToInsertRow(input: DeferredGrant) {
-  return input;
+  return {
+    id: input.id,
+    betterAuthUserId: input.betterAuthUserId,
+    tupleId: input.tupleId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    relation: input.relation,
+    sourceSubjectType: input.sourceSubjectType,
+    hasCondition: input.hasCondition,
+    status: input.status,
+    processedAt: input.processedAt,
+    type: input.type,
+    createdAt: input.createdAt,
+  };
 }
 
 /**
  * Keeps partial deferred-grant updates out of repository method bodies.
  */
 export function deferredGrantToUpdateRow(input: Partial<Omit<DeferredGrant, "id" | "createdAt">>) {
-  return input;
+  return {
+    betterAuthUserId: input.betterAuthUserId,
+    tupleId: input.tupleId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    relation: input.relation,
+    sourceSubjectType: input.sourceSubjectType,
+    hasCondition: input.hasCondition,
+    status: input.status,
+    processedAt: input.processedAt,
+    type: input.type,
+  };
 }

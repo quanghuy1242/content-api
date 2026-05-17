@@ -22,5 +22,13 @@ export function relationshipRowToEntity(row: RelationshipRow): Relationship {
  * Keeps relationship insert mapping explicit even when row/domain shapes match.
  */
 export function relationshipToInsertRow(input: Relationship) {
-  return input;
+  return {
+    id: input.id,
+    subjectType: input.subjectType,
+    subjectId: input.subjectId,
+    relation: input.relation,
+    objectType: input.objectType,
+    objectId: input.objectId,
+    createdAt: input.createdAt,
+  };
 }

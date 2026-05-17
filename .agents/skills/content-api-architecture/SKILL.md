@@ -26,7 +26,9 @@ For detailed file-level rules, read [references/architecture-rules.md](reference
 6. Keep row/entity conversion in `src/infrastructure/repositories/mappers/*.mapper.ts`; do not inline mapping in routes or use cases.
 7. Keep D1/Drizzle code in infrastructure repositories and shared CRUD in `CrudAdapter`.
 8. For idempotent create workflows, keep replay decisions in application use cases and D1 batch construction/error translation in infrastructure workflow ports.
-9. Run targeted audits after edits, then `corepack pnpm typecheck` and `corepack pnpm test`.
+9. Run targeted audits after edits, then `corepack pnpm lint`, `corepack pnpm typecheck`, and `corepack pnpm test`.
+10. Treat `corepack pnpm lint` as the architecture gate as well as the code-style gate; it must catch layer-boundary, mapper, repository, and OpenAPI route violations before review.
+11. If the change introduces lint failures that the repo can auto-correct safely, run `corepack pnpm lint:fix` and re-run `corepack pnpm lint`.
 
 ## Layer Rules
 

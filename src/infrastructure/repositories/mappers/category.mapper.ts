@@ -7,7 +7,16 @@ type CategoryRow = typeof categories.$inferSelect;
  * Translates Drizzle category rows to the domain shape.
  */
 export function categoryRowToEntity(row: CategoryRow): Category {
-  return row;
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    description: row.description,
+    image: row.image,
+    createdBy: row.createdBy,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 /**
@@ -15,7 +24,14 @@ export function categoryRowToEntity(row: CategoryRow): Category {
  * field-by-field mapping details.
  */
 export function categoryToInsertRow(input: Omit<Category, "createdAt" | "updatedAt">) {
-  return input;
+  return {
+    id: input.id,
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    image: input.image,
+    createdBy: input.createdBy,
+  };
 }
 
 /**
@@ -23,7 +39,10 @@ export function categoryToInsertRow(input: Omit<Category, "createdAt" | "updated
  */
 export function categoryToUpdateRow(input: Partial<Omit<Category, "id" | "createdAt" | "updatedAt" | "createdBy">>) {
   return {
-    ...input,
+    name: input.name,
+    slug: input.slug,
+    description: input.description,
+    image: input.image,
     updatedAt: new Date(),
   };
 }

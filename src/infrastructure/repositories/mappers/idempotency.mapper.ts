@@ -9,8 +9,14 @@ type IdempotencyRow = typeof idempotencyKeys.$inferSelect;
  */
 export function idempotencyRowToRecord(row: IdempotencyRow): IdempotencyRecord {
   return {
-    ...row,
+    key: row.key,
+    actorId: row.actorId,
     route: row.route as IdempotencyRecord["route"],
+    requestHash: row.requestHash,
+    responseJson: row.responseJson,
+    status: row.status,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
   };
 }
 
@@ -19,5 +25,14 @@ export function idempotencyRowToRecord(row: IdempotencyRow): IdempotencyRecord {
  * batch insert workflows.
  */
 export function idempotencyToInsertRow(input: Omit<IdempotencyRecord, "responseJson"> & { responseJson: string }) {
-  return { ...input };
+  return {
+    key: input.key,
+    actorId: input.actorId,
+    route: input.route,
+    requestHash: input.requestHash,
+    responseJson: input.responseJson,
+    status: input.status,
+    createdAt: input.createdAt,
+    expiresAt: input.expiresAt,
+  };
 }

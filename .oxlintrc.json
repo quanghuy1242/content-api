@@ -1,0 +1,114 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "vitest",
+    "import",
+    "promise"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn"
+  },
+  "settings": {
+    "vitest": {
+      "testPattern": ["tests/**/*.test.ts"]
+    }
+  },
+  "rules": {
+    "no-console": "error",
+    "eqeqeq": "error",
+    "import/no-cycle": "error",
+    "import/no-default-export": "off",
+    "typescript/no-explicit-any": "error",
+    "unicorn/no-array-sort": "off"
+  },
+  "overrides": [
+    {
+      "files": ["src/domain/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/application/*",
+                  "@/composition/*",
+                  "@/config/*",
+                  "@/http/*",
+                  "@/infrastructure/*"
+                ],
+                "message": "Domain code must stay independent of application, composition, config, HTTP, and infrastructure layers."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/application/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/composition/*",
+                  "@/config/*",
+                  "@/http/*",
+                  "@/infrastructure/*"
+                ],
+                "message": "Application code must not depend on composition, config, HTTP, or infrastructure layers."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/http/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@/infrastructure/db/*"
+                ],
+                "message": "HTTP code must not import persistence details directly."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["tests/**/*.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["**/*.d.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "dist",
+    "coverage",
+    ".wrangler",
+    "migrations"
+  ],
+  "env": {
+    "es2022": true,
+    "worker": true
+  }
+}

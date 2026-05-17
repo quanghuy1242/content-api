@@ -26,12 +26,33 @@ export function grantMirrorRowToEntity(row: GrantMirrorRow): GrantMirror {
  * Keeps grant-mirror insert payload construction out of repository flow logic.
  */
 export function grantMirrorToInsertRow(input: GrantMirror) {
-  return input;
+  return {
+    id: input.id,
+    autherTupleId: input.autherTupleId,
+    payloadUserId: input.payloadUserId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    relation: input.relation,
+    sourceSubjectType: input.sourceSubjectType,
+    requiresLiveCheck: input.requiresLiveCheck,
+    syncStatus: input.syncStatus,
+    syncedAt: input.syncedAt,
+  };
 }
 
 /**
  * Keeps partial grant-mirror update payloads centralized for CRUD adapter calls.
  */
 export function grantMirrorToUpdateRow(input: Partial<Omit<GrantMirror, "id">>) {
-  return input;
+  return {
+    autherTupleId: input.autherTupleId,
+    payloadUserId: input.payloadUserId,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    relation: input.relation,
+    sourceSubjectType: input.sourceSubjectType,
+    requiresLiveCheck: input.requiresLiveCheck,
+    syncStatus: input.syncStatus,
+    syncedAt: input.syncedAt,
+  };
 }

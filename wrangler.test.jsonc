@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "content-api-test",
+  "main": "src/main.ts",
+  "compatibility_date": "2026-05-17",
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_R2",
+      "bucket_name": "content-api-media"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "content_api",
+      "database_id": "73f94f30-cd96-464c-ba37-87c857d99d88",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "vars": {
+    "AUTH_ISSUER": "https://auth.test",
+    "AUTH_AUDIENCE": "payload-content-api",
+    "AUTH_JWKS_URL": "https://auth.test/api/auth/jwks",
+    "R2_ACCOUNT_ID": "local-account",
+    "R2_BUCKET_NAME": "content-api-media",
+    "R2_ACCESS_KEY_ID": "local-access-key",
+    "R2_SECRET_ACCESS_KEY": "local-secret-key",
+    "MAX_IMAGE_UPLOAD_BYTES": "10485760",
+    "UPLOAD_URL_TTL_SECONDS": "300"
+  }
+}

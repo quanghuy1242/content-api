@@ -21,10 +21,7 @@
 		"AUTH_ISSUER": "https://auth.quanghuy.dev",
 		"AUTH_AUDIENCE": "payload-content-api",
 		"AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
-		"R2_ACCOUNT_ID": "local-account",
 		"R2_BUCKET_NAME": "content-api-media",
-		"R2_ACCESS_KEY_ID": "local-access-key",
-		"R2_SECRET_ACCESS_KEY": "local-secret-key",
 		"MAX_IMAGE_UPLOAD_BYTES": "10485760",
 		"UPLOAD_URL_TTL_SECONDS": "300"
 	}

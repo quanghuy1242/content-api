@@ -82,7 +82,7 @@ wrangler r2 bucket notification create content-api-media \
   --suffix "/original"
 ```
 
-3. Set Worker vars in `wrangler.jsonc` (mock values for local/test — CI secrets override in production):
+3. Keep non-secret Worker vars in `wrangler.jsonc`. Secret bindings used by local `wrangler dev` belong in `.dev.vars` so they do not collide with CI-managed Cloudflare secrets:
 
 ```jsonc
 {
@@ -90,14 +90,17 @@ wrangler r2 bucket notification create content-api-media \
     "AUTH_ISSUER": "https://auth.quanghuy.dev",
     "AUTH_AUDIENCE": "payload-content-api",
     "AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
-    "R2_ACCOUNT_ID": "local-account",
     "R2_BUCKET_NAME": "content-api-media",
-    "R2_ACCESS_KEY_ID": "local-access-key",
-    "R2_SECRET_ACCESS_KEY": "local-secret-key",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
   }
 }
+```
+
+Create `.dev.vars` from the committed example:
+
+```bash
+cp .dev.vars.example .dev.vars
 ```
 
 4. Apply local migrations:
@@ -113,6 +116,8 @@ pnpm dev
 ```
 
 Media processing is deployed as a separate Worker under [workers/media-processor](workers/media-processor). Its `wrangler.jsonc` shares the same D1, R2, Images, and Queue bindings as the API Worker.
+
+Tests use [wrangler.test.jsonc](wrangler.test.jsonc), which keeps committed mock signer credentials for the Vitest worker pool without duplicating production secret bindings in the deploy config.
 
 ## Migrations
 
@@ -167,6 +172,7 @@ Required GitHub secrets:
 
 - `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers and D1:Edit permissions
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
+- `R2_ACCOUNT_ID` — Cloudflare account ID exposed to the Worker for presigned upload signing
 - `R2_ACCESS_KEY_ID` — R2 access key for presigned upload URLs
 - `R2_SECRET_ACCESS_KEY` — R2 secret key for presigned upload URLs
 

@@ -14,7 +14,7 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: {
-        configPath: "./wrangler.jsonc",
+        configPath: "./wrangler.test.jsonc",
       },
     }),
   ],
@@ -22,7 +22,7 @@ export default defineConfig({
     globals: true,
     pool: cloudflarePool({
       wrangler: {
-        configPath: "./wrangler.jsonc",
+        configPath: "./wrangler.test.jsonc",
       },
     }),
   },

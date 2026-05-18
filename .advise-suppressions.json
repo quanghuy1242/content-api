@@ -1,0 +1,183 @@
+{
+  "_note": "Each entry is an approved ignore. New or shifted findings (due to code changes) will appear unfiltered and must be reviewed for approval before adding here. To regenerate this list from current output, run: pnpm advise:unsuppressed",
+  "suppressions": [
+    {
+      "tool": "aislop",
+      "file": "scripts/oxlint-js-plugins/architecture.js",
+      "rule": "complexity/file-too-large",
+      "line": 0,
+      "reason": "Linter plugin — intentional large file, splitting would hurt cohesion and rule discoverability"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/composition/create-request-container.ts",
+      "rule": "complexity/function-too-long",
+      "line": 68,
+      "reason": "Composition wiring — one-time setup that's clearer as a single function than broken into pieces"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/authz.routes.ts",
+      "rule": "complexity/function-too-long",
+      "line": 188,
+      "reason": "Route registration function — splitting would scatter related route definitions"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/authz.routes.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 141,
+      "reason": "Route handler pattern — each route validates input + calls use case + presents output. Extracting would add indirection with no real dedup benefit"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/media.routes.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 82,
+      "reason": "Same route handler pattern as authz — self-contained routes are more readable than a generic wrapper"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/posts.routes.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 82,
+      "reason": "Same route handler pattern — self-contained routes are more readable than a generic wrapper"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/mappers/deferred-grant.mapper.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 53,
+      "reason": "Mapper pattern mandated by architecture — explicit one-to-one field mapping, genericizing would lose transparency"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/mappers/grant-mirror.mapper.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 49,
+      "reason": "Mapper pattern mandated by architecture — genericizing mappers would hide field-level mismatches"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/mappers/media.mapper.ts",
+      "rule": "code-quality/duplicate-block",
+      "line": 69,
+      "reason": "Mapper pattern mandated by architecture — explicit mapping is the point"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/db/client.ts",
+      "rule": "ai-slop/thin-wrapper",
+      "line": 5,
+      "reason": "createDb is an intentional public API surface exported for composition — not a lazy indirection"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/shared/pagination/cursor.ts",
+      "rule": "ai-slop/thin-wrapper",
+      "line": 21,
+      "reason": "encodeCursor wraps base64url with stable typing — the wrapper is the API contract"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/persistence/crud-adapter.ts",
+      "rule": "ai-slop/double-type-assertion",
+      "line": 56,
+      "reason": "Drizzle query return type limitation — a typed wrapper function is planned but not urgent"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/composition/create-request-container.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 60,
+      "reason": "Architecture boundary comment that explains the wiring strategy — useful JSDoc, not slop"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/domain/media/media.entity.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 34,
+      "reason": "Entity lifecycle JSDoc — required by the architecture JSDoc Standard"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/persistence/crud-adapter.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 35,
+      "reason": "CrudAdapter behavior JSDoc — required by architecture JSDoc Standard"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/persistence/crud-adapter.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 138,
+      "reason": "Implementation note for Drizzle column-level behavior — useful context, not slop"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/drizzle-relationship.repository.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 14,
+      "reason": "Repository boundary JSDoc — documents the repository's relationship-lookup role"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/mappers/idempotency.mapper.ts",
+      "rule": "ai-slop/narrative-comment",
+      "line": 6,
+      "reason": "Mapper boundary JSDoc — follows the mapper JSDoc pattern from architecture"
+    },
+    {
+      "tool": "aislop",
+      "file": "package.json",
+      "rule": "security/vulnerable-dependency",
+      "line": 0,
+      "reason": "esbuild 0.24.0 moderate vuln — will be resolved in next dependency upgrade pass"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/application/categories/create-category.usecase.ts:27|src/application/media/create-media.usecase.ts:27",
+      "reason": "Idempotent create entry-point pattern — extracting into a shared base would make each use case harder to follow independently"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/application/categories/create-category.usecase.ts:83|src/application/media/create-media.usecase.ts:89",
+      "reason": "Same idempotent workflow structure — the specific types (Category/Media props) make extraction noisy and opaque"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/application/categories/create-category.usecase.ts:83|src/application/posts/create-post.usecase.ts:91",
+      "reason": "Same idempotent workflow structure with different entity types — extraction loses clarity"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/application/categories/create-category.usecase.ts:117|src/application/media/create-media.usecase.ts:123|src/application/users/create-user.usecase.ts:93",
+      "reason": "Idempotent conflict handling + replay — same structural pattern across resource-specific use cases"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:34|src/domain/media/media.entity.ts:71",
+      "reason": "Entity getter/update pattern mandated by architecture Entity Class Rules — every entity follows the same private-props + getter + update shape"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:36|src/domain/grant-mirror/grant-mirror.entity.ts:31|src/domain/media/media.entity.ts:73",
+      "reason": "Entity getter/update pattern — structural similarity by design, not accidental duplication"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:37|src/domain/grant-mirror/grant-mirror.entity.ts:32|src/domain/media/media.entity.ts:74|src/domain/users/user.entity.ts:36",
+      "reason": "Entity getter/update pattern — mandated consistency across all entity classes"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:42|src/domain/grant-mirror/grant-mirror.entity.ts:37|src/domain/media/media.entity.ts:79|src/domain/posts/post.entity.ts:67",
+      "reason": "Entity update method pattern — each entity has resource-specific fields but follows the same if-undefined shape"
+    },
+    {
+      "tool": "fallow",
+      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:49|src/domain/grant-mirror/grant-mirror.entity.ts:43",
+      "reason": "Entity update body + toSnapshot pattern — mandated by architecture"
+    }
+  ]
+}

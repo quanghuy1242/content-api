@@ -14,3 +14,6 @@ onlyBuiltDependencies:
   - fallow
   - sharp
   - workerd
+
+patchedDependencies:
+  zod@4.4.3: patches/zod@4.4.3.patch

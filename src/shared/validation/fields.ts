@@ -11,7 +11,7 @@ export const slugSchema = z
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export const roleSchema = z.enum(["admin", "user"]);
 export const statusSchema = z.enum(["draft", "published"]);
-export const mediaStatusSchema = z.enum(["ready"]);
+export const mediaStatusSchema = z.enum(["pending_upload", "processing", "ready", "failed", "expired"]);
 export const mediaVisibilitySchema = z.enum(["private", "public"]);
 export const grantMirrorEntityTypeSchema = z.enum(["book", "chapter", "comment"]);
 export const subjectTypeSchema = z.enum(["user", "group", "api_key"]);

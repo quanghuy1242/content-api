@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "content-api-media-processor",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-17",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "content_api",
+      "database_id": "content-api-local"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA_R2",
+      "bucket_name": "content-api-media"
+    }
+  ],
+  "images": {
+    "binding": "IMAGES"
+  },
+  "queues": {
+    "consumers": [
+      {
+        "queue": "media-processing"
+      }
+    ]
+  }
+}

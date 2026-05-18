@@ -5,7 +5,7 @@ Cloudflare Workers content API built with Hono, D1, and Drizzle. This repo imple
 - `users`
 - `categories`
 - `posts`
-- `media` metadata only
+- `media` direct-to-R2 uploads, processor-generated variants, and API-served variant streaming
 - `grant-mirror`
 - `deferred-grants`
 - `relationships` for ReBAC-style authorization facts
@@ -22,7 +22,7 @@ This implementation follows the contracts in:
 Architecture planning documents and implementation status:
 
 - [docs/001_idempotency-batch-design.md](docs/001_idempotency-batch-design.md) — implemented
-- [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — revised proposal, approved
+- [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — implemented
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 
@@ -70,22 +70,36 @@ pnpm install
   "vars": {
     "AUTH_ISSUER": "https://auth.example.com",
     "AUTH_AUDIENCE": "payload-content-api",
-    "AUTH_JWKS_URL": "https://auth.example.com/api/auth/jwks"
+    "AUTH_JWKS_URL": "https://auth.example.com/api/auth/jwks",
+    "R2_ACCOUNT_ID": "<cloudflare-account-id>",
+    "R2_BUCKET_NAME": "content-api-media",
+    "R2_ACCESS_KEY_ID": "<r2-access-key-id>",
+    "R2_SECRET_ACCESS_KEY": "<r2-secret-access-key>",
+    "MAX_IMAGE_UPLOAD_BYTES": "10485760",
+    "UPLOAD_URL_TTL_SECONDS": "300"
   }
 }
 ```
 
-4. Apply local migrations:
+4. Ensure the local R2 bucket exists and matches the binding name:
+
+```bash
+npx wrangler r2 bucket create content-api-media
+```
+
+5. Apply local migrations:
 
 ```bash
 pnpm db:migrate:local
 ```
 
-5. Start local development:
+6. Start local development:
 
 ```bash
 pnpm dev
 ```
+
+Media processing is deployed as a separate Worker under [workers/media-processor](workers/media-processor). Configure its `IMAGES` binding and queue consumer alongside the API Worker when you stand up the full upload pipeline.
 
 ## Migrations
 
@@ -122,6 +136,7 @@ Current automated coverage includes:
 - `401` invalid token
 - `403` forbidden
 - `404` missing resource
+- media upload lifecycle, idempotent create replay, and queue ack/retry behavior
 - happy paths across posts, media, users, and authz-admin resources
 
 ## Deployment
@@ -149,13 +164,12 @@ Before first deploy, update:
 - production `AUTH_ISSUER`
 - production `AUTH_AUDIENCE`
 - production `AUTH_JWKS_URL`
+- production R2 bucket and signer credentials
+- the queue consumer deployment for `workers/media-processor`
 
 ## Not Implemented
 
 Intentionally excluded from this repo:
 
-- media upload
-- image processing
-- background jobs
 - frontend/admin UI
 - undocumented endpoints

@@ -4,6 +4,7 @@ import { createExecutionContext, env, reset, waitOnExecutionContext } from "clou
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import migrationSql0000 from "../drizzle/0000_dapper_korvac.sql?raw";
 import migrationSql0001 from "../drizzle/0001_unique_starhawk.sql?raw";
+import migrationSql0002 from "../drizzle/0002_media_upload_flow.sql?raw";
 import { createApp } from "@/main";
 
 const AUTH_ISSUER = "https://auth.test";
@@ -39,7 +40,7 @@ async function issueToken(subject: string, roles: string[] = []) {
 }
 
 async function seed() {
-  for (const migrationSql of [migrationSql0000, migrationSql0001]) {
+  for (const migrationSql of [migrationSql0000, migrationSql0001, migrationSql0002]) {
     for (const statement of migrationSql
       .split("--> statement-breakpoint")
       .map((statementText) => statementText.trim())
@@ -55,8 +56,28 @@ async function seed() {
       .bind("user-alice", "alice@example.com", "Alice User", "user", "auth-alice"),
     env.DB.prepare("insert into users (id, email, full_name, role, better_auth_user_id) values (?, ?, ?, ?, ?)")
       .bind("user-bob", "bob@example.com", "Bob User", "user", "auth-bob"),
-    env.DB.prepare("insert into media (id, alt, owner, url, filename, mime_type, filesize, width, height, status, visibility) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .bind("media-alice", "Alice image", "user-alice", "https://cdn.test/alice.jpg", "alice.jpg", "image/jpeg", 1234, 100, 100, "ready", "private"),
+    env.DB.prepare("insert into media (id, alt, owner, url, thumbnail_url, filename, mime_type, filesize, width, height, original_key, variant_keys_json, status, visibility, version) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json(?), ?, ?, ?)")
+      .bind(
+        "media-alice",
+        "Alice image",
+        "user-alice",
+        "media/media-alice/v1/variants/medium.webp",
+        "media/media-alice/v1/variants/thumb.webp",
+        "alice.jpg",
+        "image/jpeg",
+        1234,
+        100,
+        100,
+        "media/media-alice/v1/original",
+        JSON.stringify({
+          thumb: "media/media-alice/v1/variants/thumb.webp",
+          medium: "media/media-alice/v1/variants/medium.webp",
+          og: "media/media-alice/v1/variants/og.jpg",
+        }),
+        "ready",
+        "private",
+        1,
+      ),
     env.DB.prepare("insert into categories (id, name, slug, description, image, created_by) values (?, ?, ?, ?, ?, ?)")
       .bind("cat-alice", "Alice Category", "alice-category", "Owned by Alice", "media-alice", "user-alice"),
     env.DB.prepare("insert into posts (id, title, slug, excerpt, content_json, author, category, status, published_at) values (?, ?, ?, ?, json(?), ?, ?, ?, ?)")
@@ -72,6 +93,16 @@ async function seed() {
     env.DB.prepare("insert into relationships (id, subject_type, subject_id, relation, object_type, object_id) values (?, ?, ?, ?, ?, ?)")
       .bind("rel-post-published-author", "user", "user-alice", "author", "post", "post-published"),
   ]);
+
+  await env.MEDIA_R2.put("media/media-alice/v1/variants/thumb.webp", "thumb-image", {
+    httpMetadata: { contentType: "image/webp" },
+  });
+  await env.MEDIA_R2.put("media/media-alice/v1/variants/medium.webp", "medium-image", {
+    httpMetadata: { contentType: "image/webp" },
+  });
+  await env.MEDIA_R2.put("media/media-alice/v1/variants/og.jpg", "og-image", {
+    httpMetadata: { contentType: "image/jpeg" },
+  });
 }
 
 async function request(
@@ -256,8 +287,99 @@ it("allows the owner to publish media and anonymous users to read it after publi
     data: {
       id: "media-alice",
       visibility: "public",
+      variantUrls: {
+        medium: "/media/media-alice/v/1/variants/medium",
+      },
     },
   });
+});
+
+it("creates pending media upload rows and returns presigned upload instructions", async () => {
+  const token = await issueToken("auth-alice");
+  const res = await request("/media", {
+    method: "POST",
+    token,
+    body: JSON.stringify({
+      alt: "Queued upload",
+      filename: "queued-upload.png",
+      mimeType: "image/png",
+      filesize: 2048,
+    }),
+  });
+  expect(res.status).toBe(201);
+  await expect(res.json()).resolves.toMatchObject({
+    data: {
+      media: {
+        alt: "Queued upload",
+        filename: "queued-upload.png",
+        mimeType: "image/png",
+        filesize: 2048,
+        status: "pending_upload",
+        visibility: "private",
+      },
+      upload: {
+        method: "PUT",
+        headers: {
+          "Content-Type": "image/png",
+        },
+      },
+    },
+  });
+});
+
+it("does not allow pending media to be published", async () => {
+  const token = await issueToken("auth-alice");
+  const createRes = await request("/media", {
+    method: "POST",
+    token,
+    body: JSON.stringify({
+      alt: "Pending publish",
+      filename: "pending-publish.png",
+      mimeType: "image/png",
+      filesize: 2048,
+    }),
+  });
+  const created = await createRes.json() as { data: { media: { id: string } } };
+
+  const publishRes = await request(`/media/${created.data.media.id}/publish`, {
+    method: "POST",
+    token,
+  });
+  expect(publishRes.status).toBe(409);
+});
+
+it("does not allow anonymous reads of pending media", async () => {
+  const token = await issueToken("auth-alice");
+  const createRes = await request("/media", {
+    method: "POST",
+    token,
+    body: JSON.stringify({
+      alt: "Pending anonymous read",
+      filename: "pending-anon.png",
+      mimeType: "image/png",
+      filesize: 2048,
+    }),
+  });
+  const created = await createRes.json() as { data: { media: { id: string } } };
+
+  const getRes = await request(`/media/${created.data.media.id}`);
+  expect(getRes.status).toBe(403);
+});
+
+it("streams a stored media variant through the API worker", async () => {
+  const token = await issueToken("auth-alice");
+  const publishRes = await request("/media/media-alice/publish", {
+    method: "POST",
+    token,
+  });
+  expect(publishRes.status).toBe(200);
+
+  const variantRes = await request("/media/media-alice/v/1/variants/medium");
+  expect(variantRes.status).toBe(200);
+  expect(variantRes.headers.get("content-type")).toBe("image/webp");
+  expect(variantRes.headers.get("cache-control")).toContain("public");
+  const variantBody = await variantRes.arrayBuffer();
+  expect(new TextDecoder().decode(variantBody)).toBe("medium-image");
 });
 
 it("allows admin users to manage grant mirror and relationship rows", async () => {
@@ -342,7 +464,8 @@ it("replays media creation safely with the same idempotency key and rejects body
   const body = {
     alt: "Retry-safe media",
     filename: "retry-safe.jpg",
-    url: "https://cdn.test/retry-safe.jpg",
+    mimeType: "image/jpeg",
+    filesize: 4096,
   };
 
   const first = await request("/media", {
@@ -352,7 +475,7 @@ it("replays media creation safely with the same idempotency key and rejects body
     body: JSON.stringify(body),
   });
   expect(first.status).toBe(201);
-  const firstBody = await first.json() as { data: { id: string } };
+  const firstBody = await first.json() as { data: { media: { id: string } } };
 
   const second = await request("/media", {
     method: "POST",
@@ -372,7 +495,7 @@ it("replays media creation safely with the same idempotency key and rejects body
   expect(mismatch.status).toBe(409);
 
   expect(await countRows("select count(*) as count from media where filename = ?", body.filename)).toBe(1);
-  expect(await countRows("select count(*) as count from relationships where object_id = ?", firstBody.data.id)).toBe(1);
+  expect(await countRows("select count(*) as count from relationships where object_id = ?", firstBody.data.media.id)).toBe(1);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(1);
 });
 
@@ -494,6 +617,8 @@ it("scopes idempotency keys by actor and route", async () => {
     body: JSON.stringify({
       alt: "Scoped key media",
       filename: "scoped-key.jpg",
+      mimeType: "image/jpeg",
+      filesize: 4096,
     }),
   });
   expect(aliceMedia.status).toBe(201);

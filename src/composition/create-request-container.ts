@@ -15,11 +15,12 @@ import { DeleteGrantMirrorUseCase } from "@/application/grant-mirror/delete-gran
 import { GetGrantMirrorUseCase } from "@/application/grant-mirror/get-grant-mirror.usecase";
 import { ListGrantMirrorUseCase } from "@/application/grant-mirror/list-grant-mirror.usecase";
 import { UpdateGrantMirrorUseCase } from "@/application/grant-mirror/update-grant-mirror.usecase";
-import { CreateMediaUseCase } from "@/application/media/create-media.usecase";
+import { CreateMediaUploadUseCase } from "@/application/media/create-media-upload.usecase";
 import { DeleteMediaUseCase } from "@/application/media/delete-media.usecase";
 import { GetMediaUseCase } from "@/application/media/get-media.usecase";
 import { ListMediaUseCase } from "@/application/media/list-media.usecase";
 import { PublishMediaUseCase } from "@/application/media/publish-media.usecase";
+import { ServeMediaVariantUseCase } from "@/application/media/serve-media-variant.usecase";
 import { UnpublishMediaUseCase } from "@/application/media/unpublish-media.usecase";
 import { UpdateMediaUseCase } from "@/application/media/update-media.usecase";
 import { CreatePostUseCase } from "@/application/posts/create-post.usecase";
@@ -56,6 +57,8 @@ import { DrizzlePostCreateWorkflow } from "@/infrastructure/repositories/drizzle
 import { DrizzleRelationshipRepository } from "@/infrastructure/repositories/drizzle-relationship.repository";
 import { DrizzleUserRepository } from "@/infrastructure/repositories/drizzle-user.repository";
 import { DrizzleUserCreateWorkflow } from "@/infrastructure/repositories/drizzle-user-create.workflow";
+import { R2PresignedUrlSigner } from "@/infrastructure/storage/r2-presigned-url-signer";
+import { R2ObjectStorage } from "@/infrastructure/storage/r2-object-storage";
 
 /**
  * Builds the request-scoped object graph at the outer edge of the Worker.
@@ -76,6 +79,13 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const relationshipRepository = new DrizzleRelationshipRepository(db);
   const postRepository = new DrizzlePostRepository(db);
   const idempotencyRepository = new DrizzleIdempotencyRepository(db);
+  const mediaStorage = new R2ObjectStorage(env.MEDIA_R2);
+  const mediaUploadSigner = new R2PresignedUrlSigner({
+    accountId: config.R2_ACCOUNT_ID,
+    bucketName: config.R2_BUCKET_NAME,
+    accessKeyId: config.R2_ACCESS_KEY_ID,
+    secretAccessKey: config.R2_SECRET_ACCESS_KEY,
+  });
   const postCreateWorkflow = new DrizzlePostCreateWorkflow(db);
   const mediaCreateWorkflow = new DrizzleMediaCreateWorkflow(db);
   const categoryCreateWorkflow = new DrizzleCategoryCreateWorkflow(db);
@@ -135,17 +145,21 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     media: {
       list: new ListMediaUseCase(mediaRepository),
       get: new GetMediaUseCase(mediaRepository, mediaPolicy),
-      create: new CreateMediaUseCase(
+      create: new CreateMediaUploadUseCase(
         mediaRepository,
         relationshipRepository,
         idempotencyRepository,
         mediaCreateWorkflow,
         mediaPolicy,
+        mediaUploadSigner,
+        config.MAX_IMAGE_UPLOAD_BYTES,
+        config.UPLOAD_URL_TTL_SECONDS,
       ),
       update: new UpdateMediaUseCase(mediaRepository, mediaPolicy),
       publish: new PublishMediaUseCase(mediaRepository, mediaPolicy),
       unpublish: new UnpublishMediaUseCase(mediaRepository, mediaPolicy),
       delete: new DeleteMediaUseCase(mediaRepository, mediaPolicy),
+      serveVariant: new ServeMediaVariantUseCase(mediaRepository, mediaPolicy, mediaStorage),
     },
     grantMirror: {
       list: new ListGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),

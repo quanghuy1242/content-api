@@ -9,6 +9,7 @@ export interface MediaRepository {
     includePublicOnly: boolean;
   }): Promise<CursorPage<Media>>;
   findById(id: string): Promise<Media | null>;
+  findByOriginalKey(key: string): Promise<Media | null>;
   create(input: Media): Promise<Media>;
   update(media: Media): Promise<Media>;
   delete(id: string): Promise<boolean>;

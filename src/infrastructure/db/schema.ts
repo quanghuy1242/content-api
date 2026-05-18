@@ -48,17 +48,25 @@ export const media = sqliteTable("media", {
   url: text("url"),
   thumbnailURL: text("thumbnail_url"),
   filename: text("filename").notNull(),
-  mimeType: text("mime_type"),
-  filesize: integer("filesize"),
+  mimeType: text("mime_type").notNull(),
+  filesize: integer("filesize").notNull(),
   width: integer("width"),
   height: integer("height"),
   focalX: real("focal_x"),
   focalY: real("focal_y"),
-  status: text("status").notNull().default("ready"),
+  originalKey: text("original_key"),
+  variantKeysJson: text("variant_keys_json", { mode: "json" }).notNull().default("{}"),
+  uploadExpiresAt: integer("upload_expires_at", { mode: "timestamp_ms" }),
+  status: text("status").notNull().default("pending_upload"),
   visibility: text("visibility").notNull().default("private"),
+  version: integer("version").notNull().default(1),
+  failureReason: text("failure_reason"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
-});
+}, (table) => [
+  uniqueIndex("media_original_key_unique").on(table.originalKey),
+  index("media_status_upload_expires_idx").on(table.status, table.uploadExpiresAt),
+]);
 
 export const grantMirror = sqliteTable(
   "grant_mirror",

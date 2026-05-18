@@ -16,5 +16,5 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src", "tests", "vitest.config.mts", "drizzle.config.ts"]
+  "include": ["src", "tests", "workers", "vitest.config.mts", "drizzle.config.ts"]
 }

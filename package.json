@@ -16,6 +16,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "deploy:media-processor": "wrangler deploy --config workers/media-processor/wrangler.jsonc",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "check": "pnpm lint && pnpm check:dup && pnpm typecheck && pnpm test",
@@ -33,6 +34,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply content_api --remote"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1048.0",
+    "@aws-sdk/s3-request-presigner": "3.1048.0",
     "@hono/zod-openapi": "1.4.0",
     "drizzle-orm": "0.45.2",
     "drizzle-zod": "0.8.3",

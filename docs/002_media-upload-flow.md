@@ -1,6 +1,6 @@
 # Media Upload Flow - Event-Driven R2 Uploads And Processor-Generated Variants
 
-> Status: revised proposal, pending architecture approval
+> Status: implemented
 >
 > Date: 2026-05-18
 >
@@ -660,7 +660,7 @@ Domain lifecycle methods:
 
 ```ts
 class Media {
-  static beginUpload(input: BeginMediaUploadProps): Media;
+  static create(input: CreateMediaProps): Media;
   markProcessing(): void;
   markReady(input: { width?: number; height?: number; lowResUrl?: string }): void;
   markFailed(reason: string): void;
@@ -678,7 +678,7 @@ Required guards:
 - `markFailed()` also accepts `processing`.
 - `markExpired()` requires `pending_upload`.
 - `publish()` requires `ready`.
-- `beginUpload()` owns generated fields: `id`, `originalKey`, `status`, `visibility`, `version`, timestamps, and upload expiry.
+- `create()` owns generated fields: `id`, `originalKey`, `status`, `visibility`, `version`, timestamps, and upload expiry.
 
 ### 7.3 Object Key Convention
 
@@ -802,7 +802,7 @@ Tasks:
 
 - Expand `MediaStatus`.
 - Add upload fields to `MediaProps`.
-- Replace or supplement `Media.create()` with `Media.beginUpload()`.
+- Keep `Media.create()` as the upload-backed constructor.
 - Add lifecycle methods and guards.
 - Keep `CreateMediaProps = Omit<MediaProps, ...generated fields...>` style to satisfy architecture lint.
 - Add shared media constants for content types, byte limits, TTLs, object key parts, placeholder config, and variants.
@@ -1061,7 +1061,7 @@ Required updates after approval:
 
 Unit tests:
 
-- `Media.beginUpload()` sets generated fields and defaults.
+- `Media.create()` sets generated fields and defaults.
 - `markReady()`, `markFailed()`, and `markExpired()` enforce valid source statuses.
 - `publish()` rejects non-ready media.
 - Content-type normalization accepts `image/jpg` and stores `image/jpeg`, if normalization is implemented.

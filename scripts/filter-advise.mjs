@@ -25,20 +25,16 @@ function loadSuppressions() {
 }
 
 function makeAislopKey(d) {
-  return `${d.filePath}@@${d.rule}@@${d.line}`;
+  return `${d.filePath}@@${d.rule}`;
 }
 
 function sortInstances(instances) {
-  return [...instances].sort((a, b) => {
-    const fileCmp = a.file.localeCompare(b.file);
-    if (fileCmp !== 0) return fileCmp;
-    return a.start_line - b.start_line;
-  });
+  return [...instances].sort((a, b) => a.file.localeCompare(b.file));
 }
 
 function makeFallowSignature(group) {
   return sortInstances(group.instances)
-    .map((i) => `${i.file}:${i.start_line}`)
+    .map((i) => i.file)
     .join("|");
 }
 
@@ -60,14 +56,14 @@ function filterAislop(diagnostics, suppressions) {
   const suppressed = new Set(
     suppressions
       .filter((s) => s.tool === "aislop")
-      .map((s) => `${s.file}@@${s.rule}@@${s.line}`)
+      .map((s) => `${s.file}@@${s.rule}`)
   );
   return diagnostics.filter((d) => !suppressed.has(makeAislopKey(d)));
 }
 
 function filterFallow(cloneGroups, suppressions) {
   const suppressed = new Set(
-    suppressions.filter((s) => s.tool === "fallow").map((s) => s.signature)
+    suppressions.filter((s) => s.tool === "fallow").map((s) => s.files)
   );
   return cloneGroups.filter((g) => !suppressed.has(makeFallowSignature(g)));
 }

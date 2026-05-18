@@ -23,8 +23,13 @@ export function mediaRowToEntity(row: MediaRow): Media {
     height: row.height,
     focalX: row.focalX,
     focalY: row.focalY,
+    originalKey: row.originalKey,
+    variantKeys: (row.variantKeysJson ?? {}) as Record<string, string>,
+    uploadExpiresAt: row.uploadExpiresAt,
     status: row.status as MediaProps["status"],
     visibility: row.visibility as MediaProps["visibility"],
+    version: row.version,
+    failureReason: row.failureReason,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -34,27 +39,7 @@ export function mediaRowToEntity(row: MediaRow): Media {
  * Converts the media entity snapshot to a full insert row.
  */
 export function mediaToInsertRow(input: Media) {
-  const snapshot = input.toSnapshot();
-  return {
-    id: snapshot.id,
-    alt: snapshot.alt,
-    lowResUrl: snapshot.lowResUrl,
-    optimizedUrl: snapshot.optimizedUrl,
-    owner: snapshot.owner,
-    url: snapshot.url,
-    thumbnailURL: snapshot.thumbnailURL,
-    filename: snapshot.filename,
-    mimeType: snapshot.mimeType,
-    filesize: snapshot.filesize,
-    width: snapshot.width,
-    height: snapshot.height,
-    focalX: snapshot.focalX,
-    focalY: snapshot.focalY,
-    status: snapshot.status,
-    visibility: snapshot.visibility,
-    createdAt: snapshot.createdAt,
-    updatedAt: snapshot.updatedAt,
-  };
+  return mediaSnapshotToPersistence(input.toSnapshot());
 }
 
 /**
@@ -75,8 +60,41 @@ export function mediaToUpdateRow(input: Media) {
     height: snapshot.height,
     focalX: snapshot.focalX,
     focalY: snapshot.focalY,
+    originalKey: snapshot.originalKey,
+    variantKeysJson: snapshot.variantKeys,
+    uploadExpiresAt: snapshot.uploadExpiresAt,
     status: snapshot.status,
     visibility: snapshot.visibility,
+    version: snapshot.version,
+    failureReason: snapshot.failureReason,
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+function mediaSnapshotToPersistence(snapshot: MediaProps) {
+  return {
+    id: snapshot.id,
+    alt: snapshot.alt,
+    lowResUrl: snapshot.lowResUrl,
+    optimizedUrl: snapshot.optimizedUrl,
+    owner: snapshot.owner,
+    url: snapshot.url,
+    thumbnailURL: snapshot.thumbnailURL,
+    filename: snapshot.filename,
+    mimeType: snapshot.mimeType,
+    filesize: snapshot.filesize,
+    width: snapshot.width,
+    height: snapshot.height,
+    focalX: snapshot.focalX,
+    focalY: snapshot.focalY,
+    originalKey: snapshot.originalKey,
+    variantKeysJson: snapshot.variantKeys,
+    uploadExpiresAt: snapshot.uploadExpiresAt,
+    status: snapshot.status,
+    visibility: snapshot.visibility,
+    version: snapshot.version,
+    failureReason: snapshot.failureReason,
+    createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,
   };
 }

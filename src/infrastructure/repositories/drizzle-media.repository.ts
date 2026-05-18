@@ -15,7 +15,7 @@ type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 export class DrizzleMediaRepository implements MediaRepository {
   private readonly crud: CrudAdapter;
 
-  constructor(db: Db) {
+  constructor(private readonly db: Db) {
     this.crud = new CrudAdapter(db);
   }
 
@@ -49,6 +49,11 @@ export class DrizzleMediaRepository implements MediaRepository {
 
   async findById(id: string) {
     const row = await this.crud.findRowById<typeof media.$inferSelect>(media, media.id, id);
+    return row ? mediaRowToEntity(row) : null;
+  }
+
+  async findByOriginalKey(key: string) {
+    const row = await this.db.select().from(media).where(eq(media.originalKey, key)).get();
     return row ? mediaRowToEntity(row) : null;
   }
 

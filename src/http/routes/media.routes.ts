@@ -1,18 +1,30 @@
-import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
+import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "@/http/app-env";
 import {
   bearerSecurity,
+  binaryContent,
   commonErrorResponses,
   dataResponseSchema,
   jsonContent,
   jsonRequestBody,
   listResponseSchema,
 } from "@/http/openapi";
-import { presentMedia } from "@/http/presenters/media.presenter";
+import { presentMedia, presentMediaUploadResult } from "@/http/presenters/media.presenter";
 import { requireActor } from "@/http/routes/helpers";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
-import { mediaCreateSchema, mediaResponseSchema, mediaUpdateSchema } from "@/http/schemas/media.schema";
+import {
+  mediaCreateSchema,
+  mediaResponseSchema,
+  mediaUpdateSchema,
+  mediaUploadResponseSchema,
+  mediaVariantNameSchema,
+} from "@/http/schemas/media.schema";
 import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
+
+const mediaVariantParamSchema = idParamSchema.extend({
+  version: z.coerce.number().int().positive(),
+  name: mediaVariantNameSchema,
+});
 
 const mediaListRoute = createRoute({
   method: "get",
@@ -32,10 +44,10 @@ const mediaCreateRoute = createRoute({
   security: bearerSecurity,
   request: {
     headers: idempotencyHeaderSchema,
-    body: jsonRequestBody(mediaCreateSchema, "Media metadata create payload"),
+    body: jsonRequestBody(mediaCreateSchema, "Media upload create payload"),
   },
   responses: {
-    201: jsonContent(dataResponseSchema(mediaResponseSchema), "Created media metadata"),
+    201: jsonContent(dataResponseSchema(mediaUploadResponseSchema), "Created pending media and upload instructions"),
     ...commonErrorResponses,
   },
 });
@@ -90,6 +102,19 @@ const mediaUnpublishRoute = createRoute({
   },
 });
 
+const mediaVariantRoute = createRoute({
+  method: "get",
+  path: "/media/{id}/v/{version}/variants/{name}",
+  tags: ["media"],
+  request: {
+    params: mediaVariantParamSchema,
+  },
+  responses: {
+    200: binaryContent(["image/webp", "image/jpeg"], "Generated media variant stream"),
+    ...commonErrorResponses,
+  },
+});
+
 const mediaDeleteRoute = createRoute({
   method: "delete",
   path: "/media/{id}",
@@ -120,9 +145,13 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
     const result = await c.get("container").media.create.execute({
       actor,
       idempotencyKey: headers["idempotency-key"],
-      input: body,
+      input: {
+        ...body,
+        focalX: body.focalX ?? null,
+        focalY: body.focalY ?? null,
+      },
     });
-    return c.json({ data: presentMedia(result) }, HTTP_STATUS_CREATED);
+    return c.json({ data: presentMediaUploadResult(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(mediaGetRoute, async (c) => {
@@ -155,6 +184,21 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
     const params = c.req.valid("param");
     const result = await c.get("container").media.unpublish.execute({ actor, mediaId: params.id });
     return c.json({ data: presentMedia(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(mediaVariantRoute, async (c) => {
+    const params = c.req.valid("param");
+    const result = await c.get("container").media.serveVariant.execute({
+      actor: c.get("actor"),
+      mediaId: params.id,
+      version: params.version,
+      variantName: params.name,
+    });
+    return c.body(result.body, HTTP_STATUS_OK, {
+      "content-type": result.contentType,
+      "cache-control": result.cacheControl,
+      ...(result.etag ? { etag: result.etag } : {}),
+    });
   });
 
   app.openapi(mediaDeleteRoute, async (c) => {

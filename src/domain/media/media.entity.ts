@@ -1,4 +1,7 @@
-export type MediaStatus = "ready";
+import { mediaOriginalKey, type MediaVariantName } from "@/shared/constants";
+import { ConflictError } from "@/shared/errors";
+
+export type MediaStatus = "pending_upload" | "processing" | "ready" | "failed" | "expired";
 export type MediaVisibility = "private" | "public";
 
 export type MediaProps = {
@@ -10,56 +13,84 @@ export type MediaProps = {
   url: string | null;
   thumbnailURL: string | null;
   filename: string;
-  mimeType: string | null;
-  filesize: number | null;
+  mimeType: string;
+  filesize: number;
   width: number | null;
   height: number | null;
   focalX: number | null;
   focalY: number | null;
+  originalKey: string | null;
+  variantKeys: Record<string, string>;
+  uploadExpiresAt: Date | null;
   status: MediaStatus;
   visibility: MediaVisibility;
+  version: number;
+  failureReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CreateMediaProps = Omit<
   MediaProps,
-  "id" | "lowResUrl" | "optimizedUrl" | "status" | "visibility" | "createdAt" | "updatedAt"
+  | "id"
+  | "lowResUrl"
+  | "optimizedUrl"
+  | "url"
+  | "thumbnailURL"
+  | "width"
+  | "height"
+  | "originalKey"
+  | "variantKeys"
+  | "status"
+  | "visibility"
+  | "version"
+  | "failureReason"
+  | "createdAt"
+  | "updatedAt"
 >;
 
-export type UpdateMediaProps = Partial<
-  Pick<MediaProps, "alt" | "url" | "thumbnailURL" | "filename" | "mimeType" | "filesize" | "width" | "height" | "focalX" | "focalY">
->;
+export type UpdateMediaProps = Partial<Pick<MediaProps, "alt" | "filename" | "focalX" | "focalY">>;
 
 /**
- * Domain model for media metadata only.
- *
- * Upload, image processing, and background derivative generation are explicitly
- * outside this API. The entity only tracks documented metadata and visibility
- * state used by read/publish policies.
+ * Domain model for upload-backed media. It owns upload lifecycle transitions,
+ * readiness guards, and the persistence snapshot used by repositories.
  */
 export class Media {
   private constructor(private props: MediaProps) {}
 
   /**
-   * Creates private ready metadata. No binary upload state is modeled here.
+   * Starts a private upload-backed media object with a generated key and
+   * expiration deadline.
    */
   static create(input: CreateMediaProps) {
     const now = new Date();
+    const id = crypto.randomUUID();
+    const version = 1;
     return new Media({
       ...input,
-      id: crypto.randomUUID(),
+      id,
       lowResUrl: null,
       optimizedUrl: null,
-      status: "ready",
+      url: null,
+      thumbnailURL: null,
+      width: null,
+      height: null,
+      originalKey: mediaOriginalKey(id, version),
+      variantKeys: {},
+      status: "pending_upload",
       visibility: "private",
+      version,
+      failureReason: null,
       createdAt: now,
       updatedAt: now,
     });
   }
 
   static reconstitute(props: MediaProps) {
-    return new Media({ ...props });
+    return new Media({
+      ...props,
+      variantKeys: { ...props.variantKeys },
+    });
   }
 
   get id() { return this.props.id; }
@@ -76,26 +107,26 @@ export class Media {
   get height() { return this.props.height; }
   get focalX() { return this.props.focalX; }
   get focalY() { return this.props.focalY; }
+  get originalKey() { return this.props.originalKey; }
+  get variantKeys() { return { ...this.props.variantKeys }; }
+  get uploadExpiresAt() { return this.props.uploadExpiresAt; }
   get status() { return this.props.status; }
   get visibility() { return this.props.visibility; }
+  get version() { return this.props.version; }
+  get failureReason() { return this.props.failureReason; }
   get createdAt() { return this.props.createdAt; }
   get updatedAt() { return this.props.updatedAt; }
 
   update(input: UpdateMediaProps) {
     if (input.alt !== undefined) this.props.alt = input.alt;
-    if (input.url !== undefined) this.props.url = input.url;
-    if (input.thumbnailURL !== undefined) this.props.thumbnailURL = input.thumbnailURL;
     if (input.filename !== undefined) this.props.filename = input.filename;
-    if (input.mimeType !== undefined) this.props.mimeType = input.mimeType;
-    if (input.filesize !== undefined) this.props.filesize = input.filesize;
-    if (input.width !== undefined) this.props.width = input.width;
-    if (input.height !== undefined) this.props.height = input.height;
     if (input.focalX !== undefined) this.props.focalX = input.focalX;
     if (input.focalY !== undefined) this.props.focalY = input.focalY;
     this.touch();
   }
 
   publish() {
+    this.requireStatus("ready", "Only ready media can be published");
     this.props.visibility = "public";
     this.touch();
   }
@@ -105,11 +136,69 @@ export class Media {
     this.touch();
   }
 
+  markProcessing() {
+    this.requireStatus("pending_upload", "Only pending uploads can start processing");
+    this.props.failureReason = null;
+    this.props.status = "processing";
+    this.touch();
+  }
+
+  markReady(input: {
+    width: number;
+    height: number;
+    lowResUrl: string;
+    variantKeys: Record<MediaVariantName, string>;
+  }) {
+    this.requireStatus("processing", "Only processing media can become ready");
+    this.props.width = input.width;
+    this.props.height = input.height;
+    this.props.lowResUrl = input.lowResUrl;
+    this.props.variantKeys = { ...input.variantKeys };
+    this.props.url = input.variantKeys.medium ?? input.variantKeys.large ?? null;
+    this.props.thumbnailURL = input.variantKeys.thumb ?? null;
+    this.props.optimizedUrl = input.variantKeys.large ?? input.variantKeys.medium ?? null;
+    this.props.status = "ready";
+    this.props.uploadExpiresAt = null;
+    this.props.failureReason = null;
+    this.touch();
+  }
+
+  markFailed(reason: string) {
+    if (this.props.status !== "pending_upload" && this.props.status !== "processing") {
+      throw new ConflictError("Only pending or processing media can fail", {
+        expectedStatuses: ["pending_upload", "processing"],
+        actualStatus: this.props.status,
+      });
+    }
+    this.props.status = "failed";
+    this.props.failureReason = reason;
+    this.touch();
+  }
+
+  markExpired(reason: string) {
+    this.requireStatus("pending_upload", "Only pending uploads can expire");
+    this.props.status = "expired";
+    this.props.failureReason = reason;
+    this.touch();
+  }
+
   toSnapshot(): MediaProps {
-    return { ...this.props };
+    return {
+      ...this.props,
+      variantKeys: { ...this.props.variantKeys },
+    };
   }
 
   private touch() {
     this.props.updatedAt = new Date();
+  }
+
+  private requireStatus(expected: MediaStatus, message: string) {
+    if (this.props.status !== expected) {
+      throw new ConflictError(message, {
+        expectedStatus: expected,
+        actualStatus: this.props.status,
+      });
+    }
   }
 }

@@ -1,183 +1,173 @@
 {
-  "_note": "Each entry is an approved ignore. New or shifted findings (due to code changes) will appear unfiltered and must be reviewed for approval before adding here. To regenerate this list from current output, run: pnpm advise:unsuppressed",
+  "_note": "Matching is line-stable: aislop uses file+rule, fallow uses sorted file-set. Line numbers shift freely without breaking suppression.",
   "suppressions": [
     {
       "tool": "aislop",
       "file": "scripts/oxlint-js-plugins/architecture.js",
       "rule": "complexity/file-too-large",
-      "line": 0,
-      "reason": "Linter plugin — intentional large file, splitting would hurt cohesion and rule discoverability"
+      "reason": "Linter plugin — intentional large file, splitting hurts cohesion and rule discoverability"
     },
     {
       "tool": "aislop",
       "file": "src/composition/create-request-container.ts",
       "rule": "complexity/function-too-long",
-      "line": 68,
-      "reason": "Composition wiring — one-time setup that's clearer as a single function than broken into pieces"
+      "reason": "Composition wiring — one-time setup clearer as a single function"
     },
     {
       "tool": "aislop",
       "file": "src/http/routes/authz.routes.ts",
       "rule": "complexity/function-too-long",
-      "line": 188,
-      "reason": "Route registration function — splitting would scatter related route definitions"
+      "reason": "Route registration — splitting scatters related route definitions"
     },
     {
       "tool": "aislop",
       "file": "src/http/routes/authz.routes.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 141,
-      "reason": "Route handler pattern — each route validates input + calls use case + presents output. Extracting would add indirection with no real dedup benefit"
+      "reason": "Route handler pattern — each route validates+use case+presents, extracting adds indirection"
     },
     {
       "tool": "aislop",
       "file": "src/http/routes/media.routes.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 82,
-      "reason": "Same route handler pattern as authz — self-contained routes are more readable than a generic wrapper"
+      "reason": "Same route handler pattern — self-contained routes more readable than generic wrapper"
     },
     {
       "tool": "aislop",
       "file": "src/http/routes/posts.routes.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 82,
-      "reason": "Same route handler pattern — self-contained routes are more readable than a generic wrapper"
+      "reason": "Same route handler pattern"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/repositories/mappers/deferred-grant.mapper.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 53,
-      "reason": "Mapper pattern mandated by architecture — explicit one-to-one field mapping, genericizing would lose transparency"
+      "reason": "Mapper pattern mandated by architecture — explicit field mapping is the point"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/repositories/mappers/grant-mirror.mapper.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 49,
-      "reason": "Mapper pattern mandated by architecture — genericizing mappers would hide field-level mismatches"
+      "reason": "Mapper pattern — genericizing hides field-level mismatches"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/repositories/mappers/media.mapper.ts",
       "rule": "code-quality/duplicate-block",
-      "line": 69,
-      "reason": "Mapper pattern mandated by architecture — explicit mapping is the point"
+      "reason": "Mapper pattern — explicit mapping is the point"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/db/client.ts",
       "rule": "ai-slop/thin-wrapper",
-      "line": 5,
-      "reason": "createDb is an intentional public API surface exported for composition — not a lazy indirection"
+      "reason": "createDb is intentional public API surface for composition"
     },
     {
       "tool": "aislop",
       "file": "src/shared/pagination/cursor.ts",
       "rule": "ai-slop/thin-wrapper",
-      "line": 21,
       "reason": "encodeCursor wraps base64url with stable typing — the wrapper is the API contract"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/persistence/crud-adapter.ts",
       "rule": "ai-slop/double-type-assertion",
-      "line": 56,
-      "reason": "Drizzle query return type limitation — a typed wrapper function is planned but not urgent"
+      "reason": "Drizzle query return type limitation"
     },
     {
       "tool": "aislop",
       "file": "src/composition/create-request-container.ts",
       "rule": "ai-slop/narrative-comment",
-      "line": 60,
-      "reason": "Architecture boundary comment that explains the wiring strategy — useful JSDoc, not slop"
+      "reason": "Architecture boundary JSDoc — required by JSDoc Standard"
     },
     {
       "tool": "aislop",
       "file": "src/domain/media/media.entity.ts",
       "rule": "ai-slop/narrative-comment",
-      "line": 34,
-      "reason": "Entity lifecycle JSDoc — required by the architecture JSDoc Standard"
+      "reason": "Entity lifecycle JSDoc — required by architecture"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/persistence/crud-adapter.ts",
       "rule": "ai-slop/narrative-comment",
-      "line": 35,
-      "reason": "CrudAdapter behavior JSDoc — required by architecture JSDoc Standard"
-    },
-    {
-      "tool": "aislop",
-      "file": "src/infrastructure/persistence/crud-adapter.ts",
-      "rule": "ai-slop/narrative-comment",
-      "line": 138,
-      "reason": "Implementation note for Drizzle column-level behavior — useful context, not slop"
+      "reason": "CrudAdapter behavior JSDoc + implementation notes — required by architecture"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/repositories/drizzle-relationship.repository.ts",
       "rule": "ai-slop/narrative-comment",
-      "line": 14,
-      "reason": "Repository boundary JSDoc — documents the repository's relationship-lookup role"
+      "reason": "Repository boundary JSDoc"
     },
     {
       "tool": "aislop",
       "file": "src/infrastructure/repositories/mappers/idempotency.mapper.ts",
       "rule": "ai-slop/narrative-comment",
-      "line": 6,
-      "reason": "Mapper boundary JSDoc — follows the mapper JSDoc pattern from architecture"
+      "reason": "Mapper boundary JSDoc"
     },
     {
       "tool": "aislop",
       "file": "package.json",
       "rule": "security/vulnerable-dependency",
-      "line": 0,
-      "reason": "esbuild 0.24.0 moderate vuln — will be resolved in next dependency upgrade pass"
+      "reason": "esbuild moderate vuln — will resolve in next dependency upgrade pass"
     },
     {
       "tool": "fallow",
-      "signature": "src/application/categories/create-category.usecase.ts:27|src/application/media/create-media.usecase.ts:27",
-      "reason": "Idempotent create entry-point pattern — extracting into a shared base would make each use case harder to follow independently"
+      "files": "src/application/categories/create-category.usecase.ts|src/application/media/create-media.usecase.ts",
+      "reason": "Idempotent create pattern — extracting shared base makes each use case harder to follow independently"
     },
     {
       "tool": "fallow",
-      "signature": "src/application/categories/create-category.usecase.ts:83|src/application/media/create-media.usecase.ts:89",
-      "reason": "Same idempotent workflow structure — the specific types (Category/Media props) make extraction noisy and opaque"
+      "files": "src/application/categories/create-category.usecase.ts|src/application/media/create-media.usecase.ts|src/application/users/create-user.usecase.ts",
+      "reason": "Idempotent conflict handling + replay — same structural pattern across resource use cases"
     },
     {
       "tool": "fallow",
-      "signature": "src/application/categories/create-category.usecase.ts:83|src/application/posts/create-post.usecase.ts:91",
-      "reason": "Same idempotent workflow structure with different entity types — extraction loses clarity"
+      "files": "src/application/categories/create-category.usecase.ts|src/application/posts/create-post.usecase.ts",
+      "reason": "Idempotent workflow across categories and posts"
     },
     {
       "tool": "fallow",
-      "signature": "src/application/categories/create-category.usecase.ts:117|src/application/media/create-media.usecase.ts:123|src/application/users/create-user.usecase.ts:93",
-      "reason": "Idempotent conflict handling + replay — same structural pattern across resource-specific use cases"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts",
+      "reason": "Entity update + toSnapshot pattern — mandated by architecture"
     },
     {
       "tool": "fallow",
-      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:34|src/domain/media/media.entity.ts:71",
-      "reason": "Entity getter/update pattern mandated by architecture Entity Class Rules — every entity follows the same private-props + getter + update shape"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts|src/domain/media/media.entity.ts",
+      "reason": "Entity getter + update pattern — mandated consistency across entity classes"
     },
     {
       "tool": "fallow",
-      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:36|src/domain/grant-mirror/grant-mirror.entity.ts:31|src/domain/media/media.entity.ts:73",
-      "reason": "Entity getter/update pattern — structural similarity by design, not accidental duplication"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts|src/domain/media/media.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter + update pattern — mandated consistency"
     },
     {
       "tool": "fallow",
-      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:37|src/domain/grant-mirror/grant-mirror.entity.ts:32|src/domain/media/media.entity.ts:74|src/domain/users/user.entity.ts:36",
-      "reason": "Entity getter/update pattern — mandated consistency across all entity classes"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts|src/domain/media/media.entity.ts|src/domain/posts/post.entity.ts",
+      "reason": "Entity update method pattern — each entity follows same if-undefined shape"
     },
     {
       "tool": "fallow",
-      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:42|src/domain/grant-mirror/grant-mirror.entity.ts:37|src/domain/media/media.entity.ts:79|src/domain/posts/post.entity.ts:67",
-      "reason": "Entity update method pattern — each entity has resource-specific fields but follows the same if-undefined shape"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/media/media.entity.ts",
+      "reason": "Entity getter + update pattern — mandated by architecture"
     },
     {
       "tool": "fallow",
-      "signature": "src/domain/deferred-grants/deferred-grant.entity.ts:49|src/domain/grant-mirror/grant-mirror.entity.ts:43",
-      "reason": "Entity update body + toSnapshot pattern — mandated by architecture"
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter + update pattern"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/grant-mirror/grant-mirror.entity.ts|src/domain/posts/post.entity.ts",
+      "reason": "Entity update method pattern"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/application/categories/create-category.usecase.ts|src/application/media/create-media-upload.usecase.ts|src/application/posts/create-post.usecase.ts",
+      "reason": "Idempotent create pattern — new media-upload use case following same structure"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/application/categories/create-category.usecase.ts|src/application/users/create-user.usecase.ts",
+      "reason": "Idempotent replay + conflict handling — same pattern across use cases"
     }
   ]
 }

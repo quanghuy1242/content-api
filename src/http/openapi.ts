@@ -70,6 +70,15 @@ export function jsonRequestBody<T extends z.ZodTypeAny>(schema: T, description: 
   };
 }
 
+export function binaryContent(contentTypes: string[], description: string) {
+  return {
+    content: Object.fromEntries(
+      contentTypes.map((contentType) => [contentType, { schema: { type: "string" as const, format: "binary" } }]),
+    ),
+    description,
+  };
+}
+
 /**
  * Error responses common to authenticated JSON API routes.
  */
@@ -83,4 +92,3 @@ export const commonErrorResponses = {
 };
 
 export const bearerSecurity = [{ Bearer: [] }];
-

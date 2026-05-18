@@ -1,14 +1,13 @@
-import type { User } from "@/domain/users/user.entity";
+import { User } from "@/domain/users/user.entity";
 import { users } from "@/infrastructure/db/schema";
 
 type UserRow = typeof users.$inferSelect;
 
 /**
- * Rehydrates a user row and maps the persisted JSON bio column to the domain
- * field used by policies and presenters.
+ * Rebuilds a user entity from a Drizzle row.
  */
 export function userRowToEntity(row: UserRow): User {
-  return {
+  return User.reconstitute({
     id: row.id,
     email: row.email,
     fullName: row.fullName,
@@ -18,34 +17,38 @@ export function userRowToEntity(row: UserRow): User {
     betterAuthUserId: row.betterAuthUserId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+  });
+}
+
+/**
+ * Converts a domain user entity to the persisted column names.
+ */
+export function userToInsertRow(user: User) {
+  const snap = user.toSnapshot();
+  return {
+    id: snap.id,
+    email: snap.email,
+    fullName: snap.fullName,
+    avatar: snap.avatar,
+    bioJson: snap.bio,
+    role: snap.role,
+    betterAuthUserId: snap.betterAuthUserId,
+    createdAt: snap.createdAt,
+    updatedAt: snap.updatedAt,
   };
 }
 
 /**
- * Converts a domain user create payload to the persisted column names.
+ * Converts a domain user entity to an update payload.
  */
-export function userToInsertRow(input: Omit<User, "createdAt" | "updatedAt">) {
+export function userToUpdateRow(user: User) {
+  const snap = user.toSnapshot();
   return {
-    id: input.id,
-    email: input.email,
-    fullName: input.fullName,
-    avatar: input.avatar,
-    bioJson: input.bio,
-    role: input.role,
-    betterAuthUserId: input.betterAuthUserId,
-  };
-}
-
-/**
- * Converts user PATCH input to persistence columns and owns the update clock.
- */
-export function userToUpdateRow(input: Partial<Omit<User, "id" | "createdAt" | "updatedAt">>) {
-  return {
-    email: input.email,
-    fullName: input.fullName,
-    avatar: input.avatar,
-    bioJson: input.bio,
-    role: input.role,
-    updatedAt: new Date(),
+    email: snap.email,
+    fullName: snap.fullName,
+    avatar: snap.avatar,
+    bioJson: snap.bio,
+    role: snap.role,
+    updatedAt: snap.updatedAt,
   };
 }

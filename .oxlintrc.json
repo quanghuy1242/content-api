@@ -8,6 +8,7 @@
     "import",
     "promise"
   ],
+  "jsPlugins": ["./scripts/oxlint-js-plugins/architecture.js"],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
@@ -24,7 +25,42 @@
     "import/no-cycle": "error",
     "import/no-default-export": "off",
     "typescript/no-explicit-any": "error",
-    "unicorn/no-array-sort": "off"
+    "unicorn/no-array-sort": "off",
+    "architecture/layer-imports": ["error", {
+      "internalAllowed": {
+        "domain": ["@/domain/", "@/shared/"],
+        "application": ["@/application/", "@/domain/", "@/shared/"],
+        "http": ["@/application/", "@/composition/", "@/config/", "@/domain/", "@/http/", "@/shared/"],
+        "infrastructure": ["@/config/", "@/domain/", "@/infrastructure/", "@/shared/"],
+        "composition": ["@/application/", "@/composition/", "@/config/", "@/domain/", "@/infrastructure/", "@/shared/"],
+        "shared": ["@/shared/"]
+      },
+      "externalBanned": {
+        "domain": [
+          "@hono/", "hono", "drizzle-orm", "cloudflare:", "@cloudflare/"
+        ],
+        "application": [
+          "@hono/", "hono", "drizzle-orm", "cloudflare:", "@cloudflare/"
+        ],
+        "http": [
+          "drizzle-orm"
+        ],
+        "infrastructure": [
+          "@hono/", "hono"
+        ]
+      }
+    }],
+    "architecture/no-mapper-imports-outside-infra": "error",
+    "architecture/no-storage-error-parsing": "error",
+    "architecture/no-custom-errors-outside-shared": "error",
+    "architecture/req-valid-usage": "error",
+    "architecture/no-plain-zod-import": "error",
+    "architecture/route-module": "error",
+    "architecture/repository-workflow": "error",
+    "architecture/mapper-file": "error",
+    "architecture/entity-class": "error",
+    "architecture/no-raw-entity-serialization": "error",
+    "architecture/crud-adapter-jsdoc": "error"
   },
   "overrides": [
     {
@@ -91,12 +127,37 @@
     {
       "files": ["tests/**/*.ts"],
       "rules": {
-        "no-console": "off"
+        "architecture/layer-imports": "off",
+        "architecture/no-mapper-imports-outside-infra": "off",
+        "architecture/no-storage-error-parsing": "off",
+        "architecture/no-custom-errors-outside-shared": "off",
+        "architecture/req-valid-usage": "off",
+        "architecture/no-plain-zod-import": "off",
+        "architecture/route-module": "off",
+        "architecture/repository-workflow": "off",
+        "architecture/mapper-file": "off",
+        "architecture/entity-class": "off",
+        "architecture/no-raw-entity-serialization": "off",
+        "architecture/crud-adapter-jsdoc": "off",
+        "no-console": "off",
+        "no-await-in-loop": "off"
       }
     },
     {
       "files": ["**/*.d.ts"],
       "rules": {
+        "architecture/layer-imports": "off",
+        "architecture/no-mapper-imports-outside-infra": "off",
+        "architecture/no-storage-error-parsing": "off",
+        "architecture/no-custom-errors-outside-shared": "off",
+        "architecture/req-valid-usage": "off",
+        "architecture/no-plain-zod-import": "off",
+        "architecture/route-module": "off",
+        "architecture/repository-workflow": "off",
+        "architecture/mapper-file": "off",
+        "architecture/entity-class": "off",
+        "architecture/no-raw-entity-serialization": "off",
+        "architecture/crud-adapter-jsdoc": "off",
         "no-console": "off"
       }
     }

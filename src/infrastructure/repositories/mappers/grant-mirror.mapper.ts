@@ -1,14 +1,13 @@
-import type { GrantMirror } from "@/domain/grant-mirror/grant-mirror.entity";
+import { GrantMirror } from "@/domain/grant-mirror/grant-mirror.entity";
 import { grantMirror } from "@/infrastructure/db/schema";
 
 type GrantMirrorRow = typeof grantMirror.$inferSelect;
 
 /**
- * Rehydrates mirrored Auther grant rows and narrows string columns to documented
- * domain unions at the infrastructure boundary.
+ * Rebuilds a grant mirror entity from a Drizzle row.
  */
 export function grantMirrorRowToEntity(row: GrantMirrorRow): GrantMirror {
-  return {
+  return GrantMirror.reconstitute({
     id: row.id,
     autherTupleId: row.autherTupleId,
     payloadUserId: row.payloadUserId,
@@ -19,40 +18,42 @@ export function grantMirrorRowToEntity(row: GrantMirrorRow): GrantMirror {
     requiresLiveCheck: row.requiresLiveCheck,
     syncStatus: row.syncStatus as "active" | "revoked" | "pending",
     syncedAt: row.syncedAt,
+  });
+}
+
+/**
+ * Builds an insert payload from a grant mirror entity snapshot.
+ */
+export function grantMirrorToInsertRow(mirror: GrantMirror) {
+  const snap = mirror.toSnapshot();
+  return {
+    id: snap.id,
+    autherTupleId: snap.autherTupleId,
+    payloadUserId: snap.payloadUserId,
+    entityType: snap.entityType,
+    entityId: snap.entityId,
+    relation: snap.relation,
+    sourceSubjectType: snap.sourceSubjectType,
+    requiresLiveCheck: snap.requiresLiveCheck,
+    syncStatus: snap.syncStatus,
+    syncedAt: snap.syncedAt,
   };
 }
 
 /**
- * Keeps grant-mirror insert payload construction out of repository flow logic.
+ * Builds an update payload from a grant mirror entity snapshot.
  */
-export function grantMirrorToInsertRow(input: GrantMirror) {
+export function grantMirrorToUpdateRow(mirror: GrantMirror) {
+  const snap = mirror.toSnapshot();
   return {
-    id: input.id,
-    autherTupleId: input.autherTupleId,
-    payloadUserId: input.payloadUserId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    relation: input.relation,
-    sourceSubjectType: input.sourceSubjectType,
-    requiresLiveCheck: input.requiresLiveCheck,
-    syncStatus: input.syncStatus,
-    syncedAt: input.syncedAt,
-  };
-}
-
-/**
- * Keeps partial grant-mirror update payloads centralized for CRUD adapter calls.
- */
-export function grantMirrorToUpdateRow(input: Partial<Omit<GrantMirror, "id">>) {
-  return {
-    autherTupleId: input.autherTupleId,
-    payloadUserId: input.payloadUserId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    relation: input.relation,
-    sourceSubjectType: input.sourceSubjectType,
-    requiresLiveCheck: input.requiresLiveCheck,
-    syncStatus: input.syncStatus,
-    syncedAt: input.syncedAt,
+    autherTupleId: snap.autherTupleId,
+    payloadUserId: snap.payloadUserId,
+    entityType: snap.entityType,
+    entityId: snap.entityId,
+    relation: snap.relation,
+    sourceSubjectType: snap.sourceSubjectType,
+    requiresLiveCheck: snap.requiresLiveCheck,
+    syncStatus: snap.syncStatus,
+    syncedAt: snap.syncedAt,
   };
 }

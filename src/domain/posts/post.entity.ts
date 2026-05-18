@@ -1,3 +1,5 @@
+import { randomizedSlugFromTitle } from "@/shared/validation/fields";
+
 export type PostStatus = "draft" | "published";
 
 export type PostProps = {
@@ -16,10 +18,7 @@ export type PostProps = {
   publishedAt: Date | null;
 };
 
-export type CreatePostProps = Pick<
-  PostProps,
-  "id" | "title" | "slug" | "excerpt" | "content" | "coverImage" | "author" | "category" | "tags"
->;
+export type CreatePostProps = Omit<PostProps, "id" | "slug" | "status" | "createdAt" | "updatedAt" | "publishedAt">;
 
 export type UpdatePostProps = Partial<
   Pick<PostProps, "title" | "excerpt" | "content" | "coverImage" | "category" | "tags">
@@ -43,6 +42,8 @@ export class Post {
     const now = new Date();
     return new Post({
       ...input,
+      id: crypto.randomUUID(),
+      slug: randomizedSlugFromTitle(input.title),
       status: "draft",
       createdAt: now,
       updatedAt: now,
@@ -62,7 +63,7 @@ export class Post {
   get coverImage() { return this.props.coverImage; }
   get author() { return this.props.author; }
   get category() { return this.props.category; }
-  get tags() { return this.props.tags; }
+  get tags() { return [...this.props.tags]; }
   get status() { return this.props.status; }
   get createdAt() { return this.props.createdAt; }
   get updatedAt() { return this.props.updatedAt; }
@@ -74,7 +75,7 @@ export class Post {
     if (input.content !== undefined) this.props.content = input.content;
     if (input.coverImage !== undefined) this.props.coverImage = input.coverImage;
     if (input.category !== undefined) this.props.category = input.category;
-    if (input.tags !== undefined) this.props.tags = input.tags;
+    if (input.tags !== undefined) this.props.tags = [...input.tags];
     this.props.updatedAt = new Date();
   }
 

@@ -1,13 +1,13 @@
-import type { DeferredGrant } from "@/domain/deferred-grants/deferred-grant.entity";
+import { DeferredGrant } from "@/domain/deferred-grants/deferred-grant.entity";
 import { deferredGrants } from "@/infrastructure/db/schema";
 
 type DeferredGrantRow = typeof deferredGrants.$inferSelect;
 
 /**
- * Rehydrates deferred grant rows into the domain authorization-sync shape.
+ * Rebuilds a deferred grant entity from a Drizzle row.
  */
 export function deferredGrantRowToEntity(row: DeferredGrantRow): DeferredGrant {
-  return {
+  return DeferredGrant.reconstitute({
     id: row.id,
     betterAuthUserId: row.betterAuthUserId,
     tupleId: row.tupleId,
@@ -20,43 +20,45 @@ export function deferredGrantRowToEntity(row: DeferredGrantRow): DeferredGrant {
     processedAt: row.processedAt,
     type: row.type as "grant" | "revocation_tombstone",
     createdAt: row.createdAt,
+  });
+}
+
+/**
+ * Builds an insert payload from a deferred grant entity snapshot.
+ */
+export function deferredGrantToInsertRow(grant: DeferredGrant) {
+  const snap = grant.toSnapshot();
+  return {
+    id: snap.id,
+    betterAuthUserId: snap.betterAuthUserId,
+    tupleId: snap.tupleId,
+    entityType: snap.entityType,
+    entityId: snap.entityId,
+    relation: snap.relation,
+    sourceSubjectType: snap.sourceSubjectType,
+    hasCondition: snap.hasCondition,
+    status: snap.status,
+    processedAt: snap.processedAt,
+    type: snap.type,
+    createdAt: snap.createdAt,
   };
 }
 
 /**
- * Keeps deferred-grant insert mapping centralized beside its row rehydration.
+ * Builds an update payload from a deferred grant entity snapshot.
  */
-export function deferredGrantToInsertRow(input: DeferredGrant) {
+export function deferredGrantToUpdateRow(grant: DeferredGrant) {
+  const snap = grant.toSnapshot();
   return {
-    id: input.id,
-    betterAuthUserId: input.betterAuthUserId,
-    tupleId: input.tupleId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    relation: input.relation,
-    sourceSubjectType: input.sourceSubjectType,
-    hasCondition: input.hasCondition,
-    status: input.status,
-    processedAt: input.processedAt,
-    type: input.type,
-    createdAt: input.createdAt,
-  };
-}
-
-/**
- * Keeps partial deferred-grant updates out of repository method bodies.
- */
-export function deferredGrantToUpdateRow(input: Partial<Omit<DeferredGrant, "id" | "createdAt">>) {
-  return {
-    betterAuthUserId: input.betterAuthUserId,
-    tupleId: input.tupleId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    relation: input.relation,
-    sourceSubjectType: input.sourceSubjectType,
-    hasCondition: input.hasCondition,
-    status: input.status,
-    processedAt: input.processedAt,
-    type: input.type,
+    betterAuthUserId: snap.betterAuthUserId,
+    tupleId: snap.tupleId,
+    entityType: snap.entityType,
+    entityId: snap.entityId,
+    relation: snap.relation,
+    sourceSubjectType: snap.sourceSubjectType,
+    hasCondition: snap.hasCondition,
+    status: snap.status,
+    processedAt: snap.processedAt,
+    type: snap.type,
   };
 }

@@ -22,16 +22,12 @@ export class DrizzleUserCreateWorkflow implements UserCreateWorkflow {
       ...params.idempotency,
       createdAt: params.user.createdAt,
     });
-    const user = userToInsertRow(params.user);
+    const userRow = userToInsertRow(params.user);
 
     try {
       await this.db.batch([
         this.crud.buildInsert(idempotencyKeys, idempotency),
-        this.crud.buildInsert(users, {
-          ...user,
-          createdAt: params.user.createdAt,
-          updatedAt: params.user.updatedAt,
-        }),
+        this.crud.buildInsert(users, userRow),
       ]);
     } catch (error) {
       if (isSqliteUniqueConstraintError(error, "idempotency_keys.key")) {

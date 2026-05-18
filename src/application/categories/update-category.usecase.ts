@@ -1,6 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
-import type { Category } from "@/domain/categories/category.entity";
+import type { UpdateCategoryProps } from "@/domain/categories/category.entity";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -14,7 +14,7 @@ export class UpdateCategoryUseCase {
   async execute(params: {
     actor: Actor;
     categoryId: string;
-    input: Partial<Pick<Category, "name" | "description" | "image">>;
+    input: UpdateCategoryProps;
   }) {
     const category = await this.categories.findById(params.categoryId);
     if (!category) {
@@ -26,12 +26,10 @@ export class UpdateCategoryUseCase {
       "You cannot update this category",
     );
 
-    const updated = await this.categories.update(params.categoryId, params.input);
-    if (!updated) {
-      throw new NotFoundError("Category not found");
-    }
+    category.update(params.input);
+    await this.categories.save(category);
 
-    return updated;
+    return category;
   }
 }
 

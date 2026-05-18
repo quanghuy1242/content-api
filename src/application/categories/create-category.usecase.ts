@@ -1,15 +1,14 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
-import type { Relationship } from "@/domain/authz/relationship.entity";
+import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { CategoryCreateWorkflow } from "@/domain/categories/category-create.workflow";
-import type { Category } from "@/domain/categories/category.entity";
+import { Category, type CategoryProps } from "@/domain/categories/category.entity";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
 import { sha256Hex } from "@/shared/idempotency";
-import { slugify } from "@/shared/validation/fields";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const CATEGORIES_CREATE_ROUTE = "POST /categories" as const;
@@ -26,7 +25,7 @@ export class CreateCategoryUseCase {
   async execute(params: {
     actor: Actor;
     idempotencyKey?: string;
-    input: Omit<Category, "id" | "slug" | "createdBy" | "createdAt" | "updatedAt">;
+    input: Pick<CategoryProps, "name" | "description" | "image">;
   }) {
     const ownerId = await this.requireOwnerId(params.actor);
     const category = this.buildCategory(ownerId, params.input);
@@ -55,18 +54,13 @@ export class CreateCategoryUseCase {
     return ownerId;
   }
 
-  private buildCategory(ownerId: string, input: Omit<Category, "id" | "slug" | "createdBy" | "createdAt" | "updatedAt">) {
-    const now = new Date();
-    return {
-      id: crypto.randomUUID(),
+  private buildCategory(ownerId: string, input: Pick<CategoryProps, "name" | "description" | "image">) {
+    return Category.create({
       name: input.name,
-      slug: slugify(input.name),
       description: input.description,
       image: input.image,
       createdBy: ownerId,
-      createdAt: now,
-      updatedAt: now,
-    } satisfies Category;
+    });
   }
 
   private buildOwnerRelationship(ownerId: string, categoryId: string) {
@@ -79,14 +73,7 @@ export class CreateCategoryUseCase {
   }
 
   private async executeWithoutIdempotency(category: Category, ownerRelationship: Relationship) {
-    const created = await this.categories.create({
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      description: category.description,
-      image: category.image,
-      createdBy: category.createdBy,
-    });
+    const created = await this.categories.create(category);
     await this.relationships.create(ownerRelationship);
     return created;
   }
@@ -94,7 +81,7 @@ export class CreateCategoryUseCase {
   private async executeWithIdempotency(params: {
     key: string;
     actorId: string;
-    input: Omit<Category, "id" | "slug" | "createdBy" | "createdAt" | "updatedAt">;
+    input: Pick<CategoryProps, "name" | "description" | "image">;
     category: Category;
     ownerRelationship: Relationship;
   }) {
@@ -123,7 +110,7 @@ export class CreateCategoryUseCase {
           actorId: params.actorId,
           route: CATEGORIES_CREATE_ROUTE,
           requestHash,
-          responseJson: JSON.stringify(params.category),
+          responseJson: JSON.stringify(params.category.toSnapshot()),
           status: 201,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
@@ -167,7 +154,7 @@ export class CreateCategoryUseCase {
       throw new Error("Idempotency replay row is missing a cached response");
     }
 
-    return deserializeCategory(replay.responseJson);
+    return Category.reconstitute(deserializeCategorySnapshot(replay.responseJson));
   }
 }
 
@@ -177,19 +164,17 @@ function createRelationship(params: {
   objectType: string;
   objectId: string;
 }): Relationship {
-  return {
-    id: crypto.randomUUID(),
+  return Relationship.create({
     subjectType: "user",
     subjectId: params.subjectId,
     relation: params.relation,
     objectType: params.objectType,
     objectId: params.objectId,
-    createdAt: new Date(),
-  };
+  });
 }
 
-function deserializeCategory(value: string): Category {
-  const snapshot = JSON.parse(value) as Omit<Category, "createdAt" | "updatedAt"> & {
+function deserializeCategorySnapshot(value: string): CategoryProps {
+  const snapshot = JSON.parse(value) as Omit<CategoryProps, "createdAt" | "updatedAt"> & {
     createdAt: string;
     updatedAt: string;
   };

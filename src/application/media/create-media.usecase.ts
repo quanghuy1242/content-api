@@ -1,6 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
-import type { Relationship } from "@/domain/authz/relationship.entity";
+import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { Media } from "@/domain/media/media.entity";
@@ -12,7 +12,7 @@ import { ConflictError, IdempotencyReservationConflictError, NotFoundError } fro
 import { sha256Hex } from "@/shared/idempotency";
 
 export type CreateMediaInput = Pick<CreateMediaProps, "alt" | "filename"> &
-  Partial<Omit<CreateMediaProps, "id" | "owner" | "alt" | "filename">>;
+  Partial<Omit<CreateMediaProps, "owner" | "alt" | "filename">>;
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const MEDIA_CREATE_ROUTE = "POST /media" as const;
@@ -56,7 +56,6 @@ export class CreateMediaUseCase {
 
   private buildMedia(ownerId: string, input: CreateMediaInput) {
     return Media.create({
-      id: crypto.randomUUID(),
       alt: input.alt,
       owner: ownerId,
       url: input.url ?? null,
@@ -172,15 +171,13 @@ function createRelationship(params: {
   objectType: string;
   objectId: string;
 }): Relationship {
-  return {
-    id: crypto.randomUUID(),
+  return Relationship.create({
     subjectType: "user",
     subjectId: params.subjectId,
     relation: params.relation,
     objectType: params.objectType,
     objectId: params.objectId,
-    createdAt: new Date(),
-  };
+  });
 }
 
 function deserializeMediaSnapshot(value: string): MediaProps {

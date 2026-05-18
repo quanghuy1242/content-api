@@ -14,11 +14,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "lint": "pnpm lint:code && pnpm lint:arch",
-    "lint:code": "oxlint",
-    "lint:arch": "node ./scripts/lint-architecture.mjs",
-    "lint:fix": "pnpm lint:code:fix && pnpm lint:arch",
-    "lint:code:fix": "oxlint --fix",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

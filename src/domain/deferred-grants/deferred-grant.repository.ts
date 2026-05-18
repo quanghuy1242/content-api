@@ -5,6 +5,6 @@ export interface DeferredGrantRepository {
   findMany(params: { limit: number; cursor?: string }): Promise<CursorPage<DeferredGrant>>;
   findById(id: string): Promise<DeferredGrant | null>;
   create(input: DeferredGrant): Promise<DeferredGrant>;
-  update(id: string, input: Partial<Omit<DeferredGrant, "id" | "createdAt">>): Promise<DeferredGrant | null>;
+  save(grant: DeferredGrant): Promise<void>;
   delete(id: string): Promise<boolean>;
 }

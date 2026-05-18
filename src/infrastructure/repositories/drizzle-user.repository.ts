@@ -51,14 +51,13 @@ export class DrizzleUserRepository implements UserRepository {
     return row ? userRowToEntity(row) : null;
   }
 
-  async create(input: Omit<User, "createdAt" | "updatedAt">) {
-    await this.crud.insertRow(users, userToInsertRow(input));
-    return (await this.findById(input.id))!;
+  async create(user: User) {
+    await this.crud.insertRow(users, userToInsertRow(user));
+    return (await this.findById(user.id))!;
   }
 
-  async update(id: string, input: Partial<Omit<User, "id" | "createdAt" | "updatedAt">>) {
-    await this.crud.updateRow(users, users.id, id, userToUpdateRow(input));
-    return this.findById(id);
+  async save(user: User) {
+    await this.crud.updateRow(users, users.id, user.id, userToUpdateRow(user));
   }
 
   async delete(id: string) {

@@ -78,6 +78,10 @@ Persistence mapping is infrastructure:
 - Application use cases must not build Drizzle rows, call row mappers, or shape response DTOs.
 - HTTP presenters are separate from persistence mappers; presenters map domain objects to documented API JSON.
 - Do not import infrastructure mappers from `domain`, `application`, `http`, or `shared`.
+- Mapper files must not import `application`, `http`, or `composition`.
+- Mapper functions must accept exactly one object argument, map fields explicitly, and never return or spread the input object directly.
+- Row-to-domain mappers for entities must call `Entity.reconstitute(...)`.
+- Domain-to-row mappers for entities must call `entity.toSnapshot()`.
 
 ## New Entity Rule
 
@@ -100,6 +104,18 @@ Check the full setup, not just the entity file:
 
 New entities should match existing construction, reconstitution, timestamp, update, mapper, and presenter conventions. Add a new pattern only when the docs require behavior that none of the existing resources model.
 
+Entity files must follow this exact class model:
+
+- `XxxProps` is the full persisted snapshot and includes generated fields such as `id`, timestamps, generated slugs, default status/visibility, and lifecycle timestamps.
+- `CreateXxxProps` is always `Omit<XxxProps, "...generated fields...">`; do not use `Pick` for create props.
+- `static create(input: CreateXxxProps)` owns every generated field it assigns.
+- `private constructor(private props: XxxProps)` is the only constructor shape.
+- `static reconstitute(props: XxxProps)` rebuilds from trusted persistence/idempotency snapshots.
+- `toSnapshot(): XxxProps` is required before persistence mapping, response spreading, or idempotency serialization.
+- Use getters for entity fields; clone mutable values such as arrays on read/snapshot.
+- Use entity methods such as `update(...)`, `publish()`, and `unpublish()` for mutation. Use cases should not rebuild replacement entities with spread snapshots when a mutation method is appropriate.
+- Do not pass entity instances directly to `JSON.stringify(...)` or object spread in application/http code.
+
 ## CRUD Adapter Rule
 
 The docs say most resource persistence is common CRUD. Keep that common behavior in `CrudAdapter`, not duplicated in each repository:
@@ -115,6 +131,14 @@ The docs say most resource persistence is common CRUD. Keep that common behavior
 Repositories may provide table-specific predicates, mapping, and specialized lookups. They should still call `CrudAdapter` for common insert/update/delete/list/find behavior.
 
 Every public `CrudAdapter` method needs JSDoc that states the invariant it centralizes. If a repository needs common behavior that is not covered by the adapter, add a small adapter method instead of duplicating raw Drizzle mechanics in each repository.
+
+Repository and workflow implementation rules:
+
+- `drizzle-*.repository.ts` and `drizzle-*.workflow.ts` must import and use infrastructure mappers.
+- Do not call `Entity.reconstitute(...)` in repositories or workflows; row/entity reconstitution belongs in mappers.
+- Do not import policies or `assert-can`; authorization belongs in use cases and domain policies.
+- Do not call `this.db.insert(...)`, `this.db.update(...)`, or `this.db.delete(...)` directly. Use `CrudAdapter`.
+- `this.db.batch(...)` is only for infrastructure workflow ports and should batch statements built by `CrudAdapter`.
 
 ## Idempotency Rule
 
@@ -157,7 +181,10 @@ Rules:
 - import `z` from `@hono/zod-openapi`
 - use shared envelopes from `src/http/openapi.ts`
 - use presenters for response JSON
-- add `security: bearerSecurity` to protected operations
+- use `c.req.valid("param" | "query" | "json" | "header")`; do not call raw `req.json()`, `req.query()`, `req.param()`, `req.header()`, `req.text()`, `req.formData()`, or `req.parseBody()` in route modules
+- add exactly `security: bearerSecurity` to protected operations
+- routes declaring `security: bearerSecurity` must call `requireActor(c)` in the handler
+- route handlers should call exactly one use case `.execute(...)`
 - use `requireActor(c)` only to enforce authentication before a protected use case
 - let use cases and policies enforce authorization
 
@@ -200,11 +227,13 @@ Useful audits:
 
 ```bash
 rg -n "app\\.(get|post|patch|delete)\\(" src/http src/main.ts
+rg -n "this\\.db\\.(insert|update|delete|batch)\\(" src/infrastructure/repositories
 rg -n "\\.insert\\(|\\.update\\(|\\.delete\\(" src/infrastructure src/application src/domain src/http
 rg -n "@/infrastructure|@/http" src/domain src/application
 rg -n "UNIQUE constraint failed|SQLite|D1" src/application src/domain src/http
 rg -n "repositories/mappers" src/application src/domain src/http src/shared
 rg -n "from \"zod\"" src/http/schemas src/shared/validation src/shared/pagination
+rg -n "JSON\\.stringify\\(|\\.\\.\\.(category|user|post|media|relationship|grant|mirror|item)\\b" src/application src/http
 rg -n "Entry|entries" src tests
 ```
 
@@ -212,6 +241,7 @@ Expected exceptions:
 
 - `app.doc("/openapi.json", ...)` in `src/main.ts`
 - Drizzle insert/update/delete only inside `src/infrastructure/persistence/crud-adapter.ts`
+- `this.db.batch(...)` only in `src/infrastructure/repositories/drizzle-*.workflow.ts`
 - `Object.entries` is not an architecture naming violation
 - SQLite/D1 error parsing inside `src/infrastructure/persistence/**`
 - mapper imports inside `src/infrastructure/**`

@@ -1,6 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
-import type { Relationship } from "@/domain/authz/relationship.entity";
+import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { Post } from "@/domain/posts/post.entity";
@@ -10,7 +10,6 @@ import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
 import { sha256Hex } from "@/shared/idempotency";
-import { randomizedSlugFromTitle } from "@/shared/validation/fields";
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 const POSTS_CREATE_ROUTE = "POST /posts" as const;
@@ -27,7 +26,7 @@ export class CreatePostUseCase {
   async execute(params: {
     actor: Actor;
     idempotencyKey?: string;
-    input: Omit<CreatePostProps, "id" | "slug" | "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>;
   }) {
     const authorId = await this.requireAuthorId(params.actor);
@@ -58,13 +57,11 @@ export class CreatePostUseCase {
 
   private buildPost(
     authorId: string,
-    input: Omit<CreatePostProps, "id" | "slug" | "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>,
   ) {
     return Post.create({
-      id: crypto.randomUUID(),
       title: input.title,
-      slug: randomizedSlugFromTitle(input.title),
       excerpt: input.excerpt ?? null,
       content: input.content,
       coverImage: input.coverImage ?? null,
@@ -92,7 +89,7 @@ export class CreatePostUseCase {
   private async executeWithIdempotency(params: {
     key: string;
     actorId: string;
-    input: Omit<CreatePostProps, "id" | "slug" | "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>;
     post: Post;
     authorRelationship: Relationship;
@@ -176,15 +173,13 @@ function createRelationship(params: {
   objectType: string;
   objectId: string;
 }): Relationship {
-  return {
-    id: crypto.randomUUID(),
+  return Relationship.create({
     subjectType: "user",
     subjectId: params.subjectId,
     relation: params.relation,
     objectType: params.objectType,
     objectId: params.objectId,
-    createdAt: new Date(),
-  };
+  });
 }
 
 function deserializePostSnapshot(value: string): PostProps {

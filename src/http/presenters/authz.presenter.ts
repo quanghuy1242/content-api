@@ -12,17 +12,19 @@ import type {
  * Converts a mirrored grant to the documented HTTP response shape.
  */
 export function presentGrantMirror(item: GrantMirror): z.infer<typeof grantMirrorResponseSchema> {
-  return { ...item, syncedAt: item.syncedAt.toISOString() };
+  const snap = item.toSnapshot();
+  return { ...snap, syncedAt: snap.syncedAt.toISOString() };
 }
 
 /**
  * Converts a deferred grant to JSON without leaking persistence date objects.
  */
 export function presentDeferredGrant(item: DeferredGrant): z.infer<typeof deferredGrantResponseSchema> {
+  const snap = item.toSnapshot();
   return {
-    ...item,
-    processedAt: item.processedAt?.toISOString() ?? null,
-    createdAt: item.createdAt.toISOString(),
+    ...snap,
+    processedAt: snap.processedAt?.toISOString() ?? null,
+    createdAt: snap.createdAt.toISOString(),
   };
 }
 
@@ -30,5 +32,6 @@ export function presentDeferredGrant(item: DeferredGrant): z.infer<typeof deferr
  * Converts a relationship fact to the documented HTTP response shape.
  */
 export function presentRelationship(item: Relationship): z.infer<typeof relationshipResponseSchema> {
-  return { ...item, createdAt: item.createdAt.toISOString() };
+  const snap = item.toSnapshot();
+  return { ...snap, createdAt: snap.createdAt.toISOString() };
 }

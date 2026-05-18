@@ -22,9 +22,9 @@ export type MediaProps = {
   updatedAt: Date;
 };
 
-export type CreateMediaProps = Pick<
+export type CreateMediaProps = Omit<
   MediaProps,
-  "id" | "alt" | "owner" | "url" | "thumbnailURL" | "filename" | "mimeType" | "filesize" | "width" | "height" | "focalX" | "focalY"
+  "id" | "lowResUrl" | "optimizedUrl" | "status" | "visibility" | "createdAt" | "updatedAt"
 >;
 
 export type UpdateMediaProps = Partial<
@@ -48,6 +48,7 @@ export class Media {
     const now = new Date();
     return new Media({
       ...input,
+      id: crypto.randomUUID(),
       lowResUrl: null,
       optimizedUrl: null,
       status: "ready",

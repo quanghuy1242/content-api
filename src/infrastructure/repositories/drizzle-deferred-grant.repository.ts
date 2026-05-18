@@ -47,9 +47,8 @@ export class DrizzleDeferredGrantRepository implements DeferredGrantRepository {
     return (await this.findById(input.id))!;
   }
 
-  async update(id: string, input: Partial<Omit<DeferredGrant, "id" | "createdAt">>) {
-    await this.crud.updateRow(deferredGrants, deferredGrants.id, id, deferredGrantToUpdateRow(input));
-    return this.findById(id);
+  async save(grant: DeferredGrant) {
+    await this.crud.updateRow(deferredGrants, deferredGrants.id, grant.id, deferredGrantToUpdateRow(grant));
   }
 
   async delete(id: string) {

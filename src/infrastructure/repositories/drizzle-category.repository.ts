@@ -10,7 +10,7 @@ import * as schema from "@/infrastructure/db/schema";
 type Db = DrizzleD1Database<typeof schema>;
 
 /**
- * Drizzle-backed category repository. It maps rows to domain shapes and
+ * Drizzle-backed category repository. It maps rows to domain entities and
  * delegates repeated CRUD mechanics to `CrudAdapter`; authorization stays in
  * category use cases and policies.
  */
@@ -44,14 +44,13 @@ export class DrizzleCategoryRepository implements CategoryRepository {
     return row ? categoryRowToEntity(row) : null;
   }
 
-  async create(input: Omit<Category, "createdAt" | "updatedAt">) {
-    await this.crud.insertRow(categories, categoryToInsertRow(input));
-    return (await this.findById(input.id))!;
+  async create(category: Category) {
+    await this.crud.insertRow(categories, categoryToInsertRow(category));
+    return (await this.findById(category.id))!;
   }
 
-  async update(id: string, input: Partial<Omit<Category, "id" | "createdAt" | "updatedAt" | "createdBy">>) {
-    await this.crud.updateRow(categories, categories.id, id, categoryToUpdateRow(input));
-    return this.findById(id);
+  async save(category: Category) {
+    await this.crud.updateRow(categories, categories.id, category.id, categoryToUpdateRow(category));
   }
 
   async delete(id: string) {

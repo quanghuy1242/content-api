@@ -1,0 +1,4 @@
+interface:
+  display_name: "Content API Architecture Lint"
+  short_description: "Maintain the strict architecture oxlint plugin for content-api."
+  default_prompt: "Use this skill when extending or fixing the content-api architecture oxlint plugin. Preserve strictness and update docs/tests with any rule change."

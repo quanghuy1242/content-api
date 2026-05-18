@@ -7,9 +7,10 @@ import type { categoryResponseSchema } from "@/http/schemas/categories.schema";
  * contracts expose ISO strings.
  */
 export function presentCategory(category: Category): z.infer<typeof categoryResponseSchema> {
+  const snap = category.toSnapshot();
   return {
-    ...category,
-    createdAt: category.createdAt.toISOString(),
-    updatedAt: category.updatedAt.toISOString(),
+    ...snap,
+    createdAt: snap.createdAt.toISOString(),
+    updatedAt: snap.updatedAt.toISOString(),
   };
 }

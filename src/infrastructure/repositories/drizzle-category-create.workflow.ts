@@ -23,17 +23,13 @@ export class DrizzleCategoryCreateWorkflow implements CategoryCreateWorkflow {
       ...params.idempotency,
       createdAt: params.category.createdAt,
     });
-    const category = categoryToInsertRow(params.category);
+    const categoryRow = categoryToInsertRow(params.category);
     const relationship = relationshipToInsertRow(params.ownerRelationship);
 
     try {
       await this.db.batch([
         this.crud.buildInsert(idempotencyKeys, idempotency),
-        this.crud.buildInsert(categories, {
-          ...category,
-          createdAt: params.category.createdAt,
-          updatedAt: params.category.updatedAt,
-        }),
+        this.crud.buildInsert(categories, categoryRow),
         this.crud.buildInsert(relationships, relationship),
       ]);
     } catch (error) {

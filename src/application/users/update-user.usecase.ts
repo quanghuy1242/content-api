@@ -1,6 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
-import type { User } from "@/domain/users/user.entity";
+import type { UpdateUserProps } from "@/domain/users/user.entity";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -14,7 +14,7 @@ export class UpdateUserUseCase {
   async execute(params: {
     actor: Actor;
     userId: string;
-    input: Partial<Omit<User, "id" | "createdAt" | "updatedAt" | "betterAuthUserId">>;
+    input: UpdateUserProps;
   }) {
     const user = await this.users.findById(params.userId);
     if (!user) {
@@ -23,12 +23,10 @@ export class UpdateUserUseCase {
 
     await assertAllowed(this.userPolicy.canUpdate(params.actor, user), "You cannot update this user");
 
-    const updated = await this.users.update(params.userId, params.input);
-    if (!updated) {
-      throw new NotFoundError("User not found");
-    }
+    user.update(params.input);
+    await this.users.save(user);
 
-    return updated;
+    return user;
   }
 }
 

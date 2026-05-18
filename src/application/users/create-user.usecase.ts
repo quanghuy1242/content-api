@@ -1,7 +1,7 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
-import type { User } from "@/domain/users/user.entity";
+import { User, type CreateUserProps, type UserProps } from "@/domain/users/user.entity";
 import type { UserCreateWorkflow } from "@/domain/users/user-create.workflow";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
@@ -19,7 +19,7 @@ export class CreateUserUseCase {
     private readonly userPolicy: UserPolicy,
   ) {}
 
-  async execute(params: { actor: Actor; idempotencyKey?: string; input: Omit<User, "id" | "createdAt" | "updatedAt"> }) {
+  async execute(params: { actor: Actor; idempotencyKey?: string; input: CreateUserProps }) {
     const actorId = await this.requireActorId(params.actor);
 
     if (!params.idempotencyKey) {
@@ -45,34 +45,20 @@ export class CreateUserUseCase {
     }
   }
 
-  private buildUser(input: Omit<User, "id" | "createdAt" | "updatedAt">): User {
-    const now = new Date();
-    return {
-      ...input,
-      id: crypto.randomUUID(),
-      createdAt: now,
-      updatedAt: now,
-    };
+  private buildUser(input: CreateUserProps): User {
+    return User.create(input);
   }
 
-  private async executeWithoutIdempotency(input: Omit<User, "id" | "createdAt" | "updatedAt">) {
+  private async executeWithoutIdempotency(input: CreateUserProps) {
     await this.assertEmailAvailable(input.email);
     const user = this.buildUser(input);
-    return this.users.create({
-      email: user.email,
-      fullName: user.fullName,
-      avatar: user.avatar,
-      bio: user.bio,
-      role: user.role,
-      betterAuthUserId: user.betterAuthUserId,
-      id: user.id,
-    });
+    return this.users.create(user);
   }
 
   private async executeWithIdempotency(params: {
     key: string;
     actorId: string;
-    input: Omit<User, "id" | "createdAt" | "updatedAt">;
+    input: CreateUserProps;
   }) {
     const requestHash = await sha256Hex(params.input);
     const replay = await this.idempotency.findActive({
@@ -101,7 +87,7 @@ export class CreateUserUseCase {
           actorId: params.actorId,
           route: USERS_CREATE_ROUTE,
           requestHash,
-          responseJson: JSON.stringify(user),
+          responseJson: JSON.stringify(user.toSnapshot()),
           status: 201,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
@@ -145,12 +131,12 @@ export class CreateUserUseCase {
       throw new Error("Idempotency replay row is missing a cached response");
     }
 
-    return deserializeUser(replay.responseJson);
+    return User.reconstitute(deserializeUserSnapshot(replay.responseJson));
   }
 }
 
-function deserializeUser(value: string): User {
-  const snapshot = JSON.parse(value) as Omit<User, "createdAt" | "updatedAt"> & {
+function deserializeUserSnapshot(value: string): UserProps {
+  const snapshot = JSON.parse(value) as Omit<UserProps, "createdAt" | "updatedAt"> & {
     createdAt: string;
     updatedAt: string;
   };

@@ -1,13 +1,13 @@
-import type { Relationship } from "@/domain/authz/relationship.entity";
+import { Relationship } from "@/domain/authz/relationship.entity";
 import { relationships } from "@/infrastructure/db/schema";
 
 type RelationshipRow = typeof relationships.$inferSelect;
 
 /**
- * Converts stored relationship facts into the domain ReBAC vocabulary.
+ * Rebuilds a relationship entity from a Drizzle row.
  */
 export function relationshipRowToEntity(row: RelationshipRow): Relationship {
-  return {
+  return Relationship.reconstitute({
     id: row.id,
     subjectType: row.subjectType as "user" | "group" | "api_key",
     subjectId: row.subjectId,
@@ -15,20 +15,21 @@ export function relationshipRowToEntity(row: RelationshipRow): Relationship {
     objectType: row.objectType,
     objectId: row.objectId,
     createdAt: row.createdAt,
-  };
+  });
 }
 
 /**
- * Keeps relationship insert mapping explicit even when row/domain shapes match.
+ * Builds an insert payload from a relationship entity snapshot.
  */
-export function relationshipToInsertRow(input: Relationship) {
+export function relationshipToInsertRow(rel: Relationship) {
+  const snap = rel.toSnapshot();
   return {
-    id: input.id,
-    subjectType: input.subjectType,
-    subjectId: input.subjectId,
-    relation: input.relation,
-    objectType: input.objectType,
-    objectId: input.objectId,
-    createdAt: input.createdAt,
+    id: snap.id,
+    subjectType: snap.subjectType,
+    subjectId: snap.subjectId,
+    relation: snap.relation,
+    objectType: snap.objectType,
+    objectId: snap.objectId,
+    createdAt: snap.createdAt,
   };
 }

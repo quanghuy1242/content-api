@@ -46,9 +46,8 @@ export class DrizzleGrantMirrorRepository implements GrantMirrorRepository {
     return (await this.findById(input.id))!;
   }
 
-  async update(id: string, input: Partial<Omit<GrantMirror, "id">>) {
-    await this.crud.updateRow(grantMirror, grantMirror.id, id, grantMirrorToUpdateRow(input));
-    return this.findById(id);
+  async save(mirror: GrantMirror) {
+    await this.crud.updateRow(grantMirror, grantMirror.id, mirror.id, grantMirrorToUpdateRow(mirror));
   }
 
   async delete(id: string) {

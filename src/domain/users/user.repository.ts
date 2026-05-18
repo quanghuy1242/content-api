@@ -6,7 +6,7 @@ export interface UserRepository {
   findById(id: string): Promise<User | null>;
   findByBetterAuthUserId(betterAuthUserId: string): Promise<User | null>;
   findByEmail(email: string): Promise<User | null>;
-  create(input: Omit<User, "createdAt" | "updatedAt">): Promise<User>;
-  update(id: string, input: Partial<Omit<User, "id" | "createdAt" | "updatedAt">>): Promise<User | null>;
+  create(user: User): Promise<User>;
+  save(user: User): Promise<void>;
   delete(id: string): Promise<boolean>;
 }

@@ -1,6 +1,6 @@
 # Domain Entity Classes & Oxlint Architecture Linting
 
-> Status: implemented
+> Status: implemented in current codebase
 >
 > Date: 2026-05-18
 >

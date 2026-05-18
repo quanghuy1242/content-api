@@ -2,7 +2,7 @@
 
 > **Status:** Finalized pre-implementation specification
 >
-> **Date:** 2026-05-17
+> **Date:** 2026-05-18
 >
 > **Consolidates:**
 > - `cms-api-repository-rebac-architecture.md`
@@ -250,7 +250,7 @@ export function createRequestContainer(env: Env) {
         new R2ObjectStorage(env.R2),
         new R2PresignedUrlSigner(env)
       ),
-      completeUpload: new CompleteMediaUploadUseCase(/* ... */),
+      serveVariant: new ServeMediaVariantUseCase(/* ... */),
     },
     sites: {
       update: /* ... */,
@@ -407,15 +407,24 @@ export class Media {
     status: MediaStatus
     visibility: MediaVisibility
     version: number
+    lowResUrl: string | null
     createdBy: string
     createdAt: Date
     updatedAt: Date
   }) {}
 
-  markReady() {
+  markProcessing() {
+    if (this.props.status !== 'pending_upload') {
+      throw new DomainError('Media must be pending upload before processing')
+    }
+    this.props.status = 'processing'
+  }
+
+  markReady(input: { lowResUrl: string; width?: number; height?: number }) {
     if (this.props.status !== 'processing') {
       throw new DomainError('Media must be processing before it can be ready')
     }
+    this.props.lowResUrl = input.lowResUrl
     this.props.status = 'ready'
   }
 
@@ -719,12 +728,11 @@ This pattern makes permission checks, audit logs, and lifecycle rules explicit p
 
 ```
 CreateMediaUploadUseCase        — create pending media + presigned upload URL
-CompleteMediaUploadUseCase      — verify R2 object → mark uploaded → enqueue variants
 RefreshMediaUploadUrlUseCase    — refresh expiring presigned URL
-GenerateMediaVariantsUseCase    — read original → generate variants → store → mark ready
+HandleMediaObjectCreatedUseCase — verify R2 object, generate low-res placeholder, mark ready
+ServeMediaVariantUseCase        — authorize media read, stream generated private R2 variant
 UpdateMediaMetadataUseCase      — update metadata fields
-DeleteMediaUseCase              — soft-delete + remove R2 objects
-ReprocessMediaUseCase           — re-trigger variant generation
+DeleteMediaUseCase              — soft-delete + remove R2 original
 PublishMediaUseCase             — set visibility to public
 UnpublishMediaUseCase           — set visibility to private
 ```
@@ -744,7 +752,7 @@ export type Actor =
 **Rules:**
 - Do not fake queue or cron jobs as regular users — use system actors.
 - Policies must explicitly handle unsupported actor types (e.g. system actors bypass authorization for internal operations).
-- Use system actors for: `GenerateMediaVariantsUseCase`, scheduled cleanup, relationship repair jobs, media expiration cleanup.
+- Use system actors for: media object-created processing, scheduled cleanup, relationship repair jobs, media expiration cleanup.
 - `Actor` is a first-class type from day one, defined in `domain/authz/` — not scattered across route handlers.
 
 ---
@@ -943,7 +951,7 @@ export function makeJsonResponse<T extends z.ZodTypeAny>(
 | Response contract | HTTP schema + presenter | public media response |
 | Use-case command shape | Application schema | `actor + input + mediaId` |
 | Authorization | Policy | actor can update media |
-| Business invariant | Domain entity/use case | cannot mark ready before processing |
+| Business invariant | Domain entity/use case | cannot mark ready before verified upload and low-res placeholder generation |
 | Persistence shape | Repository + DB schema | row has required fields |
 | Uniqueness/integrity | DB constraint | unique slug, unique relationship |
 | External verification | Use case/infrastructure | R2 object exists before ready |
@@ -969,23 +977,22 @@ POST /media
 
 Client PUT original to R2 (directly, not through the Worker)
 
-POST /media/:id/complete
-  → verify original exists in R2
-  → mark uploaded
-  → enqueue GenerateMediaVariants
-  → return processing status
-
-Queue: GenerateMediaVariants
-  → read original from R2
-  → create thumb/small/medium/large/og/blur variants
-  → store all variants in R2
+R2 object-create event
+  → media-processing Queue
+  → media-processor Worker
+  → verify object metadata
+  → generate lowResUrl placeholder
+  → generate fixed variants and store them in private R2
   → mark ready
 
 GET /media/:id
-  → returns media + variant URLs + status
+  → returns media + status + lowResUrl + variant URLs when ready
 
 GET /media/:id/v/:version/variants/:name
-  → serves R2 object with caching headers
+  → API Worker checks MediaPolicy
+  → reads generated private R2 variant
+  → streams variant response
+  → returns image with caching headers
 ```
 
 ### API Endpoints
@@ -997,9 +1004,7 @@ GET    /media/:id
 PATCH  /media/:id
 DELETE /media/:id
 
-POST   /media/:id/complete
 POST   /media/:id/refresh-upload-url
-POST   /media/:id/reprocess
 POST   /media/:id/publish
 POST   /media/:id/unpublish
 GET    /media/:id/v/:version/variants/:name
@@ -1039,38 +1044,30 @@ Response:
 
 Do not let the client choose the R2 key.
 
-### Complete Upload (`POST /media/:id/complete`)
+### R2 Event-Driven Completion
 
-Server responsibilities:
-- Load media row.
-- Verify actor can manage the media entity.
-- Check media is still `pending_upload` or `uploaded`.
-- Use R2 binding to verify the original object exists.
-- Optionally verify size, content type, checksum, or ETag.
-- Mark media as `uploaded`.
-- Enqueue `GenerateMediaVariants`.
-- Return media with `processing` status.
-
-The client does not set final status. The server verifies R2 before state changes.
-
-### R2 Event-Notifications As Reliability Layer
+There is no `POST /media/:id/complete` endpoint in the first release. The R2 event is the completion signal.
 
 ```txt
 R2 object-created event
   → Queue
-  → Worker consumer
+  → media-processor Worker
   → find media by originalKey
-  → if pending_upload, mark uploaded
-  → enqueue or run GenerateMediaVariants
+  → if pending_upload, verify R2 metadata
+  → mark processing
+  → generate lowResUrl placeholder
+  → generate fixed variants in private R2
+  → mark ready
 ```
 
-Keep `/complete` as a fast client path. Make the event consumer idempotent. If both `/complete` and the R2 event arrive, only one should start processing.
+The consumer is idempotent. Duplicate events for already-ready, failed, or expired media are acknowledged and skipped.
 
 ### Media Statuses
 
 ```
 pending_upload → processing → ready
 pending_upload → expired
+pending_upload → failed
 processing → failed
 ready → deleted
 ```
@@ -1078,50 +1075,59 @@ ready → deleted
 ### R2 Object Keys (Stable, Generated)
 
 ```txt
-media/{mediaId}/original
-media/{mediaId}/variants/thumb.webp
-media/{mediaId}/variants/small.webp
-media/{mediaId}/variants/medium.webp
-media/{mediaId}/variants/large.webp
-media/{mediaId}/variants/og.jpg
-media/{mediaId}/variants/blur.webp
+media/{mediaId}/v{version}/original
+media/{mediaId}/v{version}/variants/thumb.webp
+media/{mediaId}/v{version}/variants/small.webp
+media/{mediaId}/v{version}/variants/medium.webp
+media/{mediaId}/v{version}/variants/large.webp
+media/{mediaId}/v{version}/variants/og.jpg
+media/{mediaId}/v{version}/variants/blur.webp
 ```
 
-Store the user's original filename in the database, not in the object key.
+R1 should use the versioned key shape. R2 is a flat object namespace, but these prefix-like keys make cleanup and lifecycle operations straightforward. Store the user's original filename in the database, not in the object key.
 
-### Default Variant Set (Fixed)
+### Central Media Constants
+
+Media upload limits, MIME allowlists, object key fragments, placeholder transform options, and variant transform options must live in one shared constants module, for example `src/shared/media/media.constants.ts`. Do not duplicate dimensions, quality values, TTLs, byte limits, or MIME lists across routes, use cases, workers, and tests.
+
+### Default Variant Set (Fixed, Processor-Generated)
 
 ```ts
-export const IMAGE_VARIANTS = {
-  thumb:  { width: 160, height: 160, fit: 'cover', format: 'webp', quality: 75 },
-  small:  { width: 480, fit: 'scale-down', format: 'webp', quality: 80 },
-  medium: { width: 960, fit: 'scale-down', format: 'webp', quality: 82 },
-  large:  { width: 1600, fit: 'scale-down', format: 'webp', quality: 85 },
-  og:     { width: 1200, height: 630, fit: 'cover', format: 'jpg', quality: 85 },
-  blur:   { width: 24, fit: 'scale-down', format: 'webp', quality: 35 },
+export const MEDIA_VARIANTS = {
+  thumb: { width: 160, height: 160, fit: 'cover', format: 'image/webp', quality: 75 },
+  small: { width: 480, fit: 'scale-down', format: 'image/webp', quality: 80 },
+  medium: { width: 960, fit: 'scale-down', format: 'image/webp', quality: 82 },
+  large: { width: 1600, fit: 'scale-down', format: 'image/webp', quality: 85 },
+  og: { width: 1200, height: 630, fit: 'cover', format: 'image/jpeg', quality: 85 },
+  blur: { width: 48, fit: 'scale-down', blur: 8, format: 'image/webp', quality: 25 },
 } as const
 ```
 
 Keep the variant list fixed — avoid arbitrary user-defined transforms unless there is a product need.
 
-### Variant Generation Job (Idempotent)
+### Low-Resolution Placeholder
 
+The media processor generates a tiny blurred placeholder once after upload verification. Store it in `media.low_res_url` as a `data:image/webp;base64,...` string. This supports UI blur-up rendering without an additional request.
+
+Recommended placeholder transform:
+
+```ts
+export const MEDIA_LOW_RES_PLACEHOLDER = {
+  width: 48,
+  fit: 'scale-down',
+  blur: 8,
+  format: 'image/webp',
+  quality: 25,
+} as const
 ```
-GenerateMediaVariants:
-  - Load media by ID
-  - Check media is not deleted
-  - If already processing/ready → no-op (idempotent guard)
-  - Read original from R2
-  - Generate missing variants only (skip existing)
-  - Write variants to R2
-  - Store variant metadata
-  - Mark media ready when required variants exist
-  - Mark media failed if processing fails after retries
-```
+
+If the Images binding cannot decode or transform the original, mark the media `failed`; an invalid image should not become public media.
 
 ### Transformation Engine
 
-**Default:** Cloudflare Images binding as the transform engine, writing output back to R2.
+**Default:** Cloudflare Images binding as the transform engine for processor-time low-res placeholder and fixed variant generation.
+
+The bucket remains private. The media processor passes the R2 original's `ReadableStream` to `env.IMAGES.input(...)`, stores each transformed variant back into R2, and only then marks the media ready. The API Worker does not transform images on request; it streams the generated variant object.
 
 Keep the transformer behind an interface so it can be swapped:
 
@@ -1142,6 +1148,14 @@ export interface ImageTransformer {
 ```
 
 Implementations: `CloudflareImagesTransformer` (default), `SharpImageTransformer` (external fallback).
+
+### Bucket Access Decision
+
+R1 uses a private R2 bucket. Do not enable public R2 bucket access for originals or variants.
+
+Rejected option: public R2 bucket with a custom domain. It is simple for public assets and can use Cloudflare Cache/Image Resizing by URL, but it creates an object-serving surface outside the API policy model. Private media, pending media, failed media, and originals become harder to reason about.
+
+Accepted option: private R2 bucket plus API Worker variant route. This keeps originals private, centralizes authorization in `MediaPolicy`, lets public variants be cached at the Worker response layer, and supports private variants without issuing presigned GET URLs.
 
 ### Infrastructure Interfaces
 
@@ -1172,8 +1186,8 @@ R2PresignedUrlSigner    → R2 S3-compatible credentials
 ### Cleanup
 
 - **Abandoned uploads:** `pending_upload` where `upload_expires_at < now` → mark expired, delete original if it exists.
-- **Failed processing:** after retries exhausted → mark failed, allow `POST /media/:id/reprocess`.
-- **Deleted media:** soft-delete DB row, delete original and variants from R2.
+- **Failed processing:** invalid metadata, failed placeholder generation, or failed variant generation/write → mark failed and delete original/partial variants on cleanup.
+- **Deleted media:** soft-delete DB row, delete original from R2.
 - **Scheduled cleanup Worker:** handles expired pending uploads and orphaned objects.
 
 ### Security
@@ -1184,7 +1198,8 @@ R2PresignedUrlSigner    → R2 S3-compatible credentials
 - Enforce max upload size before issuing upload URL.
 - Use short-lived presigned PUT URLs.
 - Verify object exists in R2 before marking uploaded.
-- Optionally verify declared size and content type after upload.
+- Verify declared size and content type after upload.
+- Generate low-res placeholder before marking ready.
 - Originals are always private — only backend/system processing reads them.
 
 ---
@@ -1206,7 +1221,7 @@ type MediaVisibility = 'private' | 'public'
 
 | Status | Visibility | Access |
 |--------|-----------|--------|
-| pending_upload / processing / failed / expired / deleted | any | never public-readable |
+| pending_upload / failed / expired / deleted | any | never public-readable |
 | ready | private | authenticated read only |
 | ready | public | anonymous variant read allowed |
 
@@ -1228,10 +1243,11 @@ Metadata update (`PATCH /media/:id`) remains but public/private state changes ar
 ```txt
 GET /media/:id/v/:version/variants/:name
 → Allow anonymous access
-→ Serve from R2
+→ Check public variant cache
+→ On miss, stream generated private R2 variant through Worker binding
 → Cache-Control: public, max-age=31536000, immutable
 → Content-Type: image/webp
-→ ETag: <variant-etag>
+→ ETag: derived from original ETag + variant + version when available
 ```
 
 **Private variant:**
@@ -1239,7 +1255,7 @@ GET /media/:id/v/:version/variants/:name
 ```txt
 → Require authenticated actor
 → Check MediaPolicy.canRead
-→ Serve through Worker
+→ Stream generated private R2 variant through Worker
 → Cache-Control: private, max-age=60
 ```
 
@@ -1253,7 +1269,7 @@ URL includes version to prevent stale public caches:
 GET /media/:id/v/:version/variants/:name
 ```
 
-When media content changes or variants are regenerated, increment `media.version`. Old URLs expire naturally or can be purged.
+When media content changes, increment `media.version`. Old URLs expire naturally or can be purged.
 
 ---
 
@@ -1302,8 +1318,6 @@ Critical endpoints require idempotency support:
 
 ```txt
 POST /media
-POST /media/:id/complete
-POST /media/:id/reprocess
 POST /entries/:id/publish
 ```
 
@@ -1328,18 +1342,7 @@ CREATE TABLE idempotency_keys (
 )
 ```
 
-**Endpoint-specific rules:**
-
-`POST /media/:id/complete`:
-
-```
-pending_upload → verify R2 → processing
-processing     → return current media
-ready          → return current media
-expired/deleted → 409 Conflict
-```
-
-Queue jobs must also be idempotent.
+Queue consumers must also be idempotent. For media object-created events, `pending_upload` can transition to `ready`, `failed`, or `expired`; `ready`, `failed`, and `expired` are acknowledged and skipped.
 
 ---
 
@@ -1352,8 +1355,8 @@ For each multi-write workflow, define behavior for partial failure scenarios:
 | Create entry + author relationship | Use transaction where available; compensating cleanup otherwise | Same | N/A | N/A |
 | Create membership + relationship | Transaction or idempotent retry | Same | N/A | N/A |
 | Create media pending + idempotency row | Keep pending; scheduled repair | Scheduled repair | Cleanup orphan | Mark expired |
-| Complete media + enqueue processing | Media left in repairable state; scheduled repair re-enqueues | Scheduled repair | Cleanup orphan | Mark failed, allow reprocess |
-| Delete media + delete variants | Delete variants on next cleanup pass | Retry variant deletion | Already consistent | Mark as soft-deleted, orphan cleanup |
+| R2 object-created media processing | Retry queue message; do not mark ready until verification, lowResUrl generation, and variant writes finish | Retry queue message | Cleanup orphan | Mark expired or failed, allow cleanup |
+| Delete media + delete original | Delete original on next cleanup pass | Retry deletion | Already consistent | Mark as soft-deleted, orphan cleanup |
 
 **Principle:** Prefer repair over perfect atomicity where D1 transactions are not available.
 
@@ -1365,12 +1368,13 @@ Queue messages are versioned, validated, and idempotent.
 
 ```ts
 // application/events/media.events.ts
-export type GenerateMediaVariantsJob = {
-  type: 'media.generate_variants'
+export type MediaObjectCreatedEvent = {
+  type: 'media.object_created'
   version: 1
   mediaId: string
   originalKey: string
-  requestedAt: string
+  objectSize: number
+  eventTime: string
   requestId?: string
 }
 ```
@@ -1387,8 +1391,7 @@ Implementation files:
 ```txt
 src/application/events/media.events.ts
 src/infrastructure/queues/queue-message.schema.ts
-src/infrastructure/queues/media.consumer.ts
-src/infrastructure/queues/generate-media-variants.producer.ts
+workers/media-processor/src/index.ts
 ```
 
 ---
@@ -1548,17 +1551,18 @@ Cloudflare bindings are objects, not strings — validate presence and expected 
 |---|---|---|
 | Policy unit tests | EntryPolicy, MediaPolicy | Fake RelationshipRepository |
 | Use case tests | All use cases | Fake repositories, storage, queues |
-| Repository integration tests | Drizzle repositories | Local D1/Drizzle |
-| HTTP tests | Hono routes | `app.request()` |
-| Queue tests | Queue consumers | Fake queue message → consumer → assert DB/R2 effects |
+| Repository integration tests | Drizzle repositories | Local D1/Drizzle through `@cloudflare/vitest-pool-workers` |
+| HTTP tests | Hono routes | `app.request()` or Worker `fetch()` with `cloudflare:test` env |
+| Queue tests | Queue consumers | Fake `MessageBatch` first; add local queue integration only if the Workers pool supports the behavior reliably |
+| R2 tests | Object storage ports | Miniflare-backed R2 binding from `@cloudflare/vitest-pool-workers`; no real Cloudflare bucket in default tests |
+| Images tests | Image transformer port | Mock transformer in default tests; add one low-fidelity local binding smoke test for wiring |
 | Contract tests | OpenAPI | Schema validation, OpenAPI generation |
 
 **Minimum vertical slice tests:**
 
 ```txt
 POST /media
-POST /media/:id/complete
-GenerateMediaVariants queue job
+R2 object-created media processor
 GET /media/:id
 GET /media/:id/v/:version/variants/:name
 PATCH /entries/:id
@@ -1629,31 +1633,15 @@ CREATE TABLE media (
   size INTEGER NOT NULL,
   width INTEGER,
   height INTEGER,
+  low_res_url TEXT,
   status TEXT NOT NULL,
   visibility TEXT NOT NULL DEFAULT 'private',
   version INTEGER NOT NULL DEFAULT 1,
   created_by TEXT NOT NULL,
   upload_expires_at INTEGER,
   uploaded_at INTEGER,
-  processed_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
-);
-
-CREATE TABLE media_variants (
-  id TEXT PRIMARY KEY,
-  media_id TEXT NOT NULL,
-  name TEXT NOT NULL,
-  key TEXT NOT NULL,
-  width INTEGER,
-  height INTEGER,
-  format TEXT NOT NULL,
-  size INTEGER,
-  status TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  UNIQUE(media_id, name),
-  FOREIGN KEY (media_id) REFERENCES media(id)
 );
 
 -- ReBAC relationships
@@ -1733,16 +1721,16 @@ CREATE TABLE audit_events (
 → If an owner removes an editor relation, subsequent checks fail immediately. Do not cache relationship checks across requests unless invalidation is designed.
 
 ### Queue Job Failures
-→ Dead-letter queues configured. `GenerateMediaVariants` is idempotent and retry-safe.
+→ Dead-letter queues configured. Media object-created processing is idempotent and retry-safe.
 
 ### R2 Object Missing Despite DB Row
-→ `POST /media/:id/complete` verifies R2 object existence before state change. If R2 object is missing → return 400.
+→ The media processor verifies R2 object existence before state change. If the object is missing, the row stays pending until expiry or is marked failed by cleanup.
 
 ### DB Row Missing Despite R2 Object
 → Orphan cleanup job removes objects with no corresponding media row.
 
-### Both /complete and R2 Event Arrive
-→ Both paths are idempotent: if already processing/ready → no-op. Only one starts processing.
+### Duplicate R2 Events Arrive
+→ The processor is idempotent: if already ready, failed, or expired, acknowledge and skip.
 
 ---
 
@@ -1810,6 +1798,6 @@ Source documents this file consolidates and supersedes:
 
 1. `cms-api-repository-rebac-architecture.md` — core architecture with repository pattern, ReBAC, policies, use cases, folder structure
 2. `immediate-changes.md` — architecture corrections: composition outside `application/`, request-scoped container, shared CRUD adapter, resource split, Drizzle preference, batched `hasAnyRelation`, explicit workflow use cases
-3. `media-upload-transformation-process.md` — presigned R2 uploads, `/complete` flow, queue-driven variant generation, variant serving, cleanup
+3. `media-upload-transformation-process.md` — presigned R2 uploads, R2 event-driven completion, low-res placeholder generation, processor-generated variant serving, cleanup
 4. `validation-schema-strategy.md` — Zod layers (DB → HTTP → command), field schemas, presenters, OpenAPI, anti-patterns
 5. `implementation-readiness-recommendations.md` — error contract, idempotency, transactions, queue contracts, system actor, audit, pagination, import boundaries, testing, env validation

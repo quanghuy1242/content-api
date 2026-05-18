@@ -19,6 +19,12 @@ This implementation follows the contracts in:
 - [docs/payloadcms-access-control-policy-spec.md](docs/payloadcms-access-control-policy-spec.md)
 - `~/pjs/auther` resource-token/JWKS behavior
 
+Architecture planning documents and implementation status:
+
+- [docs/001_idempotency-batch-design.md](docs/001_idempotency-batch-design.md) — implemented
+- [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — revised proposal, pending architecture approval
+- [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
+
 Auth is implemented as an OAuth2 resource server:
 
 - bearer JWTs are validated against Auther JWKS

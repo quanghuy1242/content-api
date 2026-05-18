@@ -1,6 +1,6 @@
 # Idempotent Create Workflows With D1 Batch
 
-> Status: revised implementation-grade proposal
+> Status: implemented in current codebase
 >
 > Date: 2026-05-17
 >

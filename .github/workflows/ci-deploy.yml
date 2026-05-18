@@ -90,7 +90,7 @@ jobs:
           wranglerVersion: 4.92.0
           command: d1 migrations apply content_api --remote
 
-  dry-run-api:
+  deploy-api:
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -124,13 +124,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Dry-run API Worker
+      - name: Deploy API Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: 4.92.0
-          command: deploy --dry-run
+          command: deploy
           secrets: |
             R2_ACCESS_KEY_ID
             R2_SECRET_ACCESS_KEY
@@ -140,7 +140,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  dry-run-media-processor:
+  deploy-media-processor:
     needs: migrate
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -174,10 +174,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Dry-run Media Processor Worker
+      - name: Deploy Media Processor Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: 4.92.0
-          command: deploy --dry-run --config workers/media-processor/wrangler.jsonc
+          command: deploy --config workers/media-processor/wrangler.jsonc

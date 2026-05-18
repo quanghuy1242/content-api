@@ -61,30 +61,49 @@ Versions were verified on May 17, 2026.
 pnpm install
 ```
 
-2. Create a D1 database and replace the placeholder `database_id` in [wrangler.jsonc](wrangler.jsonc).
+2. Create remote resources (one-time):
 
-3. Set Worker vars in `wrangler.jsonc` or your Cloudflare environment:
+```bash
+# D1 database
+wrangler d1 create content_api
+# → copy the returned UUID into wrangler.jsonc database_id
+
+# R2 bucket
+wrangler r2 bucket create content-api-media
+
+# Queue for media processing events
+wrangler queues create media-processing
+
+# R2 event notification → queue
+wrangler r2 bucket notification create content-api-media \
+  --event-type object-create \
+  --queue media-processing \
+  --prefix "media/" \
+  --suffix "/original"
+```
+
+3. Set Worker vars in `wrangler.jsonc` (non-secret values):
 
 ```jsonc
 {
   "vars": {
-    "AUTH_ISSUER": "https://auth.example.com",
+    "AUTH_ISSUER": "https://auth.quanghuy.dev",
     "AUTH_AUDIENCE": "payload-content-api",
-    "AUTH_JWKS_URL": "https://auth.example.com/api/auth/jwks",
-    "R2_ACCOUNT_ID": "<cloudflare-account-id>",
+    "AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
     "R2_BUCKET_NAME": "content-api-media",
-    "R2_ACCESS_KEY_ID": "<r2-access-key-id>",
-    "R2_SECRET_ACCESS_KEY": "<r2-secret-access-key>",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
   }
 }
 ```
 
-4. Ensure the local R2 bucket exists and matches the binding name:
+4. Create `.dev.vars` for local secrets (gitignored):
 
 ```bash
-npx wrangler r2 bucket create content-api-media
+# .dev.vars (local only — overridden by CI secrets in production)
+R2_ACCOUNT_ID=local-account
+R2_ACCESS_KEY_ID=local-access-key
+R2_SECRET_ACCESS_KEY=local-secret-key
 ```
 
 5. Apply local migrations:
@@ -99,7 +118,7 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Media processing is deployed as a separate Worker under [workers/media-processor](workers/media-processor). Configure its `IMAGES` binding and queue consumer alongside the API Worker when you stand up the full upload pipeline.
+Media processing is deployed as a separate Worker under [workers/media-processor](workers/media-processor). Its `wrangler.jsonc` shares the same D1, R2, Images, and Queue bindings as the API Worker.
 
 ## Migrations
 
@@ -141,31 +160,21 @@ Current automated coverage includes:
 
 ## Deployment
 
-Deployment automation is currently disabled. The workflow has been moved to
-[.github/workflows-disabled/deploy.yml](.github/workflows-disabled/deploy.yml)
-so GitHub Actions will not execute it.
+CI/CD is handled by [.github/workflows/ci-deploy.yml](.github/workflows/ci-deploy.yml). On every push to `main` (or manual dispatch):
 
-When re-enabled by moving it back to `.github/workflows/deploy.yml`, the workflow runs:
+1. `pnpm check` — lint, duplicate gate, typecheck, tests
+2. `migrate` — `wrangler d1 migrations apply content_api --remote`
+3. `deploy-api` — deploys the API Worker (`content-api`)
+4. `deploy-media-processor` — deploys the queue consumer (`content-api-media-processor`)
 
-1. `pnpm install --frozen-lockfile`
-2. `pnpm typecheck`
-3. `pnpm test`
-4. remote D1 migrations
-5. `wrangler deploy`
+Both deploy jobs run in parallel after migrations succeed.
 
 Required GitHub secrets:
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-
-Before first deploy, update:
-
-- `wrangler.jsonc` D1 `database_id`
-- production `AUTH_ISSUER`
-- production `AUTH_AUDIENCE`
-- production `AUTH_JWKS_URL`
-- production R2 bucket and signer credentials
-- the queue consumer deployment for `workers/media-processor`
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Workers and D1:Edit permissions
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID
+- `R2_ACCESS_KEY_ID` — R2 access key for presigned upload URLs
+- `R2_SECRET_ACCESS_KEY` — R2 secret key for presigned upload URLs
 
 ## Not Implemented
 

@@ -12,6 +12,7 @@ const healthRoute = createRoute({
   method: "get",
   path: "/health",
   tags: ["system"],
+  description: "Health check returning worker status",
   responses: {
     200: jsonContent(healthResponseSchema, "Worker health status"),
   },

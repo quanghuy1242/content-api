@@ -18,6 +18,7 @@ const postListRoute = createRoute({
   method: "get",
   path: "/posts",
   tags: ["posts"],
+  description: "List posts. Anonymous users see only published posts. Authenticated users see their own drafts. Admins see all.",
   request: { query: listResourceQuerySchema },
   responses: {
     200: jsonContent(listResponseSchema(postResponseSchema), "List readable posts"),
@@ -29,6 +30,7 @@ const postCreateRoute = createRoute({
   method: "post",
   path: "/posts",
   tags: ["posts"],
+  description: "Create a new draft post. Supports idempotency via Idempotency-Key header.",
   security: bearerSecurity,
   request: {
     headers: idempotencyHeaderSchema,
@@ -44,6 +46,7 @@ const postGetRoute = createRoute({
   method: "get",
   path: "/posts/{id}",
   tags: ["posts"],
+  description: "Get a single post by ID. Anonymous users can only read published posts.",
   request: { params: idParamSchema },
   responses: {
     200: jsonContent(dataResponseSchema(postResponseSchema), "Post by id"),
@@ -55,6 +58,7 @@ const postUpdateRoute = createRoute({
   method: "patch",
   path: "/posts/{id}",
   tags: ["posts"],
+  description: "Update fields on an existing post.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -70,6 +74,7 @@ const postPublishRoute = createRoute({
   method: "post",
   path: "/posts/{id}/publish",
   tags: ["posts"],
+  description: "Publish a draft post to make it publicly visible.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -82,6 +87,7 @@ const postUnpublishRoute = createRoute({
   method: "post",
   path: "/posts/{id}/unpublish",
   tags: ["posts"],
+  description: "Unpublish a published post to hide it from public view.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -94,6 +100,7 @@ const postDeleteRoute = createRoute({
   method: "delete",
   path: "/posts/{id}",
   tags: ["posts"],
+  description: "Delete a post.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {

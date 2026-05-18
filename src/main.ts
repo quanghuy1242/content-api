@@ -5,6 +5,7 @@ import { optionalAuthMiddleware } from "@/http/middleware/auth.middleware";
 import { handleAppError } from "@/http/middleware/error.middleware";
 import { requestContextMiddleware } from "@/http/middleware/request.middleware";
 import { registerRoutes } from "@/http/routes";
+import { registerDocsRoutes } from "@/http/routes/docs.routes";
 import { ValidationError } from "@/shared/errors";
 
 /**
@@ -29,18 +30,7 @@ export function createApp(options?: { fetchImpl?: typeof fetch }) {
   app.use("*", optionalAuthMiddleware);
 
   registerRoutes(app);
-  app.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {
-    type: "http",
-    scheme: "bearer",
-    bearerFormat: "JWT",
-  });
-  app.doc("/openapi.json", {
-    openapi: "3.0.0",
-    info: {
-      title: "Content API",
-      version: "0.1.0",
-    },
-  });
+  registerDocsRoutes(app);
   return app;
 }
 

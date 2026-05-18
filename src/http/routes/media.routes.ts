@@ -30,6 +30,7 @@ const mediaListRoute = createRoute({
   method: "get",
   path: "/media",
   tags: ["media"],
+  description: "List media. Anonymous users see only public ready media. Authenticated users see their own uploads.",
   request: { query: listResourceQuerySchema },
   responses: {
     200: jsonContent(listResponseSchema(mediaResponseSchema), "List readable media metadata"),
@@ -41,6 +42,7 @@ const mediaCreateRoute = createRoute({
   method: "post",
   path: "/media",
   tags: ["media"],
+  description: "Create a pending media upload row and get a presigned R2 PUT URL. Supports idempotency via Idempotency-Key header.",
   security: bearerSecurity,
   request: {
     headers: idempotencyHeaderSchema,
@@ -56,6 +58,7 @@ const mediaGetRoute = createRoute({
   method: "get",
   path: "/media/{id}",
   tags: ["media"],
+  description: "Get media metadata by ID. Includes variant URLs and lowResUrl when status is ready.",
   request: { params: idParamSchema },
   responses: {
     200: jsonContent(dataResponseSchema(mediaResponseSchema), "Media metadata by id"),
@@ -67,6 +70,7 @@ const mediaUpdateRoute = createRoute({
   method: "patch",
   path: "/media/{id}",
   tags: ["media"],
+  description: "Update media metadata fields such as alt text.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -82,6 +86,7 @@ const mediaPublishRoute = createRoute({
   method: "post",
   path: "/media/{id}/publish",
   tags: ["media"],
+  description: "Make media publicly visible. Requires the media to be in ready status.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -94,6 +99,7 @@ const mediaUnpublishRoute = createRoute({
   method: "post",
   path: "/media/{id}/unpublish",
   tags: ["media"],
+  description: "Make media private again.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -106,6 +112,7 @@ const mediaVariantRoute = createRoute({
   method: "get",
   path: "/media/{id}/v/{version}/variants/{name}",
   tags: ["media"],
+  description: "Stream a generated image variant (thumb, small, medium, large, og, blur) by media ID and version.",
   request: {
     params: mediaVariantParamSchema,
   },
@@ -119,6 +126,7 @@ const mediaDeleteRoute = createRoute({
   method: "delete",
   path: "/media/{id}",
   tags: ["media"],
+  description: "Delete media metadata.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {

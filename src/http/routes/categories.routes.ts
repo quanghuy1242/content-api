@@ -22,6 +22,7 @@ const categoryListRoute = createRoute({
   method: "get",
   path: "/categories",
   tags: ["categories"],
+  description: "List all categories.",
   security: bearerSecurity,
   request: { query: listResourceQuerySchema },
   responses: {
@@ -34,6 +35,7 @@ const categoryCreateRoute = createRoute({
   method: "post",
   path: "/categories",
   tags: ["categories"],
+  description: "Create a new category. Supports idempotency via Idempotency-Key header.",
   security: bearerSecurity,
   request: {
     headers: idempotencyHeaderSchema,
@@ -49,6 +51,7 @@ const categoryGetRoute = createRoute({
   method: "get",
   path: "/categories/{id}",
   tags: ["categories"],
+  description: "Get a single category by ID.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -61,6 +64,7 @@ const categoryUpdateRoute = createRoute({
   method: "patch",
   path: "/categories/{id}",
   tags: ["categories"],
+  description: "Update fields on an existing category.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -76,6 +80,7 @@ const categoryDeleteRoute = createRoute({
   method: "delete",
   path: "/categories/{id}",
   tags: ["categories"],
+  description: "Delete a category.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {

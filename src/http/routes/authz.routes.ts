@@ -27,6 +27,7 @@ const grantMirrorListRoute = createRoute({
   method: "get",
   path: "/grant-mirror",
   tags: ["authz"],
+  description: "List all grant mirrors (admin only).",
   security: bearerSecurity,
   request: { query: listResourceQuerySchema },
   responses: {
@@ -39,6 +40,7 @@ const grantMirrorCreateRoute = createRoute({
   method: "post",
   path: "/grant-mirror",
   tags: ["authz"],
+  description: "Create a grant mirror row (admin only).",
   security: bearerSecurity,
   request: { body: jsonRequestBody(grantMirrorCreateSchema, "Grant mirror create payload") },
   responses: {
@@ -51,6 +53,7 @@ const grantMirrorGetRoute = createRoute({
   method: "get",
   path: "/grant-mirror/{id}",
   tags: ["authz"],
+  description: "Get a grant mirror by ID (admin only).",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -63,6 +66,7 @@ const grantMirrorUpdateRoute = createRoute({
   method: "patch",
   path: "/grant-mirror/{id}",
   tags: ["authz"],
+  description: "Update a grant mirror row (admin only).",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -78,6 +82,7 @@ const grantMirrorDeleteRoute = createRoute({
   method: "delete",
   path: "/grant-mirror/{id}",
   tags: ["authz"],
+  description: "Delete a grant mirror row (admin only).",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -90,6 +95,7 @@ const deferredGrantListRoute = createRoute({
   method: "get",
   path: "/deferred-grants",
   tags: ["authz"],
+  description: "List all deferred grants (admin only).",
   security: bearerSecurity,
   request: { query: listResourceQuerySchema },
   responses: {
@@ -102,6 +108,7 @@ const deferredGrantCreateRoute = createRoute({
   method: "post",
   path: "/deferred-grants",
   tags: ["authz"],
+  description: "Create a deferred grant (admin only).",
   security: bearerSecurity,
   request: { body: jsonRequestBody(deferredGrantCreateSchema, "Deferred grant create payload") },
   responses: {
@@ -114,6 +121,7 @@ const deferredGrantGetRoute = createRoute({
   method: "get",
   path: "/deferred-grants/{id}",
   tags: ["authz"],
+  description: "Get a deferred grant by ID (admin only).",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -126,6 +134,7 @@ const deferredGrantUpdateRoute = createRoute({
   method: "patch",
   path: "/deferred-grants/{id}",
   tags: ["authz"],
+  description: "Update a deferred grant (admin only).",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -141,6 +150,7 @@ const deferredGrantDeleteRoute = createRoute({
   method: "delete",
   path: "/deferred-grants/{id}",
   tags: ["authz"],
+  description: "Delete a deferred grant (admin only).",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -153,6 +163,7 @@ const relationshipListRoute = createRoute({
   method: "get",
   path: "/relationships",
   tags: ["authz"],
+  description: "List all relationships (admin only).",
   security: bearerSecurity,
   request: { query: listResourceQuerySchema },
   responses: {
@@ -165,6 +176,7 @@ const relationshipCreateRoute = createRoute({
   method: "post",
   path: "/relationships",
   tags: ["authz"],
+  description: "Create a relationship granting (admin only).",
   security: bearerSecurity,
   request: { body: jsonRequestBody(relationshipCreateSchema, "Relationship create payload") },
   responses: {
@@ -177,6 +189,7 @@ const relationshipDeleteRoute = createRoute({
   method: "delete",
   path: "/relationships/{id}",
   tags: ["authz"],
+  description: "Delete a relationship grant (admin only).",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {

@@ -152,6 +152,12 @@
       }
     },
     {
+      "files": ["src/http/routes/docs.routes.ts"],
+      "rules": {
+        "architecture/route-module": "off"
+      }
+    },
+    {
       "files": ["**/*.d.ts"],
       "rules": {
         "architecture/layer-imports": "off",

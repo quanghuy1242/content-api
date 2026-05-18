@@ -18,6 +18,7 @@ const userListRoute = createRoute({
   method: "get",
   path: "/users",
   tags: ["users"],
+  description: "List all users (admin only). Authenticated users see only their own record.",
   security: bearerSecurity,
   request: {
     query: listResourceQuerySchema,
@@ -32,6 +33,7 @@ const userCreateRoute = createRoute({
   method: "post",
   path: "/users",
   tags: ["users"],
+  description: "Create a new user. Supports idempotency via Idempotency-Key header.",
   security: bearerSecurity,
   request: {
     headers: idempotencyHeaderSchema,
@@ -47,6 +49,7 @@ const userGetRoute = createRoute({
   method: "get",
   path: "/users/{id}",
   tags: ["users"],
+  description: "Get a user by ID. Authenticated users can read their own record.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -61,6 +64,7 @@ const userUpdateRoute = createRoute({
   method: "patch",
   path: "/users/{id}",
   tags: ["users"],
+  description: "Update fields on an existing user.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,
@@ -76,6 +80,7 @@ const userDeleteRoute = createRoute({
   method: "delete",
   path: "/users/{id}",
   tags: ["users"],
+  description: "Delete a user.",
   security: bearerSecurity,
   request: {
     params: idParamSchema,

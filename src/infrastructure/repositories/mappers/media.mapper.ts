@@ -1,5 +1,4 @@
-import { Media } from "@/domain/media/media.entity";
-import type { MediaProps } from "@/domain/media/media.entity";
+import { Media, type MediaProps } from "@/domain/media/media.entity";
 import { media } from "@/infrastructure/db/schema";
 
 type MediaRow = typeof media.$inferSelect;

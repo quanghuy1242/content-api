@@ -7,9 +7,8 @@ import { idempotencyToInsertRow } from "@/infrastructure/repositories/mappers/id
 import { mediaToInsertRow } from "@/infrastructure/repositories/mappers/media.mapper";
 import { relationshipToInsertRow } from "@/infrastructure/repositories/mappers/relationship.mapper";
 import { IdempotencyReservationConflictError } from "@/shared/errors";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 export class DrizzleMediaCreateWorkflow implements MediaCreateWorkflow {
   private readonly crud: CrudAdapter;

@@ -1,5 +1,4 @@
-import type { AppBindings } from "@/config/env";
-import { parseEnv } from "@/config/env";
+import { parseEnv, type AppBindings } from "@/config/env";
 import { AuthenticateBearerTokenUseCase } from "@/application/auth/authenticate-bearer-token.usecase";
 import { CreateCategoryUseCase } from "@/application/categories/create-category.usecase";
 import { DeleteCategoryUseCase } from "@/application/categories/delete-category.usecase";

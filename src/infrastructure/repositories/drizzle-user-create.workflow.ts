@@ -6,9 +6,8 @@ import { isSqliteUniqueConstraintError } from "@/infrastructure/persistence/sqli
 import { idempotencyToInsertRow } from "@/infrastructure/repositories/mappers/idempotency.mapper";
 import { userToInsertRow } from "@/infrastructure/repositories/mappers/user.mapper";
 import { IdempotencyReservationConflictError } from "@/shared/errors";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 export class DrizzleUserCreateWorkflow implements UserCreateWorkflow {
   private readonly crud: CrudAdapter;

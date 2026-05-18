@@ -8,9 +8,8 @@ import {
   relationshipRowToEntity,
   relationshipToInsertRow,
 } from "@/infrastructure/repositories/mappers/relationship.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed relationship fact repository used by ReBAC policies. It stores

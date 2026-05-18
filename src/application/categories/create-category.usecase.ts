@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { CategoryCreateWorkflow } from "@/domain/categories/category-create.workflow";
@@ -62,7 +63,7 @@ export class CreateCategoryUseCase {
   }
 
   private buildOwnerRelationship(ownerId: string, categoryId: string) {
-    return createRelationship({
+    return createUserSubjectRelationship({
       subjectId: ownerId,
       relation: "owner",
       objectType: "category",
@@ -154,21 +155,6 @@ export class CreateCategoryUseCase {
 
     return Category.reconstitute(deserializeCategorySnapshot(replay.responseJson));
   }
-}
-
-function createRelationship(params: {
-  subjectId: string;
-  relation: string;
-  objectType: string;
-  objectId: string;
-}): Relationship {
-  return Relationship.create({
-    subjectType: "user",
-    subjectId: params.subjectId,
-    relation: params.relation,
-    objectType: params.objectType,
-    objectId: params.objectId,
-  });
 }
 
 function deserializeCategorySnapshot(value: string): CategoryProps {

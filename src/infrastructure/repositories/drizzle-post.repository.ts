@@ -5,9 +5,8 @@ import type { PostRepository } from "@/domain/posts/post.repository";
 import { posts } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
 import { postRowToEntity, postToInsertRow, postToUpdateRow } from "@/infrastructure/repositories/mappers/post.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed post repository. Visibility predicates for read queries are

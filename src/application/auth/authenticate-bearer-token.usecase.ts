@@ -1,5 +1,4 @@
-import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
-import type { JWTPayload } from "jose";
+import { createRemoteJWKSet, customFetch, jwtVerify, type JWTPayload } from "jose";
 import type { Actor } from "@/domain/authz/actor";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UnauthorizedError } from "@/shared/errors";

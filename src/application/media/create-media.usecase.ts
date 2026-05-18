@@ -1,10 +1,10 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
-import { Media } from "@/domain/media/media.entity";
-import type { CreateMediaProps, MediaProps } from "@/domain/media/media.entity";
+import { Media, type CreateMediaProps, type MediaProps } from "@/domain/media/media.entity";
 import type { MediaCreateWorkflow } from "@/domain/media/media-create.workflow";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
@@ -69,7 +69,7 @@ export class CreateMediaUseCase {
   }
 
   private buildOwnerRelationship(ownerId: string, mediaId: string) {
-    return createRelationship({
+    return createUserSubjectRelationship({
       subjectId: ownerId,
       relation: "owner",
       objectType: "media",
@@ -161,21 +161,6 @@ export class CreateMediaUseCase {
 
     return Media.reconstitute(deserializeMediaSnapshot(replay.responseJson));
   }
-}
-
-function createRelationship(params: {
-  subjectId: string;
-  relation: string;
-  objectType: string;
-  objectId: string;
-}): Relationship {
-  return Relationship.create({
-    subjectType: "user",
-    subjectId: params.subjectId,
-    relation: params.relation,
-    objectType: params.objectType,
-    objectId: params.objectId,
-  });
 }
 
 function deserializeMediaSnapshot(value: string): MediaProps {

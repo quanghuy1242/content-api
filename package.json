@@ -5,7 +5,9 @@
   "packageManager": "pnpm@11.1.2",
   "pnpm": {
     "onlyBuiltDependencies": [
+      "aislop",
       "esbuild",
+      "fallow",
       "sharp",
       "workerd"
     ]
@@ -16,7 +18,12 @@
     "deploy": "wrangler deploy",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "check": "pnpm lint && pnpm check:dup && pnpm typecheck && pnpm test",
+    "check:dup": "node scripts/check-duplication-threshold.mjs",
+    "advise": "pnpm advise:aislop && pnpm advise:dupes",
+    "advise:aislop": "aislop scan --exclude node_modules,dist,coverage,.wrangler,migrations",
+    "advise:dupes": "fallow dupes --mode semantic --min-tokens 150 --min-lines 10 --skip-local --ignore-imports --format compact --quiet",
+    "advise:json": "aislop scan --json --exclude node_modules,dist,coverage,.wrangler,migrations",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -36,7 +43,9 @@
     "@cloudflare/vitest-pool-workers": "0.16.6",
     "@cloudflare/workers-types": "4.20260517.1",
     "@types/node": "25.8.0",
+    "aislop": "0.9.0",
     "drizzle-kit": "0.31.10",
+    "fallow": "2.75.0",
     "oxlint": "^1.65.0",
     "typescript": "6.0.3",
     "vitest": "4.1.6",

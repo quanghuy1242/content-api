@@ -199,6 +199,7 @@ Rules:
 - route handlers should call exactly one use case `.execute(...)`
 - use `requireActor(c)` only to enforce authentication before a protected use case
 - let use cases and policies enforce authorization
+- route handlers must not read `c.env`, call global `fetch`, use `crypto`, call `JSON.parse`/`JSON.stringify`, call direct storage methods such as `prepare`, `select`, `insert`, `update`, `delete`, `batch`, or `exec`, or construct `Request`/`Response` manually
 
 ## Auth And ReBAC
 
@@ -233,6 +234,7 @@ After modifying architecture, run:
 ```bash
 corepack pnpm typecheck
 corepack pnpm test
+corepack pnpm advise
 ```
 
 Useful audits:

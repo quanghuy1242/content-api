@@ -1,7 +1,6 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 
-import { createExecutionContext, reset, waitOnExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:test";
+import { createExecutionContext, env, reset, waitOnExecutionContext } from "cloudflare:test";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 import migrationSql0000 from "../drizzle/0000_dapper_korvac.sql?raw";
 import migrationSql0001 from "../drizzle/0001_unique_starhawk.sql?raw";

@@ -7,9 +7,8 @@ import { idempotencyToInsertRow } from "@/infrastructure/repositories/mappers/id
 import { postToInsertRow } from "@/infrastructure/repositories/mappers/post.mapper";
 import { relationshipToInsertRow } from "@/infrastructure/repositories/mappers/relationship.mapper";
 import { IdempotencyReservationConflictError } from "@/shared/errors";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 export class DrizzlePostCreateWorkflow implements PostCreateWorkflow {
   private readonly crud: CrudAdapter;

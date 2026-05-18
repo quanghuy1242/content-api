@@ -22,8 +22,9 @@ This implementation follows the contracts in:
 Architecture planning documents and implementation status:
 
 - [docs/001_idempotency-batch-design.md](docs/001_idempotency-batch-design.md) — implemented
-- [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — revised proposal, pending architecture approval
+- [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — revised proposal, approved
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
+- [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 
 Auth is implemented as an OAuth2 resource server:
 
@@ -105,9 +106,15 @@ pnpm db:migrate:remote
 ## Quality Checks
 
 ```bash
+pnpm lint
+pnpm check:dup
 pnpm typecheck
 pnpm test
+pnpm check
+pnpm advise
 ```
+
+`pnpm check` is the hard gate: oxlint architecture rules, the wrapper-enforced Fallow mild duplicate threshold, TypeScript, and Vitest. `pnpm advise` is non-blocking review input from Aislop plus conservative semantic Fallow duplication; run it after substantial code changes and use judgment on context-dependent findings.
 
 Current automated coverage includes:
 

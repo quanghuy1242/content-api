@@ -5,9 +5,8 @@ import type { MediaRepository } from "@/domain/media/media.repository";
 import { media } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
 import { mediaRowToEntity, mediaToInsertRow, mediaToUpdateRow } from "@/infrastructure/repositories/mappers/media.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed media metadata repository. This intentionally persists only

@@ -1,5 +1,4 @@
-import { Post } from "@/domain/posts/post.entity";
-import type { PostProps } from "@/domain/posts/post.entity";
+import { Post, type PostProps } from "@/domain/posts/post.entity";
 import { posts } from "@/infrastructure/db/schema";
 
 type PostRow = typeof posts.$inferSelect;

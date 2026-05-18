@@ -4,9 +4,8 @@ import type { IdempotencyRepository, IdempotencyRoute } from "@/domain/idempoten
 import { idempotencyKeys } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
 import { idempotencyRowToRecord } from "@/infrastructure/repositories/mappers/idempotency.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 export class DrizzleIdempotencyRepository implements IdempotencyRepository {
   private readonly crud: CrudAdapter;

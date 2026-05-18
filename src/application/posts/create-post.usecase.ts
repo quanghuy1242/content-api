@@ -1,10 +1,10 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
-import { Post } from "@/domain/posts/post.entity";
-import type { CreatePostProps, PostProps } from "@/domain/posts/post.entity";
+import { Post, type CreatePostProps, type PostProps } from "@/domain/posts/post.entity";
 import type { PostCreateWorkflow } from "@/domain/posts/post-create.workflow";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
@@ -70,7 +70,7 @@ export class CreatePostUseCase {
   }
 
   private buildAuthorRelationship(authorId: string, postId: string) {
-    return createRelationship({
+    return createUserSubjectRelationship({
       subjectId: authorId,
       relation: "author",
       objectType: "post",
@@ -163,21 +163,6 @@ export class CreatePostUseCase {
 
     return Post.reconstitute(deserializePostSnapshot(replay.responseJson));
   }
-}
-
-function createRelationship(params: {
-  subjectId: string;
-  relation: string;
-  objectType: string;
-  objectId: string;
-}): Relationship {
-  return Relationship.create({
-    subjectType: "user",
-    subjectId: params.subjectId,
-    relation: params.relation,
-    objectType: params.objectType,
-    objectId: params.objectId,
-  });
 }
 
 function deserializePostSnapshot(value: string): PostProps {

@@ -2,11 +2,15 @@ packages:
   - "."
 
 allowBuilds:
+  aislop: true
   esbuild: true
+  fallow: true
   sharp: true
   workerd: true
 
 onlyBuiltDependencies:
+  - aislop
   - esbuild
+  - fallow
   - sharp
   - workerd

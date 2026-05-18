@@ -1,4 +1,5 @@
 import type { Actor } from "@/domain/authz/actor";
+import { canUserActorAccessByRelation } from "@/domain/authz/relationship-policy";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { Post } from "@/domain/posts/post.entity";
 
@@ -15,12 +16,9 @@ export class PostPolicy {
 
   canRead(actor: Actor | null, post: Post) {
     if (post.status === "published") return Promise.resolve(true);
-    if (actor?.type !== "user") return Promise.resolve(false);
-    if (actor.role === "admin") return Promise.resolve(true);
-
-    return this.relationships.exists({
-      subjectType: "user",
-      subjectId: actor.localUserId ?? actor.id,
+    return canUserActorAccessByRelation({
+      actor,
+      relationships: this.relationships,
       relation: "author",
       objectType: "post",
       objectId: post.id,
@@ -28,12 +26,9 @@ export class PostPolicy {
   }
 
   canUpdate(actor: Actor | null, post: Post) {
-    if (actor?.type !== "user") return Promise.resolve(false);
-    if (actor.role === "admin") return Promise.resolve(true);
-
-    return this.relationships.exists({
-      subjectType: "user",
-      subjectId: actor.localUserId ?? actor.id,
+    return canUserActorAccessByRelation({
+      actor,
+      relationships: this.relationships,
       relation: "author",
       objectType: "post",
       objectId: post.id,

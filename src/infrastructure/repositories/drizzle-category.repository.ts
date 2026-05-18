@@ -5,9 +5,8 @@ import type { CategoryRepository } from "@/domain/categories/category.repository
 import { categories } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
 import { categoryRowToEntity, categoryToInsertRow, categoryToUpdateRow } from "@/infrastructure/repositories/mappers/category.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed category repository. It maps rows to domain entities and

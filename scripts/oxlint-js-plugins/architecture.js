@@ -91,6 +91,25 @@ function findDescendants(root, predicate) {
   return matches;
 }
 
+function isAppOpenapiCall(node) {
+  if (!node || node.type !== "CallExpression") return false;
+  var callee = node.callee;
+  return callee.type === "MemberExpression" &&
+    !callee.computed &&
+    callee.object.type === "Identifier" &&
+    callee.object.name === "app" &&
+    getPropertyName(callee.property) === "openapi";
+}
+
+function getInlineOpenapiHandlerBody(node) {
+  if (!isAppOpenapiCall(node)) return null;
+  var handlerArg = node.arguments[1];
+  var isArrow = handlerArg && handlerArg.type === "ArrowFunctionExpression";
+  var isFunc = handlerArg && handlerArg.type === "FunctionExpression";
+  if (!isArrow && !isFunc) return null;
+  return handlerArg.body;
+}
+
 function hasJSDoc(context, node) {
   var comments = context.sourceCode.getCommentsBefore(node);
   for (var i = 0; i < comments.length; i++) {
@@ -443,7 +462,77 @@ var routeModuleRule = {
   },
 };
 
-// ─── Rule 8: repository-workflow ──────────────────────────────────────────
+// ─── Rule 8: route-handler-boundary ──────────────────────────────────────
+var ROUTE_FORBIDDEN_STORAGE_METHODS = new Set(["batch", "delete", "exec", "insert", "prepare", "select", "update"]);
+
+function isCEnvAccess(node) {
+  return node &&
+    node.type === "MemberExpression" &&
+    !node.computed &&
+    node.object.type === "Identifier" &&
+    node.object.name === "c" &&
+    getPropertyName(node.property) === "env";
+}
+
+function isJsonParseOrStringifyCall(node) {
+  return node &&
+    node.type === "CallExpression" &&
+    node.callee.type === "MemberExpression" &&
+    !node.callee.computed &&
+    node.callee.object.type === "Identifier" &&
+    node.callee.object.name === "JSON" &&
+    (getPropertyName(node.callee.property) === "parse" || getPropertyName(node.callee.property) === "stringify");
+}
+
+function isStorageLikeCall(node) {
+  if (!node || node.type !== "CallExpression") return false;
+  if (node.callee.type !== "MemberExpression" || node.callee.computed) return false;
+  return ROUTE_FORBIDDEN_STORAGE_METHODS.has(getPropertyName(node.callee.property));
+}
+
+var routeHandlerBoundaryRule = {
+  meta: { type: "problem", docs: { description: "Route handlers stay at HTTP orchestration boundaries" } },
+  create: function (context) {
+    var filename = context.filename || context.physicalFilename || "";
+    if (!isRouteModule(filename)) return {};
+
+    return {
+      CallExpression: function (node) {
+        var handlerBody = getInlineOpenapiHandlerBody(node);
+        if (!handlerBody) return;
+
+        var envAccesses = findDescendants(handlerBody, isCEnvAccess);
+        for (var e = 0; e < envAccesses.length; e++) {
+          context.report({ node: envAccesses[e], message: "Route handlers must not read c.env directly; use composition/use cases for runtime dependencies" });
+        }
+
+        var lowLevelCalls = findDescendants(handlerBody, function (n) {
+          if (n.type === "CallExpression" && n.callee.type === "Identifier" && n.callee.name === "fetch") return true;
+          if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && !n.callee.computed && n.callee.object.type === "Identifier" && n.callee.object.name === "crypto") return true;
+          if (isJsonParseOrStringifyCall(n)) return true;
+          if (isStorageLikeCall(n)) return true;
+          return false;
+        });
+
+        for (var i = 0; i < lowLevelCalls.length; i++) {
+          context.report({ node: lowLevelCalls[i], message: "Route handlers must stay thin: validate input, call one use case, and present the response" });
+        }
+
+        var lowLevelNews = findDescendants(handlerBody, function (n) {
+          return n.type === "NewExpression" &&
+            n.callee.type === "Identifier" &&
+            (n.callee.name === "Request" || n.callee.name === "Response");
+        });
+
+        for (var r = 0; r < lowLevelNews.length; r++) {
+          context.report({ node: lowLevelNews[r], message: "Route handlers must use Hono response helpers and presenters, not construct Request/Response directly" });
+        }
+      },
+    };
+  },
+};
+
+// ─── Rule 9: repository-workflow ──────────────────────────────────────────
 var repositoryWorkflowRule = {
   meta: { type: "problem", docs: { description: "Repository and workflow rules" } },
   create: function (context) {
@@ -483,7 +572,7 @@ var repositoryWorkflowRule = {
   },
 };
 
-// ─── Rule 9: mapper-file ──────────────────────────────────────────────────
+// ─── Rule 10: mapper-file ─────────────────────────────────────────────────
 var mapperFileRule = {
   meta: { type: "problem", docs: { description: "Mapper function rules" } },
   create: function (context) {
@@ -602,7 +691,7 @@ var mapperFileRule = {
   },
 };
 
-// ─── Rule 10: entity-class ───────────────────────────────────────────────
+// ─── Rule 11: entity-class ────────────────────────────────────────────────
 function isEntityFile(filename) {
   return /.+\/domain\/.+\.entity\.ts$/.test(filename);
 }
@@ -881,7 +970,7 @@ var entityClassRule = {
   },
 };
 
-// ─── Rule 11: no-raw-entity-serialization ────────────────────────────────
+// ─── Rule 12: no-raw-entity-serialization ─────────────────────────────────
 var ENTITY_LIKE_NAMES = new Set([
   "category",
   "categories",
@@ -942,7 +1031,7 @@ var noRawEntitySerializationRule = {
   },
 };
 
-// ─── Rule 12: crud-adapter-jsdoc ──────────────────────────────────────────
+// ─── Rule 13: crud-adapter-jsdoc ──────────────────────────────────────────
 var crudAdapterJSDocRule = {
   meta: { type: "problem", docs: { description: "CrudAdapter public methods need JSDoc" } },
   create: function (context) {
@@ -975,7 +1064,7 @@ var crudAdapterJSDocRule = {
   },
 };
 
-// ─── Rule 13: no-magic-numbers ────────────────────────────────────────────
+// ─── Rule 14: no-magic-numbers ────────────────────────────────────────────
 
 function isSCREAMING_SNAKE(name) {
   return /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/.test(name);
@@ -1037,7 +1126,7 @@ var noMagicNumbersRule = {
   },
 };
 
-// ─── Rule 14: constants-placement ──────────────────────────────────────────
+// ─── Rule 15: constants-placement ─────────────────────────────────────────
 
 var constantsPlacementRule = {
   meta: { type: "problem", docs: { description: "SCREAMING_SNAKE_CASE const declarations must live in shared, domain, or infrastructure" } },
@@ -1058,7 +1147,7 @@ var constantsPlacementRule = {
   },
 };
 
-// ─── Rule 15: constants-jsdoc ──────────────────────────────────────────────
+// ─── Rule 16: constants-jsdoc ─────────────────────────────────────────────
 
 function getTopLevelStatement(declarator) {
   var p = declarator.parent;
@@ -1154,6 +1243,7 @@ var plugin = {
     "req-valid-usage": reqValidUsageRule,
     "no-plain-zod-import": noPlainZodImportRule,
     "route-module": routeModuleRule,
+    "route-handler-boundary": routeHandlerBoundaryRule,
     "repository-workflow": repositoryWorkflowRule,
     "mapper-file": mapperFileRule,
     "entity-class": entityClassRule,

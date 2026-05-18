@@ -8,9 +8,8 @@ import {
   grantMirrorToInsertRow,
   grantMirrorToUpdateRow,
 } from "@/infrastructure/repositories/mappers/grant-mirror.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed repository for mirrored Auther grants. It persists mirror

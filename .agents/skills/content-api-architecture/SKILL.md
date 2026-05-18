@@ -1,6 +1,6 @@
 ---
 name: content-api-architecture
-description: Use this skill when modifying the content-api repository architecture, Cloudflare Worker API routes, @hono/zod-openapi schemas, domain entities, use cases, policies, repositories, Drizzle/D1 persistence, auth boundaries, tests, or deployment workflow behavior.
+description: Use this skill whenever working with the content-api repository — whether analyzing, reviewing, reading, answering questions about, or modifying its architecture, Cloudflare Worker API routes, @hono/zod-openapi schemas, domain entities, use cases, policies, repositories, Drizzle/D1 persistence, auth boundaries, tests, or deployment workflow behavior.
 ---
 
 # Content API Architecture
@@ -26,9 +26,10 @@ For detailed file-level rules, read [references/architecture-rules.md](reference
 6. Keep row/entity conversion in `src/infrastructure/repositories/mappers/*.mapper.ts`; do not inline mapping in routes or use cases.
 7. Keep D1/Drizzle code in infrastructure repositories and shared CRUD in `CrudAdapter`.
 8. For idempotent create workflows, keep replay decisions in application use cases and D1 batch construction/error translation in infrastructure workflow ports.
-9. Run targeted audits after edits, then `corepack pnpm lint`, `corepack pnpm typecheck`, and `corepack pnpm test`.
+9. Run targeted audits after edits, then `corepack pnpm lint`, `corepack pnpm check:dup`, `corepack pnpm typecheck`, and `corepack pnpm test`.
 10. Treat `corepack pnpm lint` as the architecture gate as well as the code-style gate; it must catch layer-boundary, entity, mapper, repository, persistence, and OpenAPI route violations before review.
 11. If the change introduces lint failures that the repo can auto-correct safely, run `corepack pnpm lint:fix` and re-run `corepack pnpm lint`.
+12. Run `corepack pnpm advise` after substantial code changes and treat the output as review input, not a hard architecture gate.
 
 ## Layer Rules
 
@@ -84,6 +85,7 @@ All API routes must use `@hono/zod-openapi`:
 - Authenticated operations must declare exactly `security: bearerSecurity`.
 - Routes declaring `security: bearerSecurity` must call `requireActor(c)` in the handler.
 - Route handlers must call exactly one use case `.execute(...)`; do not orchestrate multiple workflows in a route.
+- Route handlers must stay thin: no direct `c.env`, global `fetch`, `crypto`, `JSON.parse`/`JSON.stringify`, direct storage calls, or manual `Request`/`Response` construction.
 - Do not add undocumented endpoints.
 
 `app.doc("/openapi.json", ...)` is allowed for serving the generated document.
@@ -166,6 +168,7 @@ When explicitly asked to change, rename, debug, or extend this linter, use the l
 - `architecture/req-valid-usage`: route input must come from `req.valid(...)`.
 - `architecture/no-plain-zod-import`: schema and shared validation files import `z` from `@hono/zod-openapi`.
 - `architecture/route-module`: `createRoute` + `app.openapi`, exact `bearerSecurity` pairing, and one `.execute(...)` per handler.
+- `architecture/route-handler-boundary`: route handlers validate input, call one use case, and present output without direct env, fetch, crypto, JSON serialization, storage calls, or manual Request/Response construction.
 - `architecture/repository-workflow`: mapper usage, no authorization decisions, no inline entity reconstitution, no direct DB writes, and `db.batch(...)` only in workflow ports.
 - `architecture/mapper-file`: one-argument explicit mappers, `Entity.reconstitute(...)`, and `entity.toSnapshot()`.
 - `architecture/entity-class`: class-only entities, private props constructor, `create/reconstitute/toSnapshot`, `CreateXxxProps = Omit<XxxProps, ...>`, and generated field omission.

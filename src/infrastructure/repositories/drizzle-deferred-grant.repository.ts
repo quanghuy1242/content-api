@@ -8,9 +8,8 @@ import {
   deferredGrantToInsertRow,
   deferredGrantToUpdateRow,
 } from "@/infrastructure/repositories/mappers/deferred-grant.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed deferred-grant repository for grant reconciliation state.

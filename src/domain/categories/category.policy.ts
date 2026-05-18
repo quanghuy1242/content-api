@@ -1,4 +1,5 @@
 import type { Actor } from "@/domain/authz/actor";
+import { canUserActorAccessByRelation } from "@/domain/authz/relationship-policy";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 
 /**
@@ -17,16 +18,9 @@ export class CategoryPolicy {
   }
 
   canUpdate(actor: Actor | null, categoryId: string) {
-    if (actor?.type !== "user") {
-      return Promise.resolve(false);
-    }
-    if (actor.role === "admin") {
-      return Promise.resolve(true);
-    }
-
-    return this.relationships.exists({
-      subjectType: "user",
-      subjectId: actor.localUserId ?? actor.id,
+    return canUserActorAccessByRelation({
+      actor,
+      relationships: this.relationships,
       relation: "owner",
       objectType: "category",
       objectId: categoryId,

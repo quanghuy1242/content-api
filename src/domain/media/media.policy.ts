@@ -1,4 +1,5 @@
 import type { Actor } from "@/domain/authz/actor";
+import { canUserActorAccessByRelation } from "@/domain/authz/relationship-policy";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
 import type { Media } from "@/domain/media/media.entity";
 
@@ -17,16 +18,9 @@ export class MediaPolicy {
     if (media.visibility === "public" && media.status === "ready") {
       return Promise.resolve(true);
     }
-    if (actor?.type !== "user") {
-      return Promise.resolve(false);
-    }
-    if (actor.role === "admin") {
-      return Promise.resolve(true);
-    }
-
-    return this.relationships.exists({
-      subjectType: "user",
-      subjectId: actor.localUserId ?? actor.id,
+    return canUserActorAccessByRelation({
+      actor,
+      relationships: this.relationships,
       relation: "owner",
       objectType: "media",
       objectId: media.id,
@@ -34,16 +28,9 @@ export class MediaPolicy {
   }
 
   canUpdate(actor: Actor | null, media: Media) {
-    if (actor?.type !== "user") {
-      return Promise.resolve(false);
-    }
-    if (actor.role === "admin") {
-      return Promise.resolve(true);
-    }
-
-    return this.relationships.exists({
-      subjectType: "user",
-      subjectId: actor.localUserId ?? actor.id,
+    return canUserActorAccessByRelation({
+      actor,
+      relationships: this.relationships,
       relation: "owner",
       objectType: "media",
       objectId: media.id,

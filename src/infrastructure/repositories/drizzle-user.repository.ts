@@ -5,9 +5,8 @@ import type { UserRepository } from "@/domain/users/user.repository";
 import { users } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
 import { userRowToEntity, userToInsertRow, userToUpdateRow } from "@/infrastructure/repositories/mappers/user.mapper";
-import * as schema from "@/infrastructure/db/schema";
 
-type Db = DrizzleD1Database<typeof schema>;
+type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
  * Drizzle-backed user repository. It supports local user lookup for Auther

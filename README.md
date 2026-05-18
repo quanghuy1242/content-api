@@ -82,7 +82,7 @@ wrangler r2 bucket notification create content-api-media \
   --suffix "/original"
 ```
 
-3. Set Worker vars in `wrangler.jsonc` (non-secret values):
+3. Set Worker vars in `wrangler.jsonc` (mock values for local/test — CI secrets override in production):
 
 ```jsonc
 {
@@ -90,29 +90,23 @@ wrangler r2 bucket notification create content-api-media \
     "AUTH_ISSUER": "https://auth.quanghuy.dev",
     "AUTH_AUDIENCE": "payload-content-api",
     "AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
+    "R2_ACCOUNT_ID": "local-account",
     "R2_BUCKET_NAME": "content-api-media",
+    "R2_ACCESS_KEY_ID": "local-access-key",
+    "R2_SECRET_ACCESS_KEY": "local-secret-key",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
   }
 }
 ```
 
-4. Create `.dev.vars` for local secrets (gitignored):
-
-```bash
-# .dev.vars (local only — overridden by CI secrets in production)
-R2_ACCOUNT_ID=local-account
-R2_ACCESS_KEY_ID=local-access-key
-R2_SECRET_ACCESS_KEY=local-secret-key
-```
-
-5. Apply local migrations:
+4. Apply local migrations:
 
 ```bash
 pnpm db:migrate:local
 ```
 
-6. Start local development:
+5. Start local development:
 
 ```bash
 pnpm dev

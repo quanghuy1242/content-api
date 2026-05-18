@@ -7,7 +7,7 @@
     {
       "binding": "DB",
       "database_name": "content_api",
-      "database_id": "content-api-local"
+      "database_id": "73f94f30-cd96-464c-ba37-87c857d99d88"
     }
   ],
   "r2_buckets": [

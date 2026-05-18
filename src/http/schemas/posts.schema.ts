@@ -1,8 +1,9 @@
 import { z } from "@hono/zod-openapi";
+import { MAX_NAME_LENGTH } from "@/shared/constants";
 import { idSchema, slugSchema, statusSchema } from "@/shared/validation/fields";
 
 export const createPostBodySchema = z.object({
-  title: z.string().min(1).max(255),
+  title: z.string().min(1).max(MAX_NAME_LENGTH),
   excerpt: z.string().optional().nullable(),
   content: z.unknown(),
   coverImage: idSchema.optional().nullable(),

@@ -12,6 +12,7 @@ import { presentUser } from "@/http/presenters/user.presenter";
 import { requireActor } from "@/http/routes/helpers";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { userCreateSchema, userResponseSchema, userUpdateSchema } from "@/http/schemas/users.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
 const userListRoute = createRoute({
   method: "get",
@@ -94,7 +95,7 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map((user) => presentUser(user, actor)), page: result.page }, 200);
+    return c.json({ data: result.data.map((user) => presentUser(user, actor)), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(userCreateRoute, async (c) => {
@@ -111,14 +112,14 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>) {
         betterAuthUserId: body.betterAuthUserId ?? null,
       },
     });
-    return c.json({ data: presentUser(result, actor) }, 201);
+    return c.json({ data: presentUser(result, actor) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(userGetRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").users.get.execute({ actor, userId: params.id });
-    return c.json({ data: presentUser(result, actor) }, 200);
+    return c.json({ data: presentUser(result, actor) }, HTTP_STATUS_OK);
   });
 
   app.openapi(userUpdateRoute, async (c) => {
@@ -130,13 +131,13 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>) {
       userId: params.id,
       input: body,
     });
-    return c.json({ data: presentUser(result, actor) }, 200);
+    return c.json({ data: presentUser(result, actor) }, HTTP_STATUS_OK);
   });
 
   app.openapi(userDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").users.delete.execute({ actor, userId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 }

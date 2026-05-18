@@ -975,6 +975,174 @@ var crudAdapterJSDocRule = {
   },
 };
 
+// ─── Rule 13: no-magic-numbers ────────────────────────────────────────────
+
+function isSCREAMING_SNAKE(name) {
+  return /^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$/.test(name);
+}
+
+function isConstDeclarator(node) {
+  return node &&
+    node.type === "VariableDeclarator" &&
+    node.parent &&
+    node.parent.type === "VariableDeclaration" &&
+    node.parent.kind === "const";
+}
+
+function walkUpPastContainers(node) {
+  var p = node.parent;
+  while (p && (
+    p.type === "UnaryExpression" ||
+    p.type === "BinaryExpression" ||
+    p.type === "LogicalExpression" ||
+    p.type === "Property" ||
+    p.type === "ObjectExpression" ||
+    p.type === "ArrayExpression" ||
+    p.type === "TSAsExpression" ||
+    p.type === "TSSatisfiesExpression" ||
+    p.type === "TSTypeAssertion"
+  )) {
+    p = p.parent;
+  }
+  return p;
+}
+
+function isAllowedConstLocation(filename) {
+  return /\/src\/(shared|domain|infrastructure)\//.test(filename);
+}
+
+var noMagicNumbersRule = {
+  meta: { type: "problem", docs: { description: "No magic numbers in application, domain, HTTP, and shared layers; extract to named constants" } },
+  create: function (context) {
+    var filename = context.filename || context.physicalFilename || "";
+    if (!/\/src\/(application|domain|http|shared)\//.test(filename)) return {};
+    if (/\/tests\//.test(filename)) return {};
+
+    return {
+      Literal: function (node) {
+        if (typeof node.value !== "number") return;
+        if (node.value === 0 || node.value === 1) return;
+
+        if (node.parent && node.parent.type === "Property" && node.parent.key === node) return;
+        if (node.parent && node.parent.type === "TSEnumMember" && node.parent.initializer === node) return;
+        if (node.parent && (node.parent.type === "TSLiteralType" || node.parent.type === "TSTypeAnnotation")) return;
+
+        var p = walkUpPastContainers(node);
+
+        if (isConstDeclarator(p) && p.id && p.id.type === "Identifier" && isSCREAMING_SNAKE(p.id.name)) return;
+
+        context.report({ node: node, message: "Magic number " + node.value + ". Extract to a named constant." });
+      },
+    };
+  },
+};
+
+// ─── Rule 14: constants-placement ──────────────────────────────────────────
+
+var constantsPlacementRule = {
+  meta: { type: "problem", docs: { description: "SCREAMING_SNAKE_CASE const declarations must live in shared, domain, or infrastructure" } },
+  create: function (context) {
+    var filename = context.filename || context.physicalFilename || "";
+    if (!/\/src\//.test(filename)) return {};
+    if (/\/tests\//.test(filename)) return {};
+    if (isAllowedConstLocation(filename)) return {};
+
+    return {
+      VariableDeclarator: function (node) {
+        if (!isConstDeclarator(node)) return;
+        if (!node.id || node.id.type !== "Identifier") return;
+        if (!isSCREAMING_SNAKE(node.id.name)) return;
+        context.report({ node: node.id, message: "Constant " + node.id.name + " must live in src/shared/, src/domain/, or src/infrastructure/" });
+      },
+    };
+  },
+};
+
+// ─── Rule 15: constants-jsdoc ──────────────────────────────────────────────
+
+function getTopLevelStatement(declarator) {
+  var p = declarator.parent;
+  if (!p) return null;
+  if (p.type === "ExportNamedDeclaration") return p;
+  if (p.parent && p.parent.type === "ExportNamedDeclaration") return p.parent;
+  return p;
+}
+
+function isConstStatement(stmt) {
+  if (stmt.type === "ExportNamedDeclaration") {
+    return stmt.declaration && stmt.declaration.type === "VariableDeclaration" && stmt.declaration.kind === "const";
+  }
+  return stmt.type === "VariableDeclaration" && stmt.kind === "const";
+}
+
+function hasImmediateJSDoc(context, stmt) {
+  var comments = context.sourceCode.getCommentsBefore(stmt);
+  for (var i = 0; i < comments.length; i++) {
+    var comment = comments[i];
+    if (comment.value.charAt(0) !== "*") continue;
+    if (comment.loc && stmt.loc && comment.loc.end.line < stmt.loc.start.line - 1) continue;
+    return true;
+  }
+  return false;
+}
+
+function areAdjacentStatements(left, right) {
+  return left.loc && right.loc && left.loc.end.line + 1 === right.loc.start.line;
+}
+
+function isInDocumentedGroup(context, declarator) {
+  var stmt = getTopLevelStatement(declarator);
+  if (!stmt || !stmt.parent || !stmt.parent.body) return false;
+
+  var body = stmt.parent.body;
+  var idx = -1;
+  for (var i = 0; i < body.length; i++) {
+    if (body[i] === stmt) { idx = i; break; }
+  }
+  if (idx <= 0) return false;
+
+  for (var k = idx - 1; k >= 0; k--) {
+    var prev = body[k];
+    if (!isConstStatement(prev)) break;
+    if (!areAdjacentStatements(prev, body[k + 1])) break;
+    if (hasImmediateJSDoc(context, prev)) return true;
+  }
+
+  return false;
+}
+
+function hasConstDoc(context, declarator) {
+  var stmt = getTopLevelStatement(declarator);
+  if (!stmt) return false;
+  if (hasImmediateJSDoc(context, stmt)) return true;
+  if (isInDocumentedGroup(context, declarator)) return true;
+  return false;
+}
+
+var constantsJSDocRule = {
+  meta: { type: "problem", docs: { description: "SCREAMING_SNAKE_CASE constants must have JSDoc (direct or group)" } },
+  create: function (context) {
+    var filename = context.filename || context.physicalFilename || "";
+    if (!/\/src\//.test(filename)) return {};
+    if (/\/tests\//.test(filename)) return {};
+
+    return {
+      VariableDeclarator: function (node) {
+        if (!isConstDeclarator(node)) return;
+        if (!node.id || node.id.type !== "Identifier") return;
+        if (!isSCREAMING_SNAKE(node.id.name)) return;
+
+        // Only enforce in allowed const locations (shared, domain, infrastructure)
+        if (!isAllowedConstLocation(filename)) return;
+
+        if (!hasConstDoc(context, node)) {
+          context.report({ node: node.id, message: "Constant " + node.id.name + " must have JSDoc (a /** group doc */ above a block of related constants, or a /** doc */ above each constant)" });
+        }
+      },
+    };
+  },
+};
+
 // ─── Plugin ───────────────────────────────────────────────────────────────
 var plugin = {
   meta: { name: "architecture" },
@@ -991,6 +1159,9 @@ var plugin = {
     "entity-class": entityClassRule,
     "no-raw-entity-serialization": noRawEntitySerializationRule,
     "crud-adapter-jsdoc": crudAdapterJSDocRule,
+    "no-magic-numbers": noMagicNumbersRule,
+    "constants-placement": constantsPlacementRule,
+    "constants-jsdoc": constantsJSDocRule,
   },
 };
 

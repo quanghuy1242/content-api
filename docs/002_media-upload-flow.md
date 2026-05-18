@@ -364,13 +364,13 @@ Because this repo has no production media data yet, implementation does not need
 
 Recommended: define media upload and variant constants once and import them everywhere.
 
-Use a central file such as `src/shared/media/media.constants.ts` for values needed by HTTP schemas, application validation, the processor Worker, and infrastructure code:
+Use a central file in `src/shared/` such as `src/shared/constants.ts` or a media-specific
+`src/shared/media/media.constants.ts`.  The architecture lint rule `constants-placement`
+enforces that `SCREAMING_SNAKE_CASE` constants live under `src/shared/`, `src/domain/`, or
+`src/infrastructure/` — not in `src/application/` or `src/http/`.
 
 ```ts
-export const MEDIA_UPLOAD_LIMITS = {
-  maxBytes: 10 * 1024 * 1024,
-  uploadUrlTtlSeconds: 5 * 60,
-} as const;
+import { MEDIA_CONTENT_TYPES, MEDIA_UPLOAD_LIMITS, MEDIA_VARIANTS, MEDIA_LOW_RES_PLACEHOLDER, MEDIA_OBJECT_KEYS } from "@/shared/media/media.constants";
 
 export const MEDIA_CONTENT_TYPES = ["image/png", "image/jpeg", "image/jpg"] as const;
 

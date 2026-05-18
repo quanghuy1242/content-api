@@ -30,6 +30,9 @@ Every new rule must include:
 - `architecture/entity-class`: entity files export class entities with `private constructor(private props: XxxProps)`, `static create(input: CreateXxxProps)`, `static reconstitute(...)`, `toSnapshot()`, and `CreateXxxProps = Omit<XxxProps, generated fields>`.
 - `architecture/no-raw-entity-serialization`: application/http code snapshots entities before JSON serialization or object spread.
 - `architecture/crud-adapter-jsdoc`: every public `CrudAdapter` method documents the invariant it centralizes.
+- `architecture/no-magic-numbers`: numeric literals in application, domain, HTTP, and shared layers must be extracted to named constants. 0 and 1 are exempt as universal base values. SCREAMING_SNAKE_CASE `const` declarations, property keys, enum members, and type annotations are exempt as definition sites.
+- `architecture/constants-placement`: SCREAMING_SNAKE_CASE const declarations must live in `src/shared/`, `src/domain/`, or `src/infrastructure/`. They are forbidden in `src/application/` and `src/http/`.
+- `architecture/constants-jsdoc`: every SCREAMING_SNAKE_CASE `const` declaration must have JSDoc. A `/** group doc */` above a consecutive, non-blank-line-separated block of related constants documents the entire block; individual `/** doc */` above each constant is also accepted.
 
 ## Required Sync Points
 

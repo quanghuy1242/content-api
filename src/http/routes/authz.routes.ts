@@ -21,6 +21,7 @@ import {
   relationshipResponseSchema,
 } from "@/http/schemas/authz.schema";
 import { idParamSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
 const grantMirrorListRoute = createRoute({
   method: "get",
@@ -193,21 +194,21 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentGrantMirror), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentGrantMirror), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(grantMirrorCreateRoute, async (c) => {
     const actor = requireActor(c);
     const body = c.req.valid("json");
     const result = await c.get("container").grantMirror.create.execute({ actor, input: body });
-    return c.json({ data: presentGrantMirror(result) }, 201);
+    return c.json({ data: presentGrantMirror(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(grantMirrorGetRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").grantMirror.get.execute({ actor, grantMirrorId: params.id });
-    return c.json({ data: presentGrantMirror(result) }, 200);
+    return c.json({ data: presentGrantMirror(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(grantMirrorUpdateRoute, async (c) => {
@@ -219,14 +220,14 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       grantMirrorId: params.id,
       input: body,
     });
-    return c.json({ data: presentGrantMirror(result) }, 200);
+    return c.json({ data: presentGrantMirror(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(grantMirrorDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").grantMirror.delete.execute({ actor, grantMirrorId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 
   app.openapi(deferredGrantListRoute, async (c) => {
@@ -237,7 +238,7 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentDeferredGrant), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentDeferredGrant), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(deferredGrantCreateRoute, async (c) => {
@@ -247,7 +248,7 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       actor,
       input: { ...body, processedAt: body.processedAt ?? null },
     });
-    return c.json({ data: presentDeferredGrant(result) }, 201);
+    return c.json({ data: presentDeferredGrant(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(deferredGrantGetRoute, async (c) => {
@@ -257,7 +258,7 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       actor,
       deferredGrantId: params.id,
     });
-    return c.json({ data: presentDeferredGrant(result) }, 200);
+    return c.json({ data: presentDeferredGrant(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(deferredGrantUpdateRoute, async (c) => {
@@ -269,14 +270,14 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       deferredGrantId: params.id,
       input: body,
     });
-    return c.json({ data: presentDeferredGrant(result) }, 200);
+    return c.json({ data: presentDeferredGrant(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(deferredGrantDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").deferredGrants.delete.execute({ actor, deferredGrantId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 
   app.openapi(relationshipListRoute, async (c) => {
@@ -287,20 +288,20 @@ export function registerAuthzRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentRelationship), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentRelationship), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(relationshipCreateRoute, async (c) => {
     const actor = requireActor(c);
     const body = c.req.valid("json");
     const result = await c.get("container").relationships.create.execute({ actor, input: body });
-    return c.json({ data: presentRelationship(result) }, 201);
+    return c.json({ data: presentRelationship(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(relationshipDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").relationships.delete.execute({ actor, relationshipId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 }

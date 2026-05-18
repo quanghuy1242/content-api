@@ -58,6 +58,18 @@ When docs and code disagree, fix code or stop and ask if the docs are ambiguous.
 - reusable validation fields
 - no resource-specific behavior and no unused generic abstractions
 
+## Constant Placement Rule
+
+Numeric literal values must be extracted to named constants:
+
+- Magic numbers (numeric literals except 0 and 1) are forbidden in `src/application/**`, `src/domain/**`, `src/http/**`, and `src/shared/**`.
+- Cross-cutting constants (e.g., HTTP status codes, idempotency TTL, pagination limits) belong in `src/shared/constants.ts`.
+- Resource-specific constants belong in `src/domain/<resource>/` (e.g., route name strings, status values).
+- Named constants must use `SCREAMING_SNAKE_CASE` (e.g., `IDEMPOTENCY_TTL_MS`, `HTTP_STATUS_OK`).
+- 0 and 1 are exempt as universal base values.
+- Property keys, enum members, and type annotations are exempt as definition sites.
+- Infrastructure layer (`src/infrastructure/**`) is exempt from this rule.
+
 ## Error Placement Rule
 
 Typed errors that cross layer boundaries belong in `src/shared/errors.ts`.

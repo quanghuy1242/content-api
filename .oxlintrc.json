@@ -60,7 +60,10 @@
     "architecture/mapper-file": "error",
     "architecture/entity-class": "error",
     "architecture/no-raw-entity-serialization": "error",
-    "architecture/crud-adapter-jsdoc": "error"
+    "architecture/crud-adapter-jsdoc": "error",
+    "architecture/no-magic-numbers": "error",
+    "architecture/constants-placement": "error",
+    "architecture/constants-jsdoc": "error"
   },
   "overrides": [
     {
@@ -139,6 +142,9 @@
         "architecture/entity-class": "off",
         "architecture/no-raw-entity-serialization": "off",
         "architecture/crud-adapter-jsdoc": "off",
+        "architecture/no-magic-numbers": "off",
+        "architecture/constants-placement": "off",
+        "architecture/constants-jsdoc": "off",
         "no-console": "off",
         "no-await-in-loop": "off"
       }
@@ -158,6 +164,9 @@
         "architecture/entity-class": "off",
         "architecture/no-raw-entity-serialization": "off",
         "architecture/crud-adapter-jsdoc": "off",
+        "architecture/no-magic-numbers": "off",
+        "architecture/constants-placement": "off",
+        "architecture/constants-jsdoc": "off",
         "no-console": "off"
       }
     }

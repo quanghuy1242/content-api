@@ -12,6 +12,7 @@ import { presentPost } from "@/http/presenters/post.presenter";
 import { requireActor } from "@/http/routes/helpers";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { createPostBodySchema, postResponseSchema, updatePostBodySchema } from "@/http/schemas/posts.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
 const postListRoute = createRoute({
   method: "get",
@@ -109,7 +110,7 @@ export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentPost), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentPost), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(postCreateRoute, async (c) => {
@@ -121,13 +122,13 @@ export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
     });
-    return c.json({ data: presentPost(result) }, 201);
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(postGetRoute, async (c) => {
     const params = c.req.valid("param");
     const result = await c.get("container").posts.get.execute({ actor: c.get("actor"), postId: params.id });
-    return c.json({ data: presentPost(result) }, 200);
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(postUpdateRoute, async (c) => {
@@ -135,27 +136,27 @@ export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
     const params = c.req.valid("param");
     const body = c.req.valid("json");
     const result = await c.get("container").posts.update.execute({ actor, postId: params.id, input: body });
-    return c.json({ data: presentPost(result) }, 200);
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(postPublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").posts.publish.execute({ actor, postId: params.id });
-    return c.json({ data: presentPost(result) }, 200);
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(postUnpublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").posts.unpublish.execute({ actor, postId: params.id });
-    return c.json({ data: presentPost(result) }, 200);
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(postDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").posts.delete.execute({ actor, postId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 }

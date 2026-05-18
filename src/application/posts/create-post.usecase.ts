@@ -9,10 +9,8 @@ import type { PostCreateWorkflow } from "@/domain/posts/post-create.workflow";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
+import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, POSTS_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
-
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const POSTS_CREATE_ROUTE = "POST /posts" as const;
 
 export class CreatePostUseCase {
   constructor(
@@ -120,7 +118,7 @@ export class CreatePostUseCase {
           route: POSTS_CREATE_ROUTE,
           requestHash,
           responseJson: JSON.stringify(params.post.toSnapshot()),
-          status: 201,
+          status: HTTP_STATUS_CREATED,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
       });

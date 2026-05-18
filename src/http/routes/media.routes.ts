@@ -12,6 +12,7 @@ import { presentMedia } from "@/http/presenters/media.presenter";
 import { requireActor } from "@/http/routes/helpers";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
 import { mediaCreateSchema, mediaResponseSchema, mediaUpdateSchema } from "@/http/schemas/media.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
 const mediaListRoute = createRoute({
   method: "get",
@@ -109,7 +110,7 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentMedia), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentMedia), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(mediaCreateRoute, async (c) => {
@@ -121,13 +122,13 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
     });
-    return c.json({ data: presentMedia(result) }, 201);
+    return c.json({ data: presentMedia(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(mediaGetRoute, async (c) => {
     const params = c.req.valid("param");
     const result = await c.get("container").media.get.execute({ actor: c.get("actor"), mediaId: params.id });
-    return c.json({ data: presentMedia(result) }, 200);
+    return c.json({ data: presentMedia(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(mediaUpdateRoute, async (c) => {
@@ -139,27 +140,27 @@ export function registerMediaRoutes(app: OpenAPIHono<AppEnv>) {
       mediaId: params.id,
       input: body,
     });
-    return c.json({ data: presentMedia(result) }, 200);
+    return c.json({ data: presentMedia(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(mediaPublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").media.publish.execute({ actor, mediaId: params.id });
-    return c.json({ data: presentMedia(result) }, 200);
+    return c.json({ data: presentMedia(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(mediaUnpublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").media.unpublish.execute({ actor, mediaId: params.id });
-    return c.json({ data: presentMedia(result) }, 200);
+    return c.json({ data: presentMedia(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(mediaDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").media.delete.execute({ actor, mediaId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 }

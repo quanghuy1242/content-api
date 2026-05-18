@@ -6,10 +6,8 @@ import type { UserCreateWorkflow } from "@/domain/users/user-create.workflow";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { ConflictError, IdempotencyReservationConflictError } from "@/shared/errors";
+import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, USERS_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
-
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const USERS_CREATE_ROUTE = "POST /users" as const;
 
 export class CreateUserUseCase {
   constructor(
@@ -88,7 +86,7 @@ export class CreateUserUseCase {
           route: USERS_CREATE_ROUTE,
           requestHash,
           responseJson: JSON.stringify(user.toSnapshot()),
-          status: 201,
+          status: HTTP_STATUS_CREATED,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
       });

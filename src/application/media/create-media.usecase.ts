@@ -9,13 +9,11 @@ import type { MediaCreateWorkflow } from "@/domain/media/media-create.workflow";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
+import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, MEDIA_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
 
 export type CreateMediaInput = Pick<CreateMediaProps, "alt" | "filename"> &
   Partial<Omit<CreateMediaProps, "owner" | "alt" | "filename">>;
-
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const MEDIA_CREATE_ROUTE = "POST /media" as const;
 
 export class CreateMediaUseCase {
   constructor(
@@ -118,7 +116,7 @@ export class CreateMediaUseCase {
           route: MEDIA_CREATE_ROUTE,
           requestHash,
           responseJson: JSON.stringify(params.media.toSnapshot()),
-          status: 201,
+          status: HTTP_STATUS_CREATED,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
       });

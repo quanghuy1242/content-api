@@ -16,6 +16,7 @@ import {
   categoryUpdateSchema,
 } from "@/http/schemas/categories.schema";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
 const categoryListRoute = createRoute({
   method: "get",
@@ -92,7 +93,7 @@ export function registerCategoryRoutes(app: OpenAPIHono<AppEnv>) {
       limit: query.limit,
       cursor: query.cursor,
     });
-    return c.json({ data: result.data.map(presentCategory), page: result.page }, 200);
+    return c.json({ data: result.data.map(presentCategory), page: result.page }, HTTP_STATUS_OK);
   });
 
   app.openapi(categoryCreateRoute, async (c) => {
@@ -104,14 +105,14 @@ export function registerCategoryRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
     });
-    return c.json({ data: presentCategory(result) }, 201);
+    return c.json({ data: presentCategory(result) }, HTTP_STATUS_CREATED);
   });
 
   app.openapi(categoryGetRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     const result = await c.get("container").categories.get.execute({ actor, categoryId: params.id });
-    return c.json({ data: presentCategory(result) }, 200);
+    return c.json({ data: presentCategory(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(categoryUpdateRoute, async (c) => {
@@ -123,13 +124,13 @@ export function registerCategoryRoutes(app: OpenAPIHono<AppEnv>) {
       categoryId: params.id,
       input: body,
     });
-    return c.json({ data: presentCategory(result) }, 200);
+    return c.json({ data: presentCategory(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(categoryDeleteRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
     await c.get("container").categories.delete.execute({ actor, categoryId: params.id });
-    return c.body(null, 204);
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 }

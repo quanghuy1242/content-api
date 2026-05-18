@@ -1,3 +1,7 @@
+/** Hex encoding constants for digest formatting. */
+const HEX_RADIX = 16;
+const HEX_BYTE_STRING_WIDTH = 2;
+
 /**
  * Produces deterministic JSON for request payload hashing by sorting object
  * keys recursively while preserving array order.
@@ -9,7 +13,7 @@ export function stableStringify(value: unknown): string {
 export async function sha256Hex(value: unknown): Promise<string> {
   const payload = new TextEncoder().encode(stableStringify(value));
   const digest = await crypto.subtle.digest("SHA-256", payload);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(HEX_RADIX).padStart(HEX_BYTE_STRING_WIDTH, "0")).join("");
 }
 
 function normalizeJsonValue(value: unknown): unknown {

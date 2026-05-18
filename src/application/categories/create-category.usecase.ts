@@ -8,10 +8,8 @@ import type { CategoryRepository } from "@/domain/categories/category.repository
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
+import { CATEGORIES_CREATE_ROUTE, HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
-
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const CATEGORIES_CREATE_ROUTE = "POST /categories" as const;
 
 export class CreateCategoryUseCase {
   constructor(
@@ -111,7 +109,7 @@ export class CreateCategoryUseCase {
           route: CATEGORIES_CREATE_ROUTE,
           requestHash,
           responseJson: JSON.stringify(params.category.toSnapshot()),
-          status: 201,
+          status: HTTP_STATUS_CREATED,
           expiresAt: new Date(Date.now() + IDEMPOTENCY_TTL_MS),
         },
       });

@@ -1,3 +1,5 @@
+import { HTTP_STATUS_BAD_REQUEST, HTTP_STATUS_CONFLICT, HTTP_STATUS_FORBIDDEN, HTTP_STATUS_INTERNAL_ERROR, HTTP_STATUS_NOT_FOUND, HTTP_STATUS_UNAUTHORIZED } from "@/shared/constants";
+
 export type ErrorCode =
   | "VALIDATION_ERROR"
   | "UNAUTHORIZED"
@@ -25,31 +27,31 @@ export class AppError extends Error {
 
 export class ValidationError extends AppError {
   constructor(message: string, details: Record<string, unknown> = {}) {
-    super("VALIDATION_ERROR", message, 400, details);
+    super("VALIDATION_ERROR", message, HTTP_STATUS_BAD_REQUEST, details);
   }
 }
 
 export class UnauthorizedError extends AppError {
   constructor(message = "Unauthorized") {
-    super("UNAUTHORIZED", message, 401);
+    super("UNAUTHORIZED", message, HTTP_STATUS_UNAUTHORIZED);
   }
 }
 
 export class ForbiddenError extends AppError {
   constructor(message = "Forbidden") {
-    super("FORBIDDEN", message, 403);
+    super("FORBIDDEN", message, HTTP_STATUS_FORBIDDEN);
   }
 }
 
 export class NotFoundError extends AppError {
   constructor(message = "Not found") {
-    super("NOT_FOUND", message, 404);
+    super("NOT_FOUND", message, HTTP_STATUS_NOT_FOUND);
   }
 }
 
 export class ConflictError extends AppError {
   constructor(message: string, details: Record<string, unknown> = {}) {
-    super("CONFLICT", message, 409, details);
+    super("CONFLICT", message, HTTP_STATUS_CONFLICT, details);
   }
 }
 
@@ -89,7 +91,7 @@ export function toErrorResponse(error: unknown, requestId: string) {
   }
 
   return {
-    status: 500,
+    status: HTTP_STATUS_INTERNAL_ERROR,
     body: {
       error: {
         code: "INTERNAL_ERROR",

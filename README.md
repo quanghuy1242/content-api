@@ -25,6 +25,9 @@ Architecture planning documents and implementation status:
 - [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — implemented
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
+- [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — proposal
+- [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — proposal
+- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — proposal
 
 Auth is implemented as an OAuth2 resource server:
 

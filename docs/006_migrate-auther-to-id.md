@@ -212,6 +212,12 @@ The live discovery metadata checked on 2026-05-22 advertises:
 - scopes including `api:read` and `api:write`
 - end-session endpoint for RP-initiated logout
 
+The planned `id` contract in `/home/quanghuy1242/pjs/auth/docs/010_organization-teams-oauth-flow.md` now names this as an OAuth scope catalog problem, not an authorization-policy problem:
+
+- resource-server-bound product/API scopes live in `oauthResourceScope`;
+- optional org-scoped M2M eligibility lives in `oauthClientOrganizationGrant`;
+- product roles, role-permission mappings, object bindings, resource hierarchy, and final policy decisions stay in resource APIs such as `content-api`.
+
 ### 3.5 Current Tests
 
 Tests in `tests/api.test.ts` issue fixture JWTs with:
@@ -395,7 +401,7 @@ Implementation tasks:
 }
 ```
 
-- [ ] Make product OAuth scopes resource-server-bound in `id`. For Content API scopes, `resourceServerId` should be required rather than optional so generic names such as `api:read` cannot collide across products.
+- [ ] Make product OAuth scopes resource-server-bound in `id` through `oauthResourceScope`. For Content API scopes, `resourceServerId` should be required rather than optional so generic names such as `api:read` cannot collide across products.
 - [ ] Update `wrangler.jsonc` and `wrangler.test.jsonc`.
 - [ ] Add `AUTH_REQUIRED_SCOPE` to `src/config/env.ts`.
 - [ ] Update README local setup auth config.

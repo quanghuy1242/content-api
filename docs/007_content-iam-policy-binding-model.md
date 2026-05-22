@@ -220,6 +220,8 @@ The staged update in `/home/quanghuy1242/pjs/auth/docs/010_organization-teams-oa
 - Better Auth teams as stable principal IDs;
 - user token `team_ids` for teams in the active `org_id`;
 - M2M principal identity from `azp` or `client_id`;
+- resource-server-bound OAuth scopes through `oauthResourceScope`;
+- optional org-scoped M2M eligibility through `oauthClientOrganizationGrant`;
 - resource APIs owning concrete grants and final object decisions.
 
 That is the correct boundary for Content IAM.
@@ -984,9 +986,9 @@ Tasks:
 
 - [ ] Ensure user tokens include `team_ids` for active `org_id`.
 - [ ] Ensure M2M tokens expose stable `azp` or `client_id`.
-- [ ] Make product OAuth scopes resource-server-bound in `id`.
+- [ ] Make product OAuth scopes resource-server-bound in `id` through `oauthResourceScope`.
 - [ ] Define `team_ids` cap/overflow behavior in `id`: fail token issuance for the active org rather than truncating.
-- [ ] Require `org_id` on org-scoped M2M access tokens.
+- [ ] Require `org_id` on org-scoped M2M access tokens, backed by `oauthClientOrganizationGrant` if that M2M flow is enabled.
 
 Acceptance criteria:
 

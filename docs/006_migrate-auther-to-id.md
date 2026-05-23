@@ -65,7 +65,7 @@
   - [M1-A. Register And Configure `id` Resource Server](#m1-a-register-and-configure-id-resource-server)
   - [M1-B. Replace Auther Token Checks](#m1-b-replace-auther-token-checks)
   - [M1-C. Update Test Fixtures](#m1-c-update-test-fixtures)
-  - [M1-D. Prepare Actor Shape For Content IAM](#m1-d-prepare-actor-shape-for-content-iam)
+  - [M1-D. Finalize Actor And Local User Identity](#m1-d-finalize-actor-and-local-user-identity)
 - [11. Future Backlog](#11-future-backlog)
 - [12. Definition Of Done](#12-definition-of-done)
 - [13. Final Model](#13-final-model)
@@ -74,7 +74,7 @@
 
 Replace Auther-specific access-token verification in `content-api` with `id` resource-server verification.
 
-This document is intentionally narrow. It handles issuer/JWKS/audience/scope migration and prepares the actor contract for teams and service accounts. It does not design book/chapter sharing, group grants, or object authorization. Those belong to [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md).
+This document is intentionally narrow. It handles issuer/JWKS/audience/scope migration, changes local user identity to use `id` `sub` directly, and supports user and service-account access-token actors, including direct-share user tokens that do not carry organization/team authority. It does not design book/chapter sharing, group grants, or object authorization. Those belong to [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md).
 
 Non-goals:
 
@@ -127,7 +127,9 @@ id
 content-api
   verifies id JWKS
   requires configured coarse scope
-  builds Actor from sub or client id plus org/team claims
+  uses sub directly as users.id for user actors
+  accepts direct-share user tokens without org_id/team authority for later direct resource bindings
+  builds service-account Actor from client id for M2M tokens
   leaves object authorization to local policies/use cases
 ```
 
@@ -183,12 +185,14 @@ categories.createdBy -> users.id
 media.owner -> users.id
 ```
 
-For the migration batch, keep this mapping to minimize blast radius. The Content IAM work should later decide whether to:
+Decision for this migration:
 
-- keep `users.id` as content-local profile ID and rename `better_auth_user_id` to `identity_subject`; or
-- make `users.id` equal `id` `sub` before real data exists.
+- keep a local `users` table for content-owned profile/authorship fields and existing FK targets;
+- make `users.id` equal the stable `id` `sub`;
+- remove `users.better_auth_user_id` rather than carrying a second identity key into the new system;
+- store user principals in future Content IAM bindings using the same `sub`/`users.id` value.
 
-The second option is simpler long term, but it changes more code and should be handled with Content IAM/user projection cleanup.
+There is no production data, so this is the clean point to remove the extra identifier mapping. Authentication can build the user actor directly from `sub`; use cases that require a local user/profile row should create or require that row using `id = sub`.
 
 ### 3.4 Current `id` Resource-Server Contract
 
@@ -215,7 +219,11 @@ The live discovery metadata checked on 2026-05-22 advertises:
 The planned `id` contract in `/home/quanghuy1242/pjs/auth/docs/010_organization-teams-oauth-flow.md` now names this as an OAuth scope catalog problem, not an authorization-policy problem:
 
 - resource-server-bound product/API scopes live in `oauthResourceScope`;
-- optional org-scoped M2M eligibility lives in `oauthClientOrganizationGrant`;
+- org-scoped M2M eligibility lives in `oauthClientOrganizationGrant` and must be ready before M2M-backed content access is deployed;
+- workspace and direct-share user token contexts are selected explicitly at authorization/consent time rather than inferred after an authorization failure;
+- direct-share user tokens must contain `sub`, no `org_id`, and `team_ids = []`, may request `content:read` and/or `content:write`, and must never receive `content:share`;
+- refresh/new issuance must preserve the selected direct-share context; an `id`-internal consent/reference marker used to keep that context distinct must never be emitted as token `org_id`;
+- `id` issues a direct-share token without consulting Content IAM bindings; the resource API decides whether an existing direct ordinary binding permits the requested resource operation;
 - product roles, role-permission mappings, object bindings, resource hierarchy, and final policy decisions stay in resource APIs such as `content-api`.
 
 ### 3.5 Current Tests
@@ -262,14 +270,13 @@ content object grants
 
 ### 4.2 Actor Mapping
 
-The immediate migration can keep `UserActor`, but the target actor should be compatible with Content IAM:
+The migration actor contract should be compatible with Content IAM:
 
 ```ts
 type UserActor = {
   type: "user";
   subject: string;
   id: string;
-  localUserId?: string;
   organizationId?: string;
   teamIds: string[];
   scopes: string[];
@@ -279,12 +286,12 @@ type UserActor = {
 type ServiceAccountActor = {
   type: "service_account";
   clientId: string;
-  organizationId?: string;
+  organizationId: string;
   scopes: string[];
 };
 ```
 
-The first implementation may preserve the existing `Actor` shape and add fields in a compatibility-safe way. Content IAM should finish the actor cleanup.
+For user actors, `id` and `subject` are the same `id` `sub` value. A user actor with no `organizationId` represents direct-share identity only: later Content IAM may evaluate direct ordinary user bindings, but it must not evaluate team/org authority or permit policy mutation. For service-account actors, `clientId` is taken from the documented `azp` or `client_id` M2M claim. M2M support is part of this migration target, not deferred; service accounts are never treated as administrators without later local Content IAM bindings.
 
 ### 4.3 Scope Boundary
 
@@ -297,6 +304,17 @@ content:share
 ```
 
 Do not encode `book.update`, `chapter.publish`, `media.attach`, or other Content IAM permissions as OAuth scopes. Object authorization and role composition belong to Content IAM.
+
+Token contexts are explicit:
+
+| User token context | Claims | Scopes available to the Content API | Authorization purpose |
+|---|---|---|---|
+| Workspace | `sub`, `org_id`, `team_ids` restricted to that organization | `content:read`, `content:write`, `content:share` as allowed for the OAuth client | May use local user/team policy and, with local authority, attempt Content IAM mutations. |
+| Direct share | `sub`, no `org_id`, `team_ids = []` | `content:read`, `content:write` only | May use an existing direct ordinary `user:sub` binding after a concrete resource is loaded. |
+
+The absence of `org_id` identifies direct-share context. An empty `team_ids` claim alone does not: a workspace user can legitimately have no teams in the selected organization.
+
+A direct-share actor with `content:write` and a suitable ordinary binding may update a shared book/chapter or create ordinary descendants such as chapters, sections, comments, inline comments, or attached media in that already-shared subtree. It cannot create a new organization-root book, receive organization/team-derived authority, or mutate Content IAM state.
 
 ### 4.4 Relationship To Content IAM
 
@@ -381,6 +399,7 @@ Target behavior:
 
 - `content-api` trusts `id.quanghuy.dev` and a URL audience.
 - `id` issues `content:read`/`content:write`/`content:share` only as resource-server-scoped permissions for the Content API audience.
+- `id.resourceServer.organizationId` identifies administration of the OAuth audience/scope registration only; token `org_id` supplies workspace authority context and the loaded content row `org_id` remains the content tenant boundary.
 
 Implementation tasks:
 
@@ -421,6 +440,9 @@ Implementation tasks:
 - [ ] Remove `token_use` validation.
 - [ ] Remove JWT role-derived admin logic.
 - [ ] Parse scope claim into `scopes`.
+- [ ] Accept user tokens with `sub` and M2M tokens with stable `azp`/`client_id` rather than requiring `sub` for every authenticated request.
+- [ ] Accept direct-share user tokens only with no `org_id`, `team_ids = []`, and no `content:share`; they may carry `content:read` and/or `content:write`.
+- [ ] Reject mismatched non-empty organization context rather than downgrading a workspace token to direct-share mode.
 - [ ] Catch verifier errors and convert them to `UnauthorizedError`.
 - [ ] Decide whether to depend on `@id/lib` or keep a local wrapper:
   - prefer `@id/lib` if it supports `fetchImpl`;
@@ -434,6 +456,11 @@ Tests:
 - Wrong audience returns `401`.
 - Missing required scope returns `401` or `403` according to final error contract.
 - Valid `id` token authenticates.
+- Valid direct-share user token without `org_id`, with `team_ids = []`, and with `content:read` or `content:write` authenticates with no team authority.
+- Direct-share user token requesting or carrying `content:share` is rejected.
+- Refreshed direct-share user token remains direct-share and never exposes an internal context marker as `org_id`.
+- Workspace token carrying a non-matching `org_id` is rejected rather than retried as direct-share.
+- Valid `id` M2M token authenticates as a service-account actor.
 
 ### 7.3 Actor Contract
 
@@ -443,12 +470,14 @@ Current problem:
 
 Target behavior:
 
-- Existing routes keep working.
-- Actor can later carry `organizationId`, `scopes`, `teamIds`, and service-account identity.
+- User actors use `sub` directly as `id`, aligned with `users.id`.
+- Service-account actors are accepted from valid M2M tokens.
+- Actor carries `organizationId`, `scopes`, `teamIds`, or service-account identity as appropriate.
 
 Implementation tasks:
 
-- [ ] Add non-breaking actor fields if useful:
+- [ ] Replace user identity mapping with `id = subject = payload.sub`.
+- [ ] Add user actor fields:
 
 ```ts
 organizationId?: string;
@@ -456,14 +485,20 @@ teamIds?: string[];
 scopes?: string[];
 ```
 
-- [ ] Keep `localUserId` until local user identity cleanup is planned.
+- [ ] Change the local `users` persistence contract so `users.id` stores `id` `sub`, preserving local user rows as FK/profile records.
+- [ ] Remove `better_auth_user_id` and its lookup repository path.
 - [ ] Do not treat M2M as admin by default.
-- [ ] For M2M tokens, either reject in this migration or create a `ServiceAccountActor` with explicit scopes.
+- [ ] Parse valid M2M tokens into a `ServiceAccountActor` using stable `azp`/`client_id`.
+- [ ] Require `org_id` on M2M requests to organization-owned resources.
+- [ ] Preserve `organizationId` as optional for user direct-share identity and require matching organization context for later IAM mutations, top-level organization book creation, or team-derived authority.
 
 Tests:
 
-- User token still reaches protected routes.
-- M2M behavior is explicit: accepted as service account or rejected until Content IAM supports it.
+- User token creates an actor whose ID equals its `sub`.
+- Local authored-resource FKs use the same user ID.
+- Valid M2M token creates a service-account actor.
+- Org-scoped M2M requests without `org_id` are rejected.
+- User token without `org_id` can represent direct-share identity only and cannot gain team/org policy authority.
 
 ### 7.4 Tests
 
@@ -488,6 +523,8 @@ const AUTH_REQUIRED_SCOPE = "content:read";
 
 - [ ] Remove `token_use` from `issueToken`.
 - [ ] Add `scope`.
+- [ ] Add M2M fixture tokens using `azp`/`client_id` and `org_id`.
+- [ ] Add direct-share user fixture tokens with no `org_id`, `team_ids = []`, and `content:read` or `content:write`; add an invalid `content:share` direct-share fixture.
 - [ ] Add tests for missing scope and wrong audience.
 - [ ] Stop using JWT `roles` to create admin actors.
 
@@ -510,9 +547,10 @@ Recommended deployment order:
 
 1. Ensure `id` production resource server exists for `https://content-api.quanghuy.dev`.
 2. Ensure the OAuth client that calls `content-api` sends `resource=https://content-api.quanghuy.dev`.
-3. Deploy code that accepts `id` tokens.
-4. Deploy Worker vars pointing at `id`.
-5. Smoke with a real `id` token.
+3. Ensure `id` exposes explicit workspace/direct-share token selection, preserves direct-share context across refresh without emitting an internal context marker as `org_id`, excludes `content:share` from direct-share tokens, and exposes the M2M claim and `oauthClientOrganizationGrant` contract before enabling Content IAM sharing or service-account content access.
+4. Deploy code that accepts `id` user and M2M tokens.
+5. Deploy Worker vars pointing at `id`.
+6. Smoke with real user and M2M `id` tokens.
 
 Rollback:
 
@@ -525,11 +563,13 @@ Rollback:
 |---|---|
 | Token missing `scope` | Reject. `id` must issue requested scopes. |
 | Token has wrong audience | Reject. The client likely omitted `resource` or used the wrong resource server. |
-| Token has no `org_id` | Accept only for non-org-scoped routes. Content IAM should reject org resources without matching `org_id`. |
-| User token has no local user row | For current create workflows, either create/project local user or fail with linked-user error. Content IAM should resolve this explicitly. |
-| M2M token has no `sub` | Do not map to user. Create service-account actor or reject until supported. |
+| User token has no `org_id` and has `team_ids = []` | Accept as direct-share identity only. Later Content IAM may use a direct ordinary `user:sub` binding on a loaded resource, including locally authorized ordinary descendant work, but must not use team/org authority, create an organization-root book, or permit IAM mutation. |
+| Direct-share user token carries `content:share` | Reject. `content:share` is workspace-only because it gates security-state mutation attempts. |
+| User token has an `org_id` different from loaded resource org | Reject; do not downgrade a mismatched workspace token to direct-share access. |
+| User token has no local user row | Authentication still produces `id = sub`; operations requiring a local authorship/profile row create or require `users.id = sub`. |
+| M2M token has no `sub` | Expected. Resolve stable `azp`/`client_id` and create a service-account actor. |
 | Org-scoped M2M token has no `org_id` | Reject for org resources. Service accounts are not global admins by default. |
-| Team membership changes | Old tokens may carry old `team_ids` until expiry. Content IAM should account for that risk or use introspection for high-risk routes later. |
+| Team membership changes | Old user tokens may carry old `team_ids` for at most the agreed 15-minute lifetime; refresh/new issuance reflects current membership. Sensitive Content IAM mutations are direct-user-only in v1. |
 | User belongs to too many teams for token size | `id` should fail token issuance for that org instead of silently truncating `team_ids`. If this becomes common, move to a deliberate membership projection design. |
 | `@id/lib` cannot inject test fetch | Use local wrapper or update `@id/lib`; keep tests deterministic. |
 
@@ -570,12 +610,17 @@ Tasks:
 
 - [ ] Remove `token_use`.
 - [ ] Validate issuer/audience/scope.
-- [ ] Parse optional `org_id` and `team_ids`.
+- [ ] Parse `sub`, optional `team_ids`, `org_id`, and M2M `azp`/`client_id` according to token type.
+- [ ] Accept M2M tokens without `sub` as service-account actors.
+- [ ] Treat a user token without `org_id` and with `team_ids = []` as direct-share identity only; permit `content:read`/`content:write` coarse capabilities but reject `content:share`.
 - [ ] Remove JWT role-derived admin behavior.
 
 Acceptance criteria:
 
 - Valid `id` token authenticates.
+- Valid direct-share user token authenticates without organization/team authority and may carry `content:write` for later ordinary descendant policy decisions.
+- Direct-share token with `content:share` is rejected.
+- Valid `id` M2M token authenticates as a service-account actor.
 - Auther-only token format is not required.
 
 Tests:
@@ -592,6 +637,9 @@ Scope:
 Tasks:
 
 - [ ] Issue `id`-shaped fixture tokens.
+- [ ] Issue M2M-shaped fixture tokens using `azp`/`client_id` and `org_id`.
+- [ ] Issue direct-share user fixture tokens without `org_id`, with `team_ids = []`, and with read/write scope variants.
+- [ ] Issue an invalid direct-share fixture carrying `content:share`.
 - [ ] Update mocked JWKS URL.
 - [ ] Add missing-scope test.
 
@@ -603,22 +651,32 @@ Tests:
 
 - `pnpm test`
 
-### M1-D. Prepare Actor Shape For Content IAM
+### M1-D. Finalize Actor And Local User Identity
 
 Scope:
 
 - `src/domain/authz/actor.ts`
 - `src/application/auth/authenticate-bearer-token.usecase.ts`
+- `src/domain/users/`
+- `src/infrastructure/db/schema.ts`
+- `src/infrastructure/repositories/`
+- `drizzle`
 
 Tasks:
 
-- [ ] Add `scopes`, `organizationId`, and `teamIds` to user actor if safe.
-- [ ] Define explicit service-account behavior.
+- [ ] Use `sub` directly for user actor ID and `users.id`.
+- [ ] Remove `better_auth_user_id` schema/repository mapping.
+- [ ] Add `scopes`, `organizationId`, and `teamIds` to user actor.
+- [ ] Keep user `organizationId` optional so direct ordinary resource sharing does not require organization membership.
+- [ ] Accept M2M tokens as service-account actors using `azp`/`client_id`.
+- [ ] Require `org_id` for service-account access to organization-owned resources.
 - [ ] Avoid treating M2M as admin.
 
 Acceptance criteria:
 
-- Content IAM can build on the actor without another auth migration.
+- Content IAM can use user principal IDs without provider-ID projection.
+- Service accounts can participate in later Content IAM bindings without another authentication migration.
+- Direct external users can participate in later ordinary resource bindings, including allowed descendant work within an existing shared subtree, without being made organization members.
 
 Tests:
 
@@ -627,7 +685,6 @@ Tests:
 
 ## 11. Future Backlog
 
-- Rename `better_auth_user_id` to provider-neutral `identity_subject`, or make `users.id` equal `id` `sub`.
 - Add per-route required scope checks after Content IAM lands.
 - Add optional token introspection for high-risk administrative operations.
 - Remove Auther grant/deferred/relationship tables when Content IAM replaces them.
@@ -637,6 +694,9 @@ Tests:
 - `content-api` verifies `id`-issued resource-bound JWTs.
 - `token_use` is no longer required.
 - Required scopes are enforced.
+- Local user records use `users.id = id.sub`; `better_auth_user_id` is removed.
+- Valid M2M tokens produce service-account actors and are not granted implicit administrator authority.
+- User tokens in direct-share context contain no `org_id`, have `team_ids = []`, carry only `content:read` and/or `content:write`, and produce actors without team/org policy authority.
 - Env vars point to `https://id.quanghuy.dev/api/auth` and `https://content-api.quanghuy.dev`.
 - Tests issue `id`-shaped tokens.
 - README auth setup and planning list are updated.
@@ -651,6 +711,8 @@ content-ui / service client
 
 content-api
   verifies id issuer/JWKS/audience/scope
-  builds actor from token claims
+  builds user actor with users.id = sub
+  permits org-less direct-share user identity for direct ordinary resource bindings and locally authorized descendant work, but never policy mutation
+  builds service-account actor from azp/client_id for M2M tokens
   delegates object authorization to local policies and future Content IAM
 ```

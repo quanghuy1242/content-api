@@ -37,6 +37,8 @@
 > - `id` will provide stable team IDs and `team_ids` in user access tokens for the active organization.
 > - `content-api` owns concrete content resources and therefore owns final object authorization.
 > - Book collaboration is a primary product requirement, not a later edge case.
+> - Permission keys are implemented by `content-api` code, while roles, role-permission composition, bindings, and explicit denials are Content IAM data.
+> - The first Content IAM implementation includes deny exceptions but does not include CEL or arbitrary policy expressions.
 
 ## Table Of Contents
 
@@ -51,21 +53,26 @@
   - [4.1 Ownership Boundaries](#41-ownership-boundaries)
   - [4.2 Resource Hierarchy](#42-resource-hierarchy)
   - [4.3 Principals](#43-principals)
-  - [4.4 Roles And Permissions](#44-roles-and-permissions)
+  - [4.4 Permission Contract And Dynamic Roles](#44-permission-contract-and-dynamic-roles)
   - [4.5 Policy Bindings](#45-policy-bindings)
-  - [4.6 Policy Evaluation](#46-policy-evaluation)
+  - [4.6 Policy Denials](#46-policy-denials)
+  - [4.7 Policy Evaluation](#47-policy-evaluation)
 - [5. Architecture Decisions](#5-architecture-decisions)
   - [5.1 Call This Content IAM, Not ReBAC](#51-call-this-content-iam-not-rebac)
-  - [5.2 Keep Role Semantics In Content API Code](#52-keep-role-semantics-in-content-api-code)
+  - [5.2 Keep Permission Keys In Code And Compose Roles In Data](#52-keep-permission-keys-in-code-and-compose-roles-in-data)
   - [5.3 Store Bindings Locally, Not In `id`](#53-store-bindings-locally-not-in-id)
   - [5.4 Use Teams As Principals, Not Orgs](#54-use-teams-as-principals-not-orgs)
   - [5.5 Avoid Cross-Request Policy Caches](#55-avoid-cross-request-policy-caches)
   - [5.6 Keep Billing Separate From IAM](#56-keep-billing-separate-from-iam)
+  - [5.7 Include Denials But Defer CEL](#57-include-denials-but-defer-cel)
 - [6. Proposed Data Model](#6-proposed-data-model)
-  - [6.1 `content_policy_bindings`](#61-content_policy_bindings)
-  - [6.2 `content_policy_events`](#62-content_policy_events)
-  - [6.3 Resource Tables](#63-resource-tables)
-  - [6.4 Local User Projection](#64-local-user-projection)
+  - [6.1 `content_permissions`](#61-content_permissions)
+  - [6.2 `content_roles` And `content_role_permissions`](#62-content_roles-and-content_role_permissions)
+  - [6.3 `content_policy_bindings`](#63-content_policy_bindings)
+  - [6.4 `content_policy_denials`](#64-content_policy_denials)
+  - [6.5 `content_policy_events`](#65-content_policy_events)
+  - [6.6 Resource Tables](#66-resource-tables)
+  - [6.7 Local User Projection](#67-local-user-projection)
 - [7. Content Policy API Shape](#7-content-policy-api-shape)
   - [7.1 Actor Shape](#71-actor-shape)
   - [7.2 Resource Reference Shape](#72-resource-reference-shape)
@@ -109,7 +116,7 @@ Design and implement a Content IAM model for `content-api` that can support seri
 - sharing at book/chapter/resource levels;
 - request-time final authorization without querying `id`.
 
-This replaces the Auther-era mirror-grant idea with content-owned policy bindings. `id` provides identity facts and coarse OAuth scopes. `content-api` owns content roles, concrete bindings, inheritance, and final authorization decisions.
+This replaces the Auther-era mirror-grant idea with content-owned IAM state. `id` provides identity facts and coarse OAuth scopes. `content-api` owns implemented permission keys, DB-backed roles and role composition, bindings, deny exceptions, inheritance, and final authorization decisions.
 
 ## 2. System Summary
 
@@ -120,7 +127,7 @@ client
   -> obtains id access token with:
        aud = https://content-api.quanghuy.dev
        org_id = org_1
-       scope = api:read api:write
+       scope = content:read content:write
        sub = user_1
        team_ids = [team_authors, team_editors]
 
@@ -135,7 +142,7 @@ content-api route
   -> repository mutation only after policy passes
 ```
 
-The policy evaluator uses local D1 tables and local role semantics. It does not call `id` on hot paths.
+The policy evaluator uses local D1 tables and local policy semantics. It does not call `id` on hot paths.
 
 ## 3. Current-State Findings
 
@@ -183,6 +190,10 @@ Observed access surfaces:
   - public/reference-based read behavior.
 
 Conclusion: PayloadCMS did not fail because the rules are fake. It scattered real policy logic across framework hooks, collection access callbacks, GraphQL resolvers, and mirror utilities. `content-api` should centralize the vocabulary and decision path.
+
+PayloadCMS does not cover explicit negative exceptions. Its grant mirror returns active additive grants and marks a source grant `revoked` only when that grant is removed. A user who inherits a grant from a group cannot be denied one permission while remaining in that group through the mirror model.
+
+Auther's conditioned tuple behavior is also not deny-overrides-allow. A failed Lua condition rejects that tuple, but another matching direct or group tuple may still allow the same permission. Content IAM must therefore model denial precedence explicitly if it supports this case.
 
 ### 3.2 Content API Current Authorization
 
@@ -286,6 +297,7 @@ recommendations
 content role semantics
 role -> permission mapping
 content_policy_bindings
+content_policy_denials
 content_policy_events
 resource hierarchy/inheritance
 ContentPolicy.can(...)
@@ -341,14 +353,12 @@ Principal sources:
 
 Books belong to an org, not to a team. Teams are collaboration/access units inside the org.
 
-### 4.4 Roles And Permissions
+### 4.4 Permission Contract And Dynamic Roles
 
-`content-api` should define executable role semantics in code. This is long-term acceptable and matches Auth0-style API development: the identity provider issues trusted scopes/claims; the API owns its business authorization.
-
-Example permission keys:
+`content-api` code defines the set of permission keys that have implemented meaning. A database row cannot invent a new protected operation; a use case must actually invoke a permission key:
 
 ```ts
-type ContentPermission =
+type ContentPermissionKey =
   | "book.read"
   | "book.update"
   | "book.delete"
@@ -367,53 +377,51 @@ type ContentPermission =
   | "media.delete";
 ```
 
-Example role mapping:
+These permission keys should also be seeded or registered in `content_permissions` so role-management APIs can validate input and expose the supported capability catalog.
 
-```ts
-const CONTENT_ROLE_PERMISSIONS = {
-  "book.owner": [
-    "book.read",
-    "book.update",
-    "book.delete",
-    "book.manage_bindings",
-    "chapter.read",
-    "chapter.create",
-    "chapter.update",
-    "chapter.publish",
-    "section.update",
-    "inline_comment.create",
-    "comment.moderate",
-    "media.read",
-    "media.create",
-    "media.attach",
-    "media.delete",
-  ],
-  "book.editor": [
-    "book.read",
-    "book.update",
-    "chapter.read",
-    "chapter.create",
-    "chapter.update",
-    "section.update",
-    "inline_comment.create",
-    "media.read",
-    "media.create",
-    "media.attach",
-  ],
-  "book.reviewer": [
-    "book.read",
-    "chapter.read",
-    "inline_comment.create",
-  ],
-  "book.reader": [
-    "book.read",
-    "chapter.read",
-    "media.read",
-  ],
-} as const;
+Roles and role-to-permission mappings should be stored in D1:
+
+```text
+content_permissions
+  book.read
+  book.update
+  chapter.read
+  chapter.update
+  chapter.publish
+  inline_comment.create
+  media.attach
+
+content_roles
+  book.owner
+  book.editor
+  book.reviewer
+  book.reader
+  sensitivity_reader
+
+content_role_permissions
+  book.editor -> book.read
+  book.editor -> book.update
+  book.editor -> chapter.read
+  book.editor -> chapter.update
+  book.editor -> media.attach
+  sensitivity_reader -> book.read
+  sensitivity_reader -> chapter.read
+  sensitivity_reader -> inline_comment.create
 ```
 
-These constants are security-sensitive code. Changing them should go through code review and tests.
+Built-in roles can be seeded and protected from deletion. Organization-managed roles may be added through Content IAM APIs without changing evaluator code, but they can only compose permission keys implemented and registered by `content-api`.
+
+Ownership and mutability boundary:
+
+| Concept | Location | Dynamic? | Example |
+|---|---|---|---|
+| OAuth capability gates | `id` scope catalog | Configured in `id` | `content:read`, `content:write`, `content:share` |
+| Route/use-case scope requirement | `content-api` code | Deployment change | update routes require `content:write` |
+| Implemented permission keys | `content-api` code plus seeded registry | New code plus seed migration | `chapter.update` |
+| Roles | `content-api` D1 | Yes | `book.editor`, `sensitivity_reader` |
+| Role-permission mappings | `content-api` D1 | Yes, over supported permissions | `book.editor -> chapter.update` |
+| Bindings and denials | `content-api` D1 | Yes | team allow, user exception deny |
+| Evaluation and precedence | `content-api` code | Deployment change | denial overrides allow |
 
 ### 4.5 Policy Bindings
 
@@ -435,7 +443,33 @@ service_account:client_importer has book.editor on book:book_1
 
 Use the term `binding`, not `grant_mirror`. A binding is current state. Grant/revoke are events.
 
-### 4.6 Policy Evaluation
+### 4.6 Policy Denials
+
+The first Content IAM implementation should support explicit negative exceptions:
+
+```text
+team:team_editors has book.editor on book:book_1
+user:user_t is a member of team:team_editors
+user:user_t is denied chapter.update on book:book_1 descendants
+```
+
+A denial targets a permission rather than a negative role:
+
+```text
+principal is denied permission on resource, optionally including descendants
+```
+
+This supports suspension or exceptional restriction without changing team membership or creating artificial teams. Denials are security-sensitive, must be audited, and must be manageable only by an actor permitted to manage bindings on the resource.
+
+Denial rules:
+
+- an applicable denial overrides a permission gained through any direct or team binding;
+- a denial inherited from an ancestor applies to descendants only when `applies_to_descendants` is true;
+- a descendant allow cannot override an inherited denial in v1;
+- restoring access requires deleting, expiring, or narrowing the denial;
+- denials do not make public content private from anonymous access; blocking public-content consumption is a separate product control.
+
+### 4.7 Policy Evaluation
 
 Decision pipeline:
 
@@ -448,18 +482,20 @@ Decision pipeline:
    - user:sub
    - team:team_ids[]
    - service_account:client_id
-6. Query content_policy_bindings for all candidate principals and resource ancestry.
-7. Expand roles to permissions in code.
-8. Apply content gates:
+6. Query active content_policy_denials for all candidate principals, permission, and resource ancestry.
+7. If any applicable denial matches, deny.
+8. Query active content_policy_bindings and role-permission mappings for all candidate principals and resource ancestry.
+9. Require an applicable binding whose DB-composed role contains the requested code-supported permission.
+10. Apply content gates:
    - status/draft/published
    - visibility
    - lock/password proof
    - soft delete
    - comment edit window/rate limit where relevant
-9. Allow or deny.
+11. Allow or deny.
 ```
 
-One object check should need at most one indexed policy-binding query after the resource is loaded.
+One object check should use bounded indexed D1 reads after the resource is loaded: an applicable-denial lookup and an applicable-allow lookup joined to role permissions. `canMany` should batch both sides for list endpoints.
 
 ## 5. Architecture Decisions
 
@@ -489,19 +525,21 @@ Avoid:
 - Auther relationship
 - generic ReBAC as the product-facing name
 
-### 5.2 Keep Role Semantics In Content API Code
+### 5.2 Keep Permission Keys In Code And Compose Roles In Data
 
 Recommended long-term approach:
 
-- `content-api` source code defines `CONTENT_ROLE_PERMISSIONS`.
+- `content-api` code invokes implemented permission keys such as `chapter.update`.
+- `content_permissions` registers those code-supported keys for validation and administration.
+- `content_roles` and `content_role_permissions` compose permissions dynamically in D1.
 - `id` only needs OAuth scopes and team identity.
-- Any `id` vocabulary UI is coordination/display, not the executable source of truth for content object decisions.
 
 Rationale:
 
-- Content authorization is product code and needs tests.
-- A UI change in `id` must not silently change content access.
-- This matches Auth0-style APIs: scopes are configured in the auth provider, but API code defines business rules.
+- Code must define an operation before any role can grant it.
+- Role composition is product administration state and should not require deploying code whenever an editor/reviewer variant is needed.
+- The permission registry gives DB relationships validation without allowing invented backend behavior.
+- `id` scope changes must not silently change content role composition.
 
 ### 5.3 Store Bindings Locally, Not In `id`
 
@@ -535,7 +573,7 @@ Do not make every team an org:
 Use:
 
 - D1 indexes;
-- one-query binding checks;
+- bounded indexed denial and allow queries;
 - request-local memoization;
 - batch `canMany` methods for lists.
 
@@ -557,9 +595,92 @@ Who owns/pays for this usage?
 
 Keep billing at org level first. Add attribution fields such as `created_by_team_id` or usage events later. Do not make groups separate tenants just to track cost.
 
+### 5.7 Include Denials But Defer CEL
+
+Decision:
+
+- include first-class permission-level denials in the first Content IAM implementation;
+- do not add CEL, Lua, or arbitrary conditional expressions in v1.
+
+Rationale:
+
+- individual negative exceptions are already a concrete collaboration requirement;
+- deny precedence can be deterministic and indexed;
+- arbitrary conditions require a larger policy language contract, list-filtering strategy, authoring safety model, simulation UX, and audit explanation path;
+- PayloadCMS and Auther did not provide deny-overrides-allow semantics that can simply be carried forward.
+
 ## 6. Proposed Data Model
 
-### 6.1 `content_policy_bindings`
+### 6.1 `content_permissions`
+
+`content_permissions` is the registry of policy operations that application code actually enforces:
+
+```ts
+export const contentPermissions = sqliteTable("content_permissions", {
+  key: text("key").primaryKey(),
+  description: text("description").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+```
+
+Rules:
+
+- keys such as `chapter.update` and `media.attach` are seeded from code-supported permissions;
+- role-management APIs may only reference enabled permission rows;
+- adding a permission row alone does not add application behavior; code must enforce that permission key first;
+- disabling a permission fails closed for roles that reference it.
+
+### 6.2 `content_roles` And `content_role_permissions`
+
+Roles are locally managed bundles of implemented permissions:
+
+```ts
+export const contentRoles = sqliteTable(
+  "content_roles",
+  {
+    id: text("id").primaryKey(),
+    namespaceId: text("namespace_id").notNull(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    assignableResourceType: text("assignable_resource_type").notNull(),
+    builtIn: integer("built_in", { mode: "boolean" }).notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("content_roles_namespace_key_idx").on(table.namespaceId, table.key),
+  ],
+);
+
+export const contentRolePermissions = sqliteTable(
+  "content_role_permissions",
+  {
+    roleId: text("role_id").notNull(),
+    permissionKey: text("permission_key").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("content_role_permissions_unique_idx").on(
+      table.roleId,
+      table.permissionKey,
+    ),
+  ],
+);
+```
+
+Rules:
+
+- `namespace_id = "system"` identifies built-in/system role templates; organization roles use their organization ID, avoiding nullable uniqueness behavior in SQLite;
+- built-in role definitions are seeded and cannot be silently modified or deleted through tenant APIs;
+- custom roles may compose only registered enabled permissions;
+- roles referenced by active bindings should be disabled rather than deleted, or migrated in one controlled workflow;
+- changing a role's permission composition changes all active bindings that reference it immediately, so mutations require binding-management authority and an audit event;
+- `assignable_resource_type` prevents assigning a book role to an incompatible resource type.
+
+### 6.3 `content_policy_bindings`
 
 Drizzle sketch:
 
@@ -571,7 +692,7 @@ export const contentPolicyBindings = sqliteTable(
     orgId: text("org_id").notNull(),
     principalType: text("principal_type").notNull(),
     principalId: text("principal_id").notNull(),
-    role: text("role").notNull(),
+    roleId: text("role_id").notNull(),
     resourceType: text("resource_type").notNull(),
     resourceId: text("resource_id").notNull(),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
@@ -584,7 +705,7 @@ export const contentPolicyBindings = sqliteTable(
       table.orgId,
       table.principalType,
       table.principalId,
-      table.role,
+      table.roleId,
       table.resourceType,
       table.resourceId,
     ),
@@ -599,7 +720,7 @@ export const contentPolicyBindings = sqliteTable(
       table.orgId,
       table.resourceType,
       table.resourceId,
-      table.role,
+      table.roleId,
     ),
     index("content_policy_bindings_expiry_idx").on(table.expiresAt),
   ],
@@ -609,13 +730,64 @@ export const contentPolicyBindings = sqliteTable(
 Rules:
 
 - `principal_type` is `user`, `team`, or `service_account`.
-- `role` is one of the code-defined content role keys.
-- role keys are immutable once used by bindings; if a role is removed or replaced, ship a binding migration first.
+- `role_id` references an enabled local content role compatible with `resource_type`.
 - `org_id` must match the resource's org.
 - expired bindings are ignored.
 - revocation deletes the active binding and writes an event.
+- recreating an expired binding must delete or replace the expired active-state row in the same authorized workflow so the uniqueness constraint does not block re-granting access.
 
-### 6.2 `content_policy_events`
+### 6.4 `content_policy_denials`
+
+Denials subtract an implemented permission for a principal on a resource or subtree:
+
+```ts
+export const contentPolicyDenials = sqliteTable(
+  "content_policy_denials",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    principalType: text("principal_type").notNull(),
+    principalId: text("principal_id").notNull(),
+    permissionKey: text("permission_key").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    appliesToDescendants: integer("applies_to_descendants", { mode: "boolean" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    reason: text("reason"),
+    createdByType: text("created_by_type").notNull(),
+    createdById: text("created_by_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("content_policy_denials_unique_idx").on(
+      table.orgId,
+      table.principalType,
+      table.principalId,
+      table.permissionKey,
+      table.resourceType,
+      table.resourceId,
+    ),
+    index("content_policy_denials_lookup_idx").on(
+      table.orgId,
+      table.principalType,
+      table.principalId,
+      table.permissionKey,
+      table.resourceType,
+      table.resourceId,
+    ),
+  ],
+);
+```
+
+Rules:
+
+- `permission_key` must be an enabled `content_permissions` row;
+- an active matching denial wins over direct, team-derived, and service-account allow bindings;
+- denial expiry removes the negative exception without changing the original role binding;
+- revocation deletes the active denial and writes an event; recreating an expired denial replaces or deletes the expired row in the same workflow;
+- create, update, expire, and revoke operations write policy events.
+
+### 6.5 `content_policy_events`
 
 Append-only audit:
 
@@ -623,16 +795,13 @@ Append-only audit:
 export const contentPolicyEvents = sqliteTable("content_policy_events", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),
-  bindingId: text("binding_id"),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
   action: text("action").notNull(),
-  principalType: text("principal_type").notNull(),
-  principalId: text("principal_id").notNull(),
-  role: text("role").notNull(),
-  resourceType: text("resource_type").notNull(),
-  resourceId: text("resource_id").notNull(),
   actorType: text("actor_type").notNull(),
   actorId: text("actor_id").notNull(),
   reason: text("reason"),
+  snapshotJson: text("snapshot_json"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 ```
@@ -643,12 +812,17 @@ Actions:
 binding.created
 binding.revoked
 binding.expired
-binding.updated
+denial.created
+denial.revoked
+denial.expired
+role.created
+role.permissions_updated
+role.disabled
 ```
 
-Audit events are required from day one because sharing changes are security-sensitive.
+Audit events are required from day one because sharing, role composition, and negative exceptions are security-sensitive.
 
-### 6.3 Resource Tables
+### 6.6 Resource Tables
 
 Book-system tables should include org and ownership fields:
 
@@ -688,7 +862,7 @@ content_blocks
 
 Direct owner fields are not a replacement for Content IAM. They are useful for defaults, audit, filtering, and bootstrapping owner bindings.
 
-### 6.4 Local User Projection
+### 6.7 Local User Projection
 
 `content-api` still needs local user/profile data for authorship and presentation. The Content IAM implementation should decide before real data exists:
 
@@ -742,13 +916,13 @@ Use cases should provide ancestry after loading resources. This prevents unbound
 export interface ContentPolicy {
   can(params: {
     actor: ContentActor | null;
-    permission: ContentPermission;
+    permission: ContentPermissionKey;
     resource: ContentResourceRef;
   }): Promise<boolean>;
 
   canMany(params: {
     actor: ContentActor | null;
-    permission: ContentPermission;
+    permission: ContentPermissionKey;
     resources: readonly ContentResourceRef[];
   }): Promise<Map<string, boolean>>;
 }
@@ -758,10 +932,10 @@ Repository support:
 
 ```ts
 export interface PolicyBindingRepository {
-  hasAnyActiveBinding(params: {
+  hasAllowedPermission(params: {
     orgId: string;
     principals: readonly PrincipalRef[];
-    roles: readonly ContentRole[];
+    permission: ContentPermissionKey;
     resources: readonly ResourceBindingRef[];
     now: Date;
   }): Promise<boolean>;
@@ -769,9 +943,27 @@ export interface PolicyBindingRepository {
   findAllowedResourceIds(params: {
     orgId: string;
     principals: readonly PrincipalRef[];
-    roles: readonly ContentRole[];
+    permission: ContentPermissionKey;
     resourceType: string;
     candidateResourceIds: readonly string[];
+    now: Date;
+  }): Promise<ReadonlySet<string>>;
+}
+
+export interface PolicyDenialRepository {
+  hasActiveDenial(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }): Promise<boolean>;
+
+  findDeniedResourceIds(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ContentResourceRef[];
     now: Date;
   }): Promise<ReadonlySet<string>>;
 }
@@ -785,8 +977,8 @@ Patterns:
 
 - public/published resources can be filtered directly by resource fields;
 - owned resources can be filtered by `created_by_user_id`;
-- private/shared resources should use one binding query to get allowed IDs;
-- `ContentPolicy.canMany` should handle batch decisions for already-loaded results.
+- private/shared resources should use batched binding and denial queries to calculate `allowedIds - deniedIds`;
+- `ContentPolicy.canMany` should handle batch allow/deny decisions for already-loaded results.
 
 Do not call `ContentPolicy.can(...)` in a loop that performs one D1 query per item.
 
@@ -803,12 +995,14 @@ book.read:
   OR actor has org-level content role if introduced later
 
 book.update:
-  scope includes api:write/content:write
-  AND actor has book.editor or book.owner on book
+  scope includes content:write
+  AND an applicable role binding includes book.update
+  AND no applicable book.update denial exists
 
 book.manage_bindings:
-  scope includes api:write/content:write
-  AND actor has book.owner on book
+  scope includes content:share
+  AND an applicable role binding includes book.manage_bindings
+  AND no applicable book.manage_bindings denial exists
 ```
 
 On book create:
@@ -823,16 +1017,16 @@ Chapters inherit from book unless overridden:
 
 ```text
 chapter.update:
-  direct chapter role grants
-  OR inherited book.editor/book.owner
+  allow from a direct chapter role or an inherited book role containing chapter.update
+  AND no direct or inherited chapter.update denial
 ```
 
 Sections and blocks inherit from chapter and book:
 
 ```text
 block.comment:
-  direct block permission
-  OR section/chapter/book reviewer/editor/owner
+  allow from a direct or inherited role containing block.comment
+  AND no applicable block.comment denial
 ```
 
 Nested sections should be represented with `parent_section_id`. The policy evaluator receives ancestry; it does not calculate the tree on its own.
@@ -933,7 +1127,7 @@ Raw chapter passwords are acceptable only if the product explicitly wants that r
 Recommended phases:
 
 1. Finish `id` token migration from [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md).
-2. Add Content IAM domain model and persistence.
+2. Add Content IAM permission registry, role composition, binding, denial, and audit persistence.
 3. Replace `relationships` usage for new book resources.
 4. Remove `grant_mirror` and `deferred_grants` once no routes depend on them.
 5. Build book/chapter/section resources on top of Content IAM.
@@ -954,9 +1148,10 @@ Rollout order:
 
 1. `id` supports teams and `team_ids`.
 2. `content-api` actor can parse teams.
-3. `content-api` adds binding tables/events.
-4. new book resources create owner bindings.
-5. old `relationships`, `grant_mirror`, and `deferred_grants` are deleted or deprecated.
+3. `content-api` seeds supported permissions and built-in role definitions.
+4. `content-api` adds bindings, denials, and audit events.
+5. new book resources create owner bindings.
+6. old `relationships`, `grant_mirror`, and `deferred_grants` are deleted or deprecated.
 
 ## 11. Edge Cases And Failure Modes
 
@@ -964,10 +1159,15 @@ Rollout order:
 |---|---|
 | Token has old `team_ids` after team removal | Access may continue until JWT expiry unless high-risk introspection is added. New/refresh tokens omit removed team. |
 | Binding removed while access token remains valid | Deny on next request because bindings are local and checked at request time. |
-| Role key removed from code while bindings reference it | Treat as inactive/denied; migration must remove or replace bindings. |
+| Role disabled while bindings reference it | Treat its bindings as inactive; retain audit history and migrate/re-enable deliberately. |
+| Permission registry row is disabled while a role references it | Treat that permission as unavailable and fail closed. |
 | Binding references team from another org | Reject on create; ignore/deny if corrupted. |
 | M2M token lacks `org_id` for org resource | Reject with `403`. |
-| User has `api:write` but no object binding | Reject with `403`. |
+| User has `content:write` but no object binding | Reject with `403`. |
+| Team role grants permission but user has matching denial | Deny; user denial overrides the team allow. |
+| User receives the permission from a second team after a denial | Deny; denial overrides all applicable allows. |
+| Denial exists on a parent resource with descendant application | Deny descendant operation even if a child role allows it. |
+| An administrator wants context-dependent access | Not expressible through CEL in v1; use roles/bindings/denials or plan a policy-language extension. |
 | Public book has locked chapter | Public/read IAM can pass, but lock gate may still deny content field. |
 | List endpoint has many private resources | Use binding ID query and batch policy, not per-row checks. |
 | D1 query fails during policy check | Fail closed. |
@@ -986,7 +1186,7 @@ Tasks:
 
 - [ ] Ensure user tokens include `team_ids` for active `org_id`.
 - [ ] Ensure M2M tokens expose stable `azp` or `client_id`.
-- [ ] Make product OAuth scopes resource-server-bound in `id` through `oauthResourceScope`.
+- [ ] Configure coarse `content:read`, `content:write`, and `content:share` scopes as resource-server-bound scopes in `id` through `oauthResourceScope`.
 - [ ] Define `team_ids` cap/overflow behavior in `id`: fail token issuance for the active org rather than truncating.
 - [ ] Require `org_id` on org-scoped M2M access tokens, backed by `oauthClientOrganizationGrant` if that M2M flow is enabled.
 
@@ -1008,20 +1208,21 @@ Scope:
 
 Tasks:
 
-- [ ] Add `ContentPermission` and `ContentRole` constants.
-- [ ] Add role-to-permission mapping.
-- [ ] Add `PolicyBinding` entity.
-- [ ] Add `PolicyEvent` entity.
+- [ ] Add code-supported `ContentPermissionKey` constants.
+- [ ] Add `ContentPermission`, `ContentRole`, `PolicyBinding`, `PolicyDenial`, and `PolicyEvent` entities.
+- [ ] Add use-case contracts for managing roles, role permissions, bindings, and denials.
 - [ ] Add repository interfaces.
 
 Acceptance criteria:
 
-- Role semantics live in code and are testable.
-- No dependency on `id` runtime for role expansion.
+- Permission keys checked by application code are explicit and testable.
+- Role composition and deny exceptions are owned by `content-api`, not `id`.
+- No CEL/arbitrary condition engine is part of the first implementation.
 
 Tests:
 
-- unit tests for role-to-permission mapping.
+- unit tests for supported permission-key validation.
+- unit tests for denial precedence rules.
 
 ### IAM-C. Add Persistence And Migrations
 
@@ -1034,7 +1235,11 @@ Scope:
 
 Tasks:
 
+- [ ] Add `content_permissions`.
+- [ ] Add `content_roles`.
+- [ ] Add `content_role_permissions`.
 - [ ] Add `content_policy_bindings`.
+- [ ] Add `content_policy_denials`.
 - [ ] Add `content_policy_events`.
 - [ ] Add repositories and mappers.
 - [ ] Use `CrudAdapter` for common writes.
@@ -1042,8 +1247,10 @@ Tasks:
 
 Acceptance criteria:
 
-- Binding create/revoke is persisted and audited.
+- Permission seeds and built-in roles can be installed deterministically.
+- Role-composition, binding, and denial changes are persisted and audited.
 - Unique constraints prevent duplicate active bindings.
+- Unique constraints prevent duplicate active denials.
 
 Tests:
 
@@ -1062,12 +1269,15 @@ Tasks:
 - [ ] Implement `canMany`.
 - [ ] Implement principal expansion from actor.
 - [ ] Implement resource ancestry lookup inputs.
+- [ ] Resolve applicable denials before allow bindings.
+- [ ] Resolve role permissions from local D1 role composition.
 - [ ] Add request-local memoization in composition layer only if needed.
 
 Acceptance criteria:
 
-- One object check uses bounded indexed D1 queries.
-- List endpoints can batch policy checks.
+- One object check uses bounded indexed D1 denial and allow queries.
+- List endpoints can batch allow and deny policy checks.
+- Applicable denials override every applicable allow source.
 
 Tests:
 
@@ -1077,6 +1287,11 @@ Tests:
 - missing binding denies.
 - expired binding denies.
 - ancestor book binding allows chapter permission.
+- updating a role composition changes authorization for existing bindings and records an audit event.
+- direct user denial overrides team role permission.
+- denial overrides permission received from multiple teams.
+- inherited parent denial overrides descendant allow.
+- expired denial no longer overrides an allow.
 
 ### IAM-E. Replace Relationship/Grant Mirror Usage
 
@@ -1147,8 +1362,9 @@ Tasks:
 
 - [ ] Add policy evaluator tests.
 - [ ] Add route integration tests for book/chapter authorization.
-- [ ] Add list filtering tests.
-- [ ] Add audit event tests.
+- [ ] Add list filtering tests that subtract denied resources from allowed resources.
+- [ ] Add role-composition management tests.
+- [ ] Add denial and audit event tests.
 
 Acceptance criteria:
 
@@ -1162,25 +1378,28 @@ Tests:
 
 ## 13. Future Backlog
 
-- Custom roles through admin UI.
+- Custom role and denial management UI over the first-batch Content IAM APIs.
 - Policy simulation UI for content resources.
 - Group/team merge operation.
 - Group budgets/quotas and usage attribution.
 - Share links/access passes.
 - Optional token introspection for high-risk admin paths.
 - Policy event streaming for audit exports.
-- Deny policies if allow-only bindings prove insufficient.
+- Optional condition language such as CEL only after concrete conditional-policy requirements and list-filtering behavior are designed.
 
 ## 14. Definition Of Done
 
 - Content IAM tables and repositories exist.
-- Content role/permission constants exist in code with tests.
+- Code-supported permission keys and their registry seed exist with tests.
+- DB-backed roles and role-permission mappings exist.
+- DB-backed permission denials exist and override applicable allows.
 - `ContentPolicy.can` and `canMany` exist.
 - User/team/service-account principals are supported.
 - Book owner/editor/reviewer/reader behavior is expressible through bindings.
 - Resource ancestry is passed to policy checks.
-- Binding create/revoke writes audit events.
+- Role composition, binding, and denial changes write audit events.
 - No hot-path request to `id` is needed for object authorization.
+- No CEL or arbitrary condition runtime is included in the first implementation.
 - Auther mirror/deferred grant concepts are removed or explicitly deprecated.
 - README planning/status list is updated.
 - `pnpm check` passes after implementation.
@@ -1201,8 +1420,10 @@ id
 
 content-api
   product authorization:
-    content roles and permissions in code
+    implemented permission keys in code and local registry
+    content_roles and content_role_permissions
     content_policy_bindings
+    content_policy_denials
     content_policy_events
     resource hierarchy
     ContentPolicy.can(...)

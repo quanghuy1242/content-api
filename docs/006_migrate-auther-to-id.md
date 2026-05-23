@@ -118,7 +118,7 @@ id
   JWT:
     iss = https://id.quanghuy.dev/api/auth
     aud = https://content-api.quanghuy.dev
-    scope = api:read api:write or content:* scopes
+    scope = content:read content:write content:share
     org_id = active organization when org-scoped
     sub = user id for user tokens
     team_ids = active-org team ids once id teams are enabled
@@ -168,7 +168,7 @@ The target `id` values are:
 Add a required-scope setting so deployments can change the coarse API gate without code edits:
 
 ```jsonc
-"AUTH_REQUIRED_SCOPE": "api:read"
+"AUTH_REQUIRED_SCOPE": "content:read"
 ```
 
 ### 3.3 Current User Mapping
@@ -231,7 +231,7 @@ Those fixtures must switch to:
 
 - `iss = https://id.test/api/auth`;
 - `aud = https://content-api.test`;
-- `scope = api:read`;
+- `scope = content:read`;
 - no `token_use`;
 - no role-derived admin behavior from JWT.
 
@@ -288,21 +288,15 @@ The first implementation may preserve the existing `Actor` shape and add fields 
 
 ### 4.3 Scope Boundary
 
-Scopes are coarse API gates. For the migration, keep:
-
-```text
-api:read
-api:write
-```
-
-or move to content-specific coarse scopes if `id` is configured that way:
+Scopes are coarse API gates. Configure the Content API resource server with:
 
 ```text
 content:read
 content:write
+content:share
 ```
 
-Do not encode book/chapter object decisions as OAuth scopes. Object authorization belongs to Content IAM.
+Do not encode `book.update`, `chapter.publish`, `media.attach`, or other Content IAM permissions as OAuth scopes. Object authorization and role composition belong to Content IAM.
 
 ### 4.4 Relationship To Content IAM
 
@@ -386,7 +380,7 @@ Current problem:
 Target behavior:
 
 - `content-api` trusts `id.quanghuy.dev` and a URL audience.
-- `id` issues `api:read`/`api:write` only as resource-server-scoped permissions for the Content API audience.
+- `id` issues `content:read`/`content:write`/`content:share` only as resource-server-scoped permissions for the Content API audience.
 
 Implementation tasks:
 
@@ -401,7 +395,7 @@ Implementation tasks:
 }
 ```
 
-- [ ] Make product OAuth scopes resource-server-bound in `id` through `oauthResourceScope`. For Content API scopes, `resourceServerId` should be required rather than optional so generic names such as `api:read` cannot collide across products.
+- [ ] Make `content:read`, `content:write`, and `content:share` resource-server-bound in `id` through `oauthResourceScope`. `resourceServerId` should be required rather than optional so the scope names cannot collide across products.
 - [ ] Update `wrangler.jsonc` and `wrangler.test.jsonc`.
 - [ ] Add `AUTH_REQUIRED_SCOPE` to `src/config/env.ts`.
 - [ ] Update README local setup auth config.
@@ -489,7 +483,7 @@ Implementation tasks:
 const AUTH_ISSUER = "https://id.test/api/auth";
 const AUTH_AUDIENCE = "https://content-api.test";
 const AUTH_JWKS_URL = "https://id.test/api/auth/jwks";
-const AUTH_REQUIRED_SCOPE = "api:read";
+const AUTH_REQUIRED_SCOPE = "content:read";
 ```
 
 - [ ] Remove `token_use` from `issueToken`.

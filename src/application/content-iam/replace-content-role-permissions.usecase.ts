@@ -7,13 +7,13 @@ import type { ContentRoleRepository } from "@/domain/iam/content-role.repository
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { ORG_CONTENT_ROLE_PERMISSIONS_REPLACE_ROUTE } from "@/shared/constants";
 import { ConflictError, NotFoundError, ValidationError } from "@/shared/errors";
-import { recordDeniedPolicyMutation } from "@/application/content-iam/audit-denied-mutation";
-import { deserializeRoleMutation, serializeRoleMutation } from "@/application/content-iam/content-iam-snapshot";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
+import { deserializeRoleMutation, serializeRoleMutation } from "@/domain/iam/content-iam-snapshot";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { organizationResource } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { organizationResource } from "@/domain/iam/resource-loader";
 
 export type ReplaceContentRolePermissionsInput = {
   expectedVersion: number;
@@ -82,7 +82,7 @@ export class ReplaceContentRolePermissionsUseCase {
       key: requireIdempotencyKey(params.idempotencyKey),
       actor: params.actor,
       route: ORG_CONTENT_ROLE_PERMISSIONS_REPLACE_ROUTE,
-      input: params.input,
+      input: { orgId: params.orgId, roleId: params.roleId, body: params.input },
       responseJson: () => serializeRoleMutation(role, event, permissions),
       replay: deserializeRoleMutation,
       commit: async ({ idempotency }) => {

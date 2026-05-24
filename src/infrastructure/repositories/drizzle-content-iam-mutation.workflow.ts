@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { ContentPermissionKey } from "@/domain/iam/content-permission";
@@ -35,6 +35,7 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
   async createBinding(params: Parameters<ContentIamMutationWorkflow["createBinding"]>[0]) {
     await this.runBatch([
       ...this.idempotencyStatement(params.idempotency),
+      ...this.deleteExpiredBindingStatements(params.binding),
       this.crud.buildInsert(contentPolicyBindings, policyBindingToInsertRow(params.binding)),
       this.crud.buildInsert(contentPolicyEvents, policyEventToInsertRow(params.event)),
     ]);
@@ -50,6 +51,7 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
   async createDenial(params: Parameters<ContentIamMutationWorkflow["createDenial"]>[0]) {
     await this.runBatch([
       ...this.idempotencyStatement(params.idempotency),
+      ...this.deleteExpiredDenialStatements(params.denial),
       this.crud.buildInsert(contentPolicyDenials, policyDenialToInsertRow(params.denial)),
       this.crud.buildInsert(contentPolicyEvents, policyEventToInsertRow(params.event)),
     ]);
@@ -113,6 +115,36 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
         createdAt: new Date(),
       }),
     );
+  }
+
+  private deleteExpiredBindingStatements(binding: Parameters<ContentIamMutationWorkflow["createBinding"]>[0]["binding"]) {
+    const snapshot = binding.toSnapshot();
+    return [
+      this.crud.buildDelete(contentPolicyBindings, and(
+        eq(contentPolicyBindings.orgId, snapshot.orgId),
+        eq(contentPolicyBindings.principalType, snapshot.principalType),
+        eq(contentPolicyBindings.principalId, snapshot.principalId),
+        eq(contentPolicyBindings.roleId, snapshot.roleId),
+        eq(contentPolicyBindings.resourceType, snapshot.resourceType),
+        eq(contentPolicyBindings.resourceId, snapshot.resourceId),
+        lte(contentPolicyBindings.expiresAt, new Date()),
+      )!),
+    ];
+  }
+
+  private deleteExpiredDenialStatements(denial: Parameters<ContentIamMutationWorkflow["createDenial"]>[0]["denial"]) {
+    const snapshot = denial.toSnapshot();
+    return [
+      this.crud.buildDelete(contentPolicyDenials, and(
+        eq(contentPolicyDenials.orgId, snapshot.orgId),
+        eq(contentPolicyDenials.principalType, snapshot.principalType),
+        eq(contentPolicyDenials.principalId, snapshot.principalId),
+        eq(contentPolicyDenials.permissionKey, snapshot.permissionKey),
+        eq(contentPolicyDenials.resourceType, snapshot.resourceType),
+        eq(contentPolicyDenials.resourceId, snapshot.resourceId),
+        lte(contentPolicyDenials.expiresAt, new Date()),
+      )!),
+    ];
   }
 
   private async runBatch(statements: BatchItem<"sqlite">[]) {

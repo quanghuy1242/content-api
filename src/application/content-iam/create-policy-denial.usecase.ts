@@ -8,13 +8,13 @@ import { PolicyDenial } from "@/domain/iam/policy-denial.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { BOOK_POLICY_DENIALS_CREATE_ROUTE, ORG_POLICY_DENIALS_CREATE_ROUTE } from "@/shared/constants";
-import { recordDeniedPolicyMutation } from "@/application/content-iam/audit-denied-mutation";
-import { deserializeDenialMutation, serializeDenialMutation } from "@/application/content-iam/content-iam-snapshot";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
+import { deserializeDenialMutation, serializeDenialMutation } from "@/domain/iam/content-iam-snapshot";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { loadContentResource, type ContentResourceInput } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
 export type CreatePolicyDenialInput = {
   principal: PrincipalRef;
@@ -31,6 +31,7 @@ export class CreatePolicyDenialUseCase {
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly contentApiAudience: string,
   ) {}
 
   async execute(params: {
@@ -91,7 +92,7 @@ export class CreatePolicyDenialUseCase {
       key: requireIdempotencyKey(params.idempotencyKey),
       actor: params.actor,
       route,
-      input: params.input,
+      input: { resource: { type: resource.type, id: resource.id }, body: params.input },
       responseJson: () => serializeDenialMutation(denial, event),
       replay: deserializeDenialMutation,
       commit: async ({ idempotency }) => {
@@ -117,7 +118,7 @@ export class CreatePolicyDenialUseCase {
     await this.principalDirectory.validateServiceAccountForOrganization({
       clientId: principal.id,
       orgId,
-      resource: "https://content-api.quanghuy.dev",
+      resource: this.contentApiAudience,
     });
   }
 }

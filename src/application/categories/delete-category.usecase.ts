@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -11,6 +12,7 @@ export class DeleteCategoryUseCase {
   ) {}
 
   async execute(params: { actor: Actor; categoryId: string }) {
+    requireContentScope(params.actor, "content:write");
     const category = await this.categories.findById(params.categoryId);
     if (!category) {
       throw new NotFoundError("Category not found");
@@ -27,4 +29,3 @@ export class DeleteCategoryUseCase {
     }
   }
 }
-

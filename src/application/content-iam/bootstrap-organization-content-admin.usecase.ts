@@ -3,20 +3,22 @@ import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.rep
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-directory";
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
+import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { ForbiddenError } from "@/shared/errors";
 import { ORG_CONTENT_ADMIN_BOOTSTRAP_ROUTE } from "@/shared/constants";
-import { deserializeBindingMutation, serializeBindingMutation } from "@/application/content-iam/content-iam-snapshot";
+import { deserializeBindingMutation, serializeBindingMutation } from "@/domain/iam/content-iam-snapshot";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { organizationResource } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { organizationResource } from "@/domain/iam/resource-loader";
 
 export class BootstrapOrganizationContentAdminUseCase {
   constructor(
     private readonly roles: ContentRoleRepository,
+    private readonly bindings: PolicyBindingRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
@@ -31,7 +33,12 @@ export class BootstrapOrganizationContentAdminUseCase {
     requestId?: string;
   }) {
     const resource = organizationResource(params.orgId);
-    if (params.actor.type !== "user" || params.actor.subject !== params.userId || !params.actor.scopes.includes("content:share")) {
+    if (
+      params.actor.type !== "user" ||
+      params.actor.subject !== params.userId ||
+      params.actor.organizationId !== params.orgId ||
+      !params.actor.scopes.includes("content:share")
+    ) {
       throw new ForbiddenError("Organization Content IAM bootstrap requires the target workspace user");
     }
     await this.roles.ensureSystemCatalog();
@@ -68,6 +75,16 @@ export class BootstrapOrganizationContentAdminUseCase {
       responseJson: () => serializeBindingMutation(binding, event),
       replay: deserializeBindingMutation,
       commit: async ({ idempotency }) => {
+        const activeAdmins = await this.bindings.countActiveRoleBindings({
+          orgId: params.orgId,
+          resourceType: "org",
+          resourceId: params.orgId,
+          roleId: "system:org.content_admin",
+          now: new Date(),
+        });
+        if (activeAdmins > 0) {
+          throw new ForbiddenError("Organization Content IAM bootstrap is only allowed before a local admin exists");
+        }
         await this.workflow.createBinding({ binding, event, idempotency });
         return { binding, event };
       },

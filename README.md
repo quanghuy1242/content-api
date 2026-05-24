@@ -27,18 +27,20 @@ Architecture planning documents and implementation status:
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 - [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — proposal
 - [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
-- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — implemented
+- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — implemented IAM substrate; full book hierarchy deferred
+- [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
+- [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — planned
 
 Auth is implemented as an OAuth2 resource server:
 
 - bearer JWTs are validated against `id` JWKS with `jose`
 - `iss` must match `AUTH_ISSUER`
 - `aud` must match `AUTH_AUDIENCE`
-- `scope` must include `AUTH_REQUIRED_SCOPE`
-- user actors use `sub` directly as `users.id`
+- `scope` must include at least one accepted Content API scope from `AUTH_REQUIRED_SCOPE`; use cases enforce route-level `content:read`, `content:write`, or `content:share`
+- user actors use `sub` directly as `users.id`; content-api fills missing local profile/authorship projections from `id` token facts and does not create identity users, teams, or organizations
 - direct-share user tokens have no `org_id`, no team authority, and cannot carry `content:share`
 - M2M tokens authenticate as service-account actors through `azp`/`client_id`, without implicit admin authority
-- Content IAM durable policy writes validate target users, teams, and service accounts through `id` principal-validation endpoints; hot-path object checks stay local
+- Content IAM durable policy writes validate target users, teams, and service accounts through `id` principal-validation endpoints using an auto-refreshed client-credentials M2M token; hot-path object checks stay local
 
 ## Stack
 
@@ -96,8 +98,10 @@ wrangler r2 bucket notification create content-api-media \
     "AUTH_ISSUER": "https://id.quanghuy.dev/api/auth",
     "AUTH_AUDIENCE": "https://content-api.quanghuy.dev",
     "AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
-    "AUTH_REQUIRED_SCOPE": "content:read",
+    "AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
     "ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
+    "ID_PRINCIPAL_VALIDATION_AUDIENCE": "https://id.quanghuy.dev/principal-validation",
+    "ID_PRINCIPAL_VALIDATION_SCOPE": "identity:principals:validate",
     "R2_BUCKET_NAME": "content-api-media",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
@@ -111,7 +115,7 @@ Create `.dev.vars` from the committed example:
 cp .dev.vars.example .dev.vars
 ```
 
-Set `ID_PRINCIPAL_VALIDATION_TOKEN` in `.dev.vars` or as a Cloudflare secret. It is the dedicated integration token used only for low-volume Content IAM principal validation writes.
+Set `ID_PRINCIPAL_VALIDATION_CLIENT_ID` and `ID_PRINCIPAL_VALIDATION_CLIENT_SECRET` in `.dev.vars` or as Cloudflare secrets. The Worker exchanges them at `ID_PRINCIPAL_VALIDATION_TOKEN_URL` when configured, or at `/api/auth/oauth2/token` under `ID_PRINCIPAL_VALIDATION_URL`, for a principal-validation audience token with `identity:principals:validate`.
 
 4. Apply local migrations:
 
@@ -161,13 +165,14 @@ pnpm advise
 Current automated coverage includes:
 
 - `401` unauthenticated
-- `401` invalid token, wrong audience, missing required scope, and invalid direct-share `content:share`
+- `401` invalid token, wrong audience, no accepted content scope, and invalid direct-share `content:share`
+- per-route OAuth gates for read, write, and Content IAM share mutations
 - `403` forbidden
 - `404` missing resource
 - media upload lifecycle, idempotent create replay, and queue ack/retry behavior
 - happy paths across posts, media, users, and authz-admin resources
 - `id`-shaped user, direct-share, and service-account token fixtures
-- Content IAM bootstrap, binding, denial, ownership transfer, custom role, principal-validation failure, and denial-precedence coverage
+- Content IAM bootstrap boundaries, binding, denial, ownership transfer, custom role, M2M principal-validation fetch/cache, last-admin invariant, expired binding recreation, path-scoped idempotency, and denial-precedence coverage
 
 ## Deployment
 
@@ -187,6 +192,8 @@ Required GitHub secrets:
 - `R2_ACCOUNT_ID` — Cloudflare account ID exposed to the Worker for presigned upload signing
 - `R2_ACCESS_KEY_ID` — R2 access key for presigned upload URLs
 - `R2_SECRET_ACCESS_KEY` — R2 secret key for presigned upload URLs
+- `ID_PRINCIPAL_VALIDATION_CLIENT_ID` — `id` OAuth client used only for principal-validation M2M calls
+- `ID_PRINCIPAL_VALIDATION_CLIENT_SECRET` — secret for the principal-validation OAuth client
 
 ## Not Implemented
 

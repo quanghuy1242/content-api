@@ -1,13 +1,17 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor, UserActor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { User, type CreateUserProps, type UserProps } from "@/domain/users/user.entity";
+import { identityProjectionFromActor } from "@/domain/users/user-projection";
 import type { UserCreateWorkflow } from "@/domain/users/user-create.workflow";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { ConflictError, IdempotencyReservationConflictError } from "@/shared/errors";
 import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, USERS_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
+
+type CreateLocalUserProjectionInput = Omit<CreateUserProps, "id" | "role"> & Partial<Pick<CreateUserProps, "role">>;
 
 export class CreateUserUseCase {
   constructor(
@@ -17,23 +21,25 @@ export class CreateUserUseCase {
     private readonly userPolicy: UserPolicy,
   ) {}
 
-  async execute(params: { actor: Actor; idempotencyKey?: string; input: CreateUserProps }) {
-    const actorId = await this.requireActorId(params.actor);
+  async execute(params: { actor: Actor; idempotencyKey?: string; input: CreateLocalUserProjectionInput }) {
+    const actorUser = await this.requireActorUser(params.actor);
+    const input = this.buildProjectionInput(actorUser, params.input);
 
     if (!params.idempotencyKey) {
-      return this.executeWithoutIdempotency(params.input);
+      return this.executeWithoutIdempotency(input);
     }
 
     return this.executeWithIdempotency({
       key: params.idempotencyKey,
-      actorId,
-      input: params.input,
+      actorId: actorUser.subject,
+      input,
     });
   }
 
-  private async requireActorId(actor: Actor) {
-    await assertAllowed(this.userPolicy.canCreate(actor), "Only admins can create users");
-    return actor.type === "user" ? actor.id : "system";
+  private async requireActorUser(actor: Actor): Promise<UserActor> {
+    requireContentScope(actor, "content:write");
+    await assertAllowed(this.userPolicy.canCreate(actor), "Only users can create their own local profile projection");
+    return actor as UserActor;
   }
 
   private async assertEmailAvailable(email: string) {
@@ -45,6 +51,18 @@ export class CreateUserUseCase {
 
   private buildUser(input: CreateUserProps): User {
     return User.create(input);
+  }
+
+  private buildProjectionInput(actor: UserActor, input: CreateLocalUserProjectionInput): CreateUserProps {
+    const projection = identityProjectionFromActor(actor);
+    return {
+      id: actor.subject,
+      email: projection.email,
+      fullName: projection.fullName,
+      avatar: projection.avatar,
+      bio: input.bio,
+      role: "user",
+    };
   }
 
   private async executeWithoutIdempotency(input: CreateUserProps) {

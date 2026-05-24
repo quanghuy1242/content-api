@@ -57,7 +57,7 @@ const ORGANIZATION_ADMIN_DELEGATION_RANK = 3;
 
 /** Code-owned Content IAM permissions registered into D1 for role composition. */
 export const CONTENT_PERMISSIONS = [
-  { key: "org.create_book", description: "Create a book inside an organization", delegationClass: "organization_admin" },
+  { key: "org.create_book", description: "Create a book inside an organization", delegationClass: "ordinary" },
   { key: "org.manage_bindings", description: "Manage organization-scoped Content IAM bindings", delegationClass: "organization_admin" },
   { key: "org.manage_roles", description: "Manage organization-defined Content IAM roles", delegationClass: "organization_admin" },
   { key: "book.read", description: "Read a private book", delegationClass: "ordinary" },

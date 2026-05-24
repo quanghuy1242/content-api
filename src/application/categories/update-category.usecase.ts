@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UpdateCategoryProps } from "@/domain/categories/category.entity";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
@@ -16,6 +17,7 @@ export class UpdateCategoryUseCase {
     categoryId: string;
     input: UpdateCategoryProps;
   }) {
+    requireContentScope(params.actor, "content:write");
     const category = await this.categories.findById(params.categoryId);
     if (!category) {
       throw new NotFoundError("Category not found");
@@ -32,4 +34,3 @@ export class UpdateCategoryUseCase {
     return category;
   }
 }
-

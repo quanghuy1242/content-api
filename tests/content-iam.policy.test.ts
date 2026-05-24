@@ -46,6 +46,41 @@ describe("Content IAM policy", () => {
       { type: "service_account", id: "client-content-bot" },
     ]);
   });
+
+  it("batches canMany denial and allow lookups", async () => {
+    let allowBatchCalls = 0;
+    let denialBatchCalls = 0;
+    const policy = new LocalContentPolicy(
+      {
+        ...bindingRepository({ allowed: true }),
+        findAllowedResourceRefs: async (input) => {
+          allowBatchCalls += 1;
+          return [...input.resources];
+        },
+      },
+      {
+        ...denialRepository({ denied: false }),
+        findDeniedResourceRefs: async () => {
+          denialBatchCalls += 1;
+          return [];
+        },
+      },
+    );
+
+    const decisions = await policy.canMany({
+      actor: workspaceActor(),
+      permission: "book.read",
+      resources: [
+        bookResource,
+        { ...bookResource, id: "book-secondary" },
+      ],
+    });
+
+    expect(decisions.get("book-main")).toBe(true);
+    expect(decisions.get("book-secondary")).toBe(true);
+    expect(allowBatchCalls).toBe(1);
+    expect(denialBatchCalls).toBe(1);
+  });
 });
 
 function workspaceActor(): Actor {
@@ -85,9 +120,11 @@ function bindingRepository(params: { allowed: boolean }): PolicyBindingRepositor
     findMany: async () => ({ data: [], page: {} }),
     findById: async () => null,
     findActiveBookOwner: async () => null,
+    countActiveRoleBindings: async () => 0,
     create: async (binding) => binding,
     delete: async () => false,
     hasAllowedPermission: async () => params.allowed,
+    findAllowedResourceRefs: async (input) => params.allowed ? [...input.resources] : [],
   };
 }
 
@@ -97,6 +134,7 @@ function denialRepository(params: { denied: boolean }): PolicyDenialRepository {
     findById: async () => null,
     create: async (denial) => denial,
     delete: async () => false,
+    findDeniedResourceRefs: async (input) => params.denied ? [...input.resources] : [],
     hasActiveDenial: async (input) => {
       expect(input.principals.map((principal: PrincipalRef) => principal.id)).toContain("user-alice");
       return params.denied;

@@ -11,7 +11,9 @@ export type UserProps = {
   updatedAt: Date;
 };
 
-export type CreateUserProps = Omit<UserProps, "id" | "createdAt" | "updatedAt">;
+export type CreateUserProps = Omit<UserProps, "createdAt" | "updatedAt">;
+
+export type IdentityProjectionUserProps = Pick<UserProps, "id" | "email" | "fullName" | "avatar">;
 
 export type UpdateUserProps = Partial<Omit<UserProps, "id" | "createdAt" | "updatedAt">>;
 
@@ -20,12 +22,12 @@ export class User {
 
   static create(input: CreateUserProps) {
     const now = new Date();
-    return new User({
+    const props: UserProps = {
       ...input,
-      id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    return new User(props);
   }
 
   static reconstitute(props: UserProps) {
@@ -48,6 +50,24 @@ export class User {
     if (input.bio !== undefined) this.props.bio = input.bio;
     if (input.role !== undefined) this.props.role = input.role;
     this.touch();
+  }
+
+  syncIdentityProjection(input: IdentityProjectionUserProps): boolean {
+    let changed = false;
+    if (this.props.email !== input.email) {
+      this.props.email = input.email;
+      changed = true;
+    }
+    if (this.props.fullName !== input.fullName) {
+      this.props.fullName = input.fullName;
+      changed = true;
+    }
+    if (this.props.avatar !== input.avatar) {
+      this.props.avatar = input.avatar;
+      changed = true;
+    }
+    if (changed) this.touch();
+    return changed;
   }
 
   toSnapshot(): UserProps {

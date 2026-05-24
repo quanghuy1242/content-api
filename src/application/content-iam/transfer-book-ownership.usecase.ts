@@ -12,12 +12,12 @@ import { ConflictError, NotFoundError } from "@/shared/errors";
 import {
   deserializeOwnershipTransfer,
   serializeOwnershipTransfer,
-} from "@/application/content-iam/content-iam-snapshot";
+} from "@/domain/iam/content-iam-snapshot";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { loadBookResource } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { loadBookResource } from "@/domain/iam/resource-loader";
 
 export type TransferBookOwnershipInput = {
   expectedCurrentOwnerUserId: string;
@@ -59,7 +59,10 @@ export class TransferBookOwnershipUseCase {
       currentOwnerUserId: currentOwner.principalId,
       nextOwnerUserId: params.input.nextOwnerUserId,
     });
-    await this.principalDirectory.validateUser({ userId: params.input.nextOwnerUserId });
+    await this.principalDirectory.validateUserInOrganization({
+      userId: params.input.nextOwnerUserId,
+      orgId: resource.orgId,
+    });
 
     const nextOwner = PolicyBinding.create({
       orgId: resource.orgId,
@@ -92,7 +95,7 @@ export class TransferBookOwnershipUseCase {
       key: requireIdempotencyKey(params.idempotencyKey),
       actor: params.actor,
       route: BOOK_OWNERSHIP_TRANSFER_ROUTE,
-      input: params.input,
+      input: { bookId: resource.id, body: params.input },
       responseJson: () => serializeOwnershipTransfer(currentOwner, nextOwner, event),
       replay: deserializeOwnershipTransfer,
       commit: async ({ idempotency }) => {

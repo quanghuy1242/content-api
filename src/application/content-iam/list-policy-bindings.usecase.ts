@@ -1,9 +1,10 @@
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { ForbiddenError } from "@/shared/errors";
-import { loadContentResource, type ContentResourceInput } from "@/application/content-iam/resource-loader";
+import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
 export class ListPolicyBindingsUseCase {
   constructor(
@@ -13,6 +14,7 @@ export class ListPolicyBindingsUseCase {
   ) {}
 
   async execute(params: { actor: Actor; resource: ContentResourceInput; limit: number; cursor?: string }) {
+    requireContentScope(params.actor, "content:share");
     const resource = await loadContentResource(this.books, params.resource);
     const allowed = await this.contentPolicy.can({
       actor: params.actor,
@@ -21,6 +23,7 @@ export class ListPolicyBindingsUseCase {
     });
     if (!allowed) throw new ForbiddenError("Not authorized to list policy bindings");
     return this.bindings.findMany({
+      orgId: resource.orgId,
       resourceType: resource.type,
       resourceId: resource.id,
       limit: params.limit,

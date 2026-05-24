@@ -4,7 +4,7 @@ import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutati
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { NotFoundError } from "@/shared/errors";
-import { organizationResource } from "@/application/content-iam/resource-loader";
+import { organizationResource } from "@/domain/iam/resource-loader";
 
 export class DisableContentRoleUseCase {
   constructor(

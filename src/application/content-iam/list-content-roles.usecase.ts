@@ -1,10 +1,11 @@
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import type { ContentPermissionKey } from "@/domain/iam/content-permission";
 import type { ContentRole } from "@/domain/iam/content-role.entity";
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { ForbiddenError } from "@/shared/errors";
-import { organizationResource } from "@/application/content-iam/resource-loader";
+import { organizationResource } from "@/domain/iam/resource-loader";
 
 export type ContentRoleWithPermissions = {
   role: ContentRole;
@@ -18,6 +19,7 @@ export class ListContentRolesUseCase {
   ) {}
 
   async execute(params: { actor: Actor; orgId: string; limit: number; cursor?: string }) {
+    requireContentScope(params.actor, "content:share");
     await this.roles.ensureSystemCatalog();
     const resource = organizationResource(params.orgId);
     const allowed = await this.contentPolicy.can({

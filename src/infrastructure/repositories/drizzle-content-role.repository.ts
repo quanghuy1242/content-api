@@ -23,28 +23,48 @@ export class DrizzleContentRoleRepository implements ContentRoleRepository {
 
   async ensureSystemCatalog() {
     const now = new Date();
-    await Promise.all(CONTENT_PERMISSIONS.map((permission) => this.crud.insertRow(contentPermissions, {
-      key: permission.key,
-      description: permission.description,
-      delegationClass: permission.delegationClass,
-      enabled: true,
-      createdAt: now,
-      updatedAt: now,
-    }, { onConflictDoNothing: true })));
+    await Promise.all(CONTENT_PERMISSIONS.map(async (permission) => {
+      await this.crud.insertRow(contentPermissions, {
+        key: permission.key,
+        description: permission.description,
+        delegationClass: permission.delegationClass,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      }, { onConflictDoNothing: true });
+      await this.crud.updateRow(contentPermissions, contentPermissions.key, permission.key, {
+        description: permission.description,
+        delegationClass: permission.delegationClass,
+        enabled: true,
+        updatedAt: now,
+      });
+    }));
 
-    await Promise.all(BUILT_IN_CONTENT_ROLES.map((role) => this.crud.insertRow(contentRoles, {
-      id: role.id,
-      namespaceId: "system",
-      key: role.key,
+    await Promise.all(BUILT_IN_CONTENT_ROLES.map(async (role) => {
+      await this.crud.insertRow(contentRoles, {
+        id: role.id,
+        namespaceId: "system",
+        key: role.key,
         name: role.name,
         assignableResourceType: role.assignableResourceType,
         builtIn: true,
         enabled: true,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    }, { onConflictDoNothing: true })));
-    await Promise.all(BUILT_IN_CONTENT_ROLES.map((role) => this.insertPermissions(role.id, role.permissions)));
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      }, { onConflictDoNothing: true });
+      await this.crud.updateRow(contentRoles, contentRoles.id, role.id, {
+        namespaceId: "system",
+        key: role.key,
+        name: role.name,
+        assignableResourceType: role.assignableResourceType,
+        builtIn: true,
+        enabled: true,
+        updatedAt: now,
+      });
+      await this.crud.deleteRows(contentRolePermissions, eq(contentRolePermissions.roleId, role.id));
+      await this.insertPermissions(role.id, role.permissions);
+    }));
   }
 
   async findMany(params: { namespaceId?: string; namespaceIds?: readonly string[]; limit: number; cursor?: string }) {

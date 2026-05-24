@@ -5,7 +5,7 @@ import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutati
 import type { PolicyDenialRepository } from "@/domain/iam/policy-denial.repository";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { NotFoundError } from "@/shared/errors";
-import { loadContentResource, type ContentResourceInput } from "@/application/content-iam/resource-loader";
+import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
 export class RevokePolicyDenialUseCase {
   constructor(

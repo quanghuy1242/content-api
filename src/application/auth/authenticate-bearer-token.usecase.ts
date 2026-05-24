@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, customFetch, jwtVerify, type JWTPayload } from "jose";
 import type { Actor } from "@/domain/authz/actor";
+import { hasAnyContentScope } from "@/domain/authz/scopes";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UnauthorizedError } from "@/shared/errors";
 
@@ -13,6 +14,8 @@ type AuthConfig = {
 
 type VerifiedToken = JWTPayload & {
   email?: string;
+  name?: string;
+  picture?: string;
   scope?: string;
   org_id?: string;
   team_ids?: unknown;
@@ -61,7 +64,7 @@ export class AuthenticateBearerTokenUseCase {
 
     const verified = payload as VerifiedToken;
     const scopes = parseScopes(verified.scope);
-    if (!scopes.includes(this.config.requiredScope)) {
+    if (!hasAnyContentScope(scopes, parseScopes(this.config.requiredScope))) {
       throw new UnauthorizedError("Invalid token");
     }
 
@@ -95,6 +98,8 @@ export class AuthenticateBearerTokenUseCase {
       organizationId,
       teamIds,
       email: typeof verified.email === "string" ? verified.email : undefined,
+      name: typeof verified.name === "string" ? verified.name : undefined,
+      avatar: typeof verified.picture === "string" ? verified.picture : undefined,
     };
   }
 

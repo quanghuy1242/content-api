@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, eq, gt, isNull, or, type SQL } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { ContentPermissionKey, PrincipalRef } from "@/domain/iam/content-permission";
 import type { ResourceBindingRef } from "@/domain/iam/content-resource";
@@ -18,7 +18,7 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
     this.crud = new CrudAdapter(db);
   }
 
-  async findMany(params: { resourceType: string; resourceId: string; limit: number; cursor?: string }) {
+  async findMany(params: { orgId: string; resourceType: string; resourceId: string; limit: number; cursor?: string }) {
     const page = await this.crud.listRows<typeof contentPolicyBindings.$inferSelect>({
       table: contentPolicyBindings,
       idColumn: contentPolicyBindings.id,
@@ -27,6 +27,7 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
       limit: params.limit,
       cursor: params.cursor,
       where: [
+        eq(contentPolicyBindings.orgId, params.orgId),
         eq(contentPolicyBindings.resourceType, params.resourceType),
         eq(contentPolicyBindings.resourceId, params.resourceId),
       ],
@@ -63,6 +64,26 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
     return row ? policyBindingRowToEntity(row) : null;
   }
 
+  async countActiveRoleBindings(params: {
+    orgId: string;
+    resourceType: string;
+    resourceId: string;
+    roleId: string;
+    now: Date;
+  }) {
+    const rows = await this.db
+      .select({ id: contentPolicyBindings.id })
+      .from(contentPolicyBindings)
+      .where(and(
+        eq(contentPolicyBindings.orgId, params.orgId),
+        eq(contentPolicyBindings.roleId, params.roleId),
+        eq(contentPolicyBindings.resourceType, params.resourceType),
+        eq(contentPolicyBindings.resourceId, params.resourceId),
+        or(isNull(contentPolicyBindings.expiresAt), gt(contentPolicyBindings.expiresAt, params.now)),
+      ));
+    return rows.length;
+  }
+
   async delete(id: string) {
     return this.crud.deleteRowById(contentPolicyBindings, contentPolicyBindings.id, id);
   }
@@ -76,8 +97,41 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
   }) {
     if (params.principals.length === 0 || params.resources.length === 0) return false;
 
-    const rows = await this.db
-      .select({ id: contentPolicyBindings.id })
+    const rows = await this.allowedRows(params)
+      .limit(1);
+
+    return rows.length > 0;
+  }
+
+  async findAllowedResourceRefs(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }) {
+    if (params.principals.length === 0 || params.resources.length === 0) return [];
+    const rows = await this.allowedRows(params);
+    return rows.map((row) => ({
+      type: row.resourceType as ResourceBindingRef["type"],
+      id: row.resourceId,
+      direct: false,
+    }));
+  }
+
+  private allowedRows(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }) {
+    return this.db
+      .select({
+        id: contentPolicyBindings.id,
+        resourceType: contentPolicyBindings.resourceType,
+        resourceId: contentPolicyBindings.resourceId,
+      })
       .from(contentPolicyBindings)
       .innerJoin(contentRoles, eq(contentRoles.id, contentPolicyBindings.roleId))
       .innerJoin(contentRolePermissions, eq(contentRolePermissions.roleId, contentPolicyBindings.roleId))
@@ -90,10 +144,7 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
         or(isNull(contentPolicyBindings.expiresAt), gt(contentPolicyBindings.expiresAt, params.now)),
         or(...principalConditions(params.principals)),
         or(...resourceConditions(params.resources)),
-      ))
-      .limit(1);
-
-    return rows.length > 0;
+      ));
   }
 }
 
@@ -105,18 +156,8 @@ function principalConditions(principals: readonly PrincipalRef[]): SQL<unknown>[
 }
 
 function resourceConditions(resources: readonly ResourceBindingRef[]): SQL<unknown>[] {
-  const direct = resources.filter((resource) => resource.direct);
-  const inherited = resources.filter((resource) => !resource.direct);
-  return [
-    ...direct.map((resource) => and(
-      eq(contentPolicyBindings.resourceType, resource.type),
-      eq(contentPolicyBindings.resourceId, resource.id),
-    )!),
-    ...(inherited.length > 0
-      ? [and(
-          inArray(contentPolicyBindings.resourceType, inherited.map((resource) => resource.type)),
-          inArray(contentPolicyBindings.resourceId, inherited.map((resource) => resource.id)),
-        )!]
-      : []),
-  ];
+  return resources.map((resource) => and(
+    eq(contentPolicyBindings.resourceType, resource.type),
+    eq(contentPolicyBindings.resourceId, resource.id),
+  )!);
 }

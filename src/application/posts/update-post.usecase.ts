@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UpdatePostProps } from "@/domain/posts/post.entity";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
@@ -16,6 +17,7 @@ export class UpdatePostUseCase {
     postId: string;
     input: UpdatePostProps;
   }) {
+    requireContentScope(params.actor, "content:write");
     const post = await this.posts.findById(params.postId);
     if (!post) throw new NotFoundError("Post not found");
 

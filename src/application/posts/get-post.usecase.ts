@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { actorWithReadScope } from "@/domain/authz/scopes";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
 import { NotFoundError } from "@/shared/errors";
@@ -14,7 +15,7 @@ export class GetPostUseCase {
     const post = await this.posts.findById(params.postId);
     if (!post) throw new NotFoundError("Post not found");
 
-    await assertAllowed(this.postPolicy.canRead(params.actor, post), "You cannot read this post");
+    await assertAllowed(this.postPolicy.canRead(actorWithReadScope(params.actor), post), "You cannot read this post");
     return post;
   }
 }

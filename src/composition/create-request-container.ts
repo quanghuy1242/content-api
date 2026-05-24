@@ -61,6 +61,8 @@ import { MediaPolicy } from "@/domain/media/media.policy";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
+import { ClientCredentialsTokenProvider } from "@/infrastructure/identity/client-credentials-token-provider";
+import { IdContentPrincipalDirectory } from "@/infrastructure/identity/id-content-principal-directory";
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
 import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
 import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
@@ -79,7 +81,6 @@ import { DrizzlePolicyEventRepository } from "@/infrastructure/repositories/driz
 import { DrizzleRelationshipRepository } from "@/infrastructure/repositories/drizzle-relationship.repository";
 import { DrizzleUserRepository } from "@/infrastructure/repositories/drizzle-user.repository";
 import { DrizzleUserCreateWorkflow } from "@/infrastructure/repositories/drizzle-user-create.workflow";
-import { IdContentPrincipalDirectory } from "@/infrastructure/identity/id-content-principal-directory";
 import { R2PresignedUrlSigner } from "@/infrastructure/storage/r2-presigned-url-signer";
 import { R2ObjectStorage } from "@/infrastructure/storage/r2-object-storage";
 
@@ -113,9 +114,18 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     contentPolicy,
     (roleId) => contentRoleRepository.findPermissionKeys(roleId),
   );
+  const principalValidationTokenProvider = new ClientCredentialsTokenProvider({
+    tokenUrl: config.ID_PRINCIPAL_VALIDATION_TOKEN_URL ?? new URL("/api/auth/oauth2/token", config.ID_PRINCIPAL_VALIDATION_URL).toString(),
+    clientId: config.ID_PRINCIPAL_VALIDATION_CLIENT_ID,
+    clientSecret: config.ID_PRINCIPAL_VALIDATION_CLIENT_SECRET,
+    audience: config.ID_PRINCIPAL_VALIDATION_AUDIENCE,
+    scope: config.ID_PRINCIPAL_VALIDATION_SCOPE,
+    cache: env.ID_PRINCIPAL_VALIDATION_TOKEN_CACHE,
+    fetchImpl: options?.fetchImpl,
+  });
   const principalDirectory = new IdContentPrincipalDirectory({
     baseUrl: config.ID_PRINCIPAL_VALIDATION_URL,
-    token: config.ID_PRINCIPAL_VALIDATION_TOKEN,
+    accessTokenProvider: principalValidationTokenProvider,
     fetchImpl: options?.fetchImpl,
   });
   const mediaStorage = new R2ObjectStorage(env.MEDIA_R2);
@@ -160,6 +170,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       create: new CreateCategoryUseCase(
         categoryRepository,
         relationshipRepository,
+        userRepository,
         idempotencyRepository,
         categoryCreateWorkflow,
         categoryPolicy,
@@ -173,6 +184,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       create: new CreatePostUseCase(
         postRepository,
         relationshipRepository,
+        userRepository,
         idempotencyRepository,
         postCreateWorkflow,
         postPolicy,
@@ -188,6 +200,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       create: new CreateMediaUploadUseCase(
         mediaRepository,
         relationshipRepository,
+        userRepository,
         idempotencyRepository,
         mediaCreateWorkflow,
         mediaPolicy,
@@ -204,6 +217,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     contentIam: {
       bootstrapOrganizationAdmin: new BootstrapOrganizationContentAdminUseCase(
         contentRoleRepository,
+        policyBindingRepository,
         idempotencyRepository,
         contentIamMutationWorkflow,
         principalDirectory,
@@ -223,6 +237,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentIamMutationWorkflow,
         principalDirectory,
         contentAdministrationPolicy,
+        config.AUTH_AUDIENCE,
       ),
       revokeBinding: new RevokePolicyBindingUseCase(
         bookRepository,
@@ -237,6 +252,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentIamMutationWorkflow,
         principalDirectory,
         contentAdministrationPolicy,
+        config.AUTH_AUDIENCE,
       ),
       revokeDenial: new RevokePolicyDenialUseCase(
         bookRepository,

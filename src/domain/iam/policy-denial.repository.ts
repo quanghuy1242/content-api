@@ -4,7 +4,7 @@ import type { PolicyDenial } from "@/domain/iam/policy-denial.entity";
 import type { CursorPage } from "@/shared/pagination/cursor";
 
 export interface PolicyDenialRepository {
-  findMany(params: { resourceType: string; resourceId: string; limit: number; cursor?: string }): Promise<CursorPage<PolicyDenial>>;
+  findMany(params: { orgId: string; resourceType: string; resourceId: string; limit: number; cursor?: string }): Promise<CursorPage<PolicyDenial>>;
   findById(id: string): Promise<PolicyDenial | null>;
   create(denial: PolicyDenial): Promise<PolicyDenial>;
   delete(id: string): Promise<boolean>;
@@ -15,4 +15,11 @@ export interface PolicyDenialRepository {
     resources: readonly ResourceBindingRef[];
     now: Date;
   }): Promise<boolean>;
+  findDeniedResourceRefs(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }): Promise<ResourceBindingRef[]>;
 }

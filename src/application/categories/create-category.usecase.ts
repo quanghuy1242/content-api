@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor, UserActor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
@@ -8,6 +9,8 @@ import { Category, type CategoryProps } from "@/domain/categories/category.entit
 import type { CategoryRepository } from "@/domain/categories/category.repository";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import { identityProjectionFromActor } from "@/domain/users/user-projection";
+import type { UserRepository } from "@/domain/users/user.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
 import { CATEGORIES_CREATE_ROUTE, HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
@@ -16,6 +19,7 @@ export class CreateCategoryUseCase {
   constructor(
     private readonly categories: CategoryRepository,
     private readonly relationships: RelationshipRepository,
+    private readonly users: UserRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly categoryCreateWorkflow: CategoryCreateWorkflow,
     private readonly categoryPolicy: CategoryPolicy,
@@ -44,13 +48,18 @@ export class CreateCategoryUseCase {
   }
 
   private async requireOwnerId(actor: Actor) {
+    requireContentScope(actor, "content:write");
     await assertAllowed(this.categoryPolicy.canCreate(actor), "Authentication required");
-    const ownerId = actor.type === "user" ? actor.id : null;
-    if (!ownerId) {
+    if (actor.type !== "user") {
       throw new NotFoundError("Linked local user not found");
     }
 
-    return ownerId;
+    await this.ensureOwnerProjection(actor);
+    return actor.id;
+  }
+
+  private async ensureOwnerProjection(actor: UserActor) {
+    await this.users.ensureIdentityProjection(identityProjectionFromActor(actor));
   }
 
   private buildCategory(ownerId: string, input: Pick<CategoryProps, "name" | "description" | "image">) {

@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { actorWithReadScope } from "@/domain/authz/scopes";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -16,8 +17,7 @@ export class GetMediaUseCase {
       throw new NotFoundError("Media not found");
     }
 
-    await assertAllowed(this.mediaPolicy.canRead(params.actor, media), "You cannot read this media");
+    await assertAllowed(this.mediaPolicy.canRead(actorWithReadScope(params.actor), media), "You cannot read this media");
     return media;
   }
 }
-

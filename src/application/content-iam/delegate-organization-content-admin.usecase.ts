@@ -8,12 +8,12 @@ import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { ORG_CONTENT_ADMIN_DELEGATE_ROUTE } from "@/shared/constants";
 import { ForbiddenError } from "@/shared/errors";
-import { deserializeBindingMutation, serializeBindingMutation } from "@/application/content-iam/content-iam-snapshot";
+import { deserializeBindingMutation, serializeBindingMutation } from "@/domain/iam/content-iam-snapshot";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { organizationResource } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { organizationResource } from "@/domain/iam/resource-loader";
 
 export type DelegateOrganizationContentAdminInput = {
   userId: string;
@@ -73,7 +73,7 @@ export class DelegateOrganizationContentAdminUseCase {
       key: requireIdempotencyKey(params.idempotencyKey),
       actor: params.actor,
       route: ORG_CONTENT_ADMIN_DELEGATE_ROUTE,
-      input: params.input,
+      input: { orgId: params.orgId, body: params.input },
       responseJson: () => serializeBindingMutation(binding, event),
       replay: deserializeBindingMutation,
       commit: async ({ idempotency }) => {

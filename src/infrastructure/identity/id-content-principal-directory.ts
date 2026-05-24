@@ -3,7 +3,9 @@ import { UnauthorizedError, ValidationError } from "@/shared/errors";
 
 export type IdContentPrincipalDirectoryConfig = {
   readonly baseUrl: string;
-  readonly token: string;
+  readonly accessTokenProvider: {
+    getAccessToken(): Promise<string>;
+  };
   readonly fetchImpl?: typeof fetch;
 };
 
@@ -52,10 +54,11 @@ export class IdContentPrincipalDirectory implements ContentPrincipalDirectory {
   }
 
   private async post(path: string, body: Record<string, string>): Promise<void> {
+    const token = await this.config.accessTokenProvider.getAccessToken();
     const response = await this.fetchImpl(new URL(path, this.config.baseUrl), {
       method: "POST",
       headers: {
-        authorization: `Bearer ${this.config.token}`,
+        authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
       body: JSON.stringify(body),

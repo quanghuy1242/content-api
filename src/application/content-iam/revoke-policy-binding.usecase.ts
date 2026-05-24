@@ -4,8 +4,8 @@ import type { ContentAdministrationPolicy } from "@/domain/iam/content-administr
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
-import { NotFoundError } from "@/shared/errors";
-import { loadContentResource, type ContentResourceInput } from "@/application/content-iam/resource-loader";
+import { NotFoundError, ValidationError } from "@/shared/errors";
+import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
 export class RevokePolicyBindingUseCase {
   constructor(
@@ -26,6 +26,18 @@ export class RevokePolicyBindingUseCase {
       resource,
       existingBinding: binding,
     });
+    if (binding.roleId === "system:org.content_admin") {
+      const activeAdmins = await this.bindings.countActiveRoleBindings({
+        orgId: resource.orgId,
+        resourceType: "org",
+        resourceId: resource.orgId,
+        roleId: "system:org.content_admin",
+        now: new Date(),
+      });
+      if (activeAdmins <= 1) {
+        throw new ValidationError("Cannot revoke the last organization Content IAM administrator");
+      }
+    }
     const event = PolicyEvent.create({
       orgId: resource.orgId,
       targetType: resource.type,

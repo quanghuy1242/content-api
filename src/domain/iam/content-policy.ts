@@ -51,11 +51,44 @@ export class LocalContentPolicy implements ContentPolicy {
     permission: ContentPermissionKey;
     resources: readonly ContentResourceRef[];
   }) {
-    const decisions = await Promise.all(params.resources.map(async (resource) => ({
-      id: resource.id,
-      allowed: await this.can({ actor: params.actor, permission: params.permission, resource }),
-    })));
-    return new Map(decisions.map((decision) => [decision.id, decision.allowed]));
+    const decisions = new Map(params.resources.map((resource) => [resource.id, false]));
+    const resourcesByOrg = new Map<string, ContentResourceRef[]>();
+    for (const resource of params.resources) {
+      resourcesByOrg.set(resource.orgId, [...(resourcesByOrg.get(resource.orgId) ?? []), resource]);
+    }
+
+    await Promise.all([...resourcesByOrg].map(async ([orgId, resources]) => {
+      const principals = principalsForActor(params.actor, orgId);
+      if (principals.length === 0) return;
+
+      const refs = uniqueBindingRefs(resources.flatMap(bindingRefsForResource));
+      const [deniedRefs, allowedRefs] = await Promise.all([
+        this.denials.findDeniedResourceRefs({
+          orgId,
+          principals,
+          permission: params.permission,
+          resources: refs,
+          now: new Date(),
+        }),
+        this.bindings.findAllowedResourceRefs({
+          orgId,
+          principals,
+          permission: params.permission,
+          resources: refs,
+          now: new Date(),
+        }),
+      ]);
+      const denied = refKeySet(deniedRefs);
+      const allowed = refKeySet(allowedRefs);
+      for (const resource of resources) {
+        const resourceRefs = bindingRefsForResource(resource);
+        const isDenied = resourceRefs.some((ref) => denied.has(refKey(ref)));
+        const isAllowed = resourceRefs.some((ref) => allowed.has(refKey(ref)));
+        decisions.set(resource.id, !isDenied && isAllowed);
+      }
+    }));
+
+    return decisions;
   }
 }
 
@@ -71,4 +104,20 @@ export function principalsForActor(actor: Actor | null, resourceOrgId: string): 
     principals.push(...actor.teamIds.map((teamId) => ({ type: "team" as const, id: teamId })));
   }
   return principals;
+}
+
+function uniqueBindingRefs(resources: readonly ReturnType<typeof bindingRefsForResource>[number][]) {
+  const keyed = new Map<string, ReturnType<typeof bindingRefsForResource>[number]>();
+  for (const resource of resources) {
+    keyed.set(refKey(resource), resource);
+  }
+  return [...keyed.values()];
+}
+
+function refKeySet(resources: readonly ReturnType<typeof bindingRefsForResource>[number][]) {
+  return new Set(resources.map(refKey));
+}
+
+function refKey(resource: ReturnType<typeof bindingRefsForResource>[number]) {
+  return `${resource.type}:${resource.id}`;
 }

@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 
@@ -10,8 +11,8 @@ export class ListUsersUseCase {
   ) {}
 
   async execute(params: { actor: Actor | null; limit: number; cursor?: string }) {
+    if (params.actor) requireContentScope(params.actor, "content:read");
     await assertAllowed(this.userPolicy.canRead(params.actor), "Authentication required");
     return this.users.findMany({ limit: params.limit, cursor: params.cursor });
   }
 }
-

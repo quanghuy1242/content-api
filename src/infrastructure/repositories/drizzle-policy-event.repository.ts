@@ -16,7 +16,7 @@ export class DrizzlePolicyEventRepository implements PolicyEventRepository {
     this.crud = new CrudAdapter(db);
   }
 
-  async findMany(params: { targetType: string; targetId: string; limit: number; cursor?: string }) {
+  async findMany(params: { orgId: string; targetType: string; targetId: string; limit: number; cursor?: string }) {
     const page = await this.crud.listRows<typeof contentPolicyEvents.$inferSelect>({
       table: contentPolicyEvents,
       idColumn: contentPolicyEvents.id,
@@ -25,6 +25,7 @@ export class DrizzlePolicyEventRepository implements PolicyEventRepository {
       limit: params.limit,
       cursor: params.cursor,
       where: [
+        eq(contentPolicyEvents.orgId, params.orgId),
         eq(contentPolicyEvents.targetType, params.targetType),
         eq(contentPolicyEvents.targetId, params.targetId),
       ],

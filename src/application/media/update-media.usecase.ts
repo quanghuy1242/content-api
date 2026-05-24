@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UpdateMediaProps } from "@/domain/media/media.entity";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
@@ -12,6 +13,7 @@ export class UpdateMediaUseCase {
   ) {}
 
   async execute(params: { actor: Actor; mediaId: string; input: UpdateMediaProps }) {
+    requireContentScope(params.actor, "content:write");
     const media = await this.mediaRepository.findById(params.mediaId);
     if (!media) {
       throw new NotFoundError("Media not found");

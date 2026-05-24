@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor, UserActor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import type { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
@@ -9,6 +10,8 @@ import type { MediaCreateWorkflow } from "@/domain/media/media-create.workflow";
 import type { ObjectStorageSigner } from "@/domain/media/object-storage";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
+import { identityProjectionFromActor } from "@/domain/users/user-projection";
+import type { UserRepository } from "@/domain/users/user.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError, ValidationError } from "@/shared/errors";
 import {
   HTTP_STATUS_CREATED,
@@ -44,6 +47,7 @@ export class CreateMediaUploadUseCase {
   constructor(
     private readonly mediaRepository: MediaRepository,
     private readonly relationships: RelationshipRepository,
+    private readonly users: UserRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly mediaCreateWorkflow: MediaCreateWorkflow,
     private readonly mediaPolicy: MediaPolicy,
@@ -76,13 +80,18 @@ export class CreateMediaUploadUseCase {
   }
 
   private async requireOwnerId(actor: Actor) {
+    requireContentScope(actor, "content:write");
     await assertAllowed(this.mediaPolicy.canCreate(actor), "Authentication required");
-    const ownerId = actor.type === "user" ? actor.id : null;
-    if (!ownerId) {
+    if (actor.type !== "user") {
       throw new NotFoundError("Linked local user not found");
     }
 
-    return ownerId;
+    await this.ensureOwnerProjection(actor);
+    return actor.id;
+  }
+
+  private async ensureOwnerProjection(actor: UserActor) {
+    await this.users.ensureIdentityProjection(identityProjectionFromActor(actor));
   }
 
   private normalizeAndValidate(input: CreateMediaUploadInput) {

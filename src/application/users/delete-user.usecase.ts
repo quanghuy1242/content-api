@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -11,6 +12,7 @@ export class DeleteUserUseCase {
   ) {}
 
   async execute(params: { actor: Actor; userId: string }) {
+    requireContentScope(params.actor, "content:write");
     await assertAllowed(this.userPolicy.canDelete(params.actor), "Only admins can delete users");
 
     const deleted = await this.users.delete(params.userId);
@@ -19,4 +21,3 @@ export class DeleteUserUseCase {
     }
   }
 }
-

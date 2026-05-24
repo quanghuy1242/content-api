@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor, UserActor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
 import { Relationship } from "@/domain/authz/relationship.entity";
 import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
@@ -8,6 +9,8 @@ import { Post, type CreatePostProps, type PostProps } from "@/domain/posts/post.
 import type { PostCreateWorkflow } from "@/domain/posts/post-create.workflow";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
+import { identityProjectionFromActor } from "@/domain/users/user-projection";
+import type { UserRepository } from "@/domain/users/user.repository";
 import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
 import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, POSTS_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
@@ -16,6 +19,7 @@ export class CreatePostUseCase {
   constructor(
     private readonly posts: PostRepository,
     private readonly relationships: RelationshipRepository,
+    private readonly users: UserRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly postCreateWorkflow: PostCreateWorkflow,
     private readonly postPolicy: PostPolicy,
@@ -45,12 +49,18 @@ export class CreatePostUseCase {
   }
 
   private async requireAuthorId(actor: Actor) {
+    requireContentScope(actor, "content:write");
     await assertAllowed(this.postPolicy.canCreate(actor), "Authentication required");
     if (actor.type !== "user" || !actor.id) {
       throw new NotFoundError("Linked local user not found");
     }
 
+    await this.ensureAuthorProjection(actor);
     return actor.id;
+  }
+
+  private async ensureAuthorProjection(actor: UserActor) {
+    await this.users.ensureIdentityProjection(identityProjectionFromActor(actor));
   }
 
   private buildPost(

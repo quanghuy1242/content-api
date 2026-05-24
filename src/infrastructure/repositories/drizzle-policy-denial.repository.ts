@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, eq, gt, isNull, or, type SQL } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { ContentPermissionKey, PrincipalRef } from "@/domain/iam/content-permission";
 import type { ResourceBindingRef } from "@/domain/iam/content-resource";
@@ -18,7 +18,7 @@ export class DrizzlePolicyDenialRepository implements PolicyDenialRepository {
     this.crud = new CrudAdapter(db);
   }
 
-  async findMany(params: { resourceType: string; resourceId: string; limit: number; cursor?: string }) {
+  async findMany(params: { orgId: string; resourceType: string; resourceId: string; limit: number; cursor?: string }) {
     const page = await this.crud.listRows<typeof contentPolicyDenials.$inferSelect>({
       table: contentPolicyDenials,
       idColumn: contentPolicyDenials.id,
@@ -27,6 +27,7 @@ export class DrizzlePolicyDenialRepository implements PolicyDenialRepository {
       limit: params.limit,
       cursor: params.cursor,
       where: [
+        eq(contentPolicyDenials.orgId, params.orgId),
         eq(contentPolicyDenials.resourceType, params.resourceType),
         eq(contentPolicyDenials.resourceId, params.resourceId),
       ],
@@ -61,8 +62,41 @@ export class DrizzlePolicyDenialRepository implements PolicyDenialRepository {
   }) {
     if (params.principals.length === 0 || params.resources.length === 0) return false;
 
-    const rows = await this.db
-      .select({ id: contentPolicyDenials.id })
+    const rows = await this.deniedRows(params)
+      .limit(1);
+
+    return rows.length > 0;
+  }
+
+  async findDeniedResourceRefs(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }) {
+    if (params.principals.length === 0 || params.resources.length === 0) return [];
+    const rows = await this.deniedRows(params);
+    return rows.map((row) => ({
+      type: row.resourceType as ResourceBindingRef["type"],
+      id: row.resourceId,
+      direct: false,
+    }));
+  }
+
+  private deniedRows(params: {
+    orgId: string;
+    principals: readonly PrincipalRef[];
+    permission: ContentPermissionKey;
+    resources: readonly ResourceBindingRef[];
+    now: Date;
+  }) {
+    return this.db
+      .select({
+        id: contentPolicyDenials.id,
+        resourceType: contentPolicyDenials.resourceType,
+        resourceId: contentPolicyDenials.resourceId,
+      })
       .from(contentPolicyDenials)
       .innerJoin(contentPermissions, eq(contentPermissions.key, contentPolicyDenials.permissionKey))
       .where(and(
@@ -72,10 +106,7 @@ export class DrizzlePolicyDenialRepository implements PolicyDenialRepository {
         or(isNull(contentPolicyDenials.expiresAt), gt(contentPolicyDenials.expiresAt, params.now)),
         or(...principalConditions(params.principals)),
         or(...resourceConditions(params.resources)),
-      ))
-      .limit(1);
-
-    return rows.length > 0;
+      ));
   }
 }
 
@@ -87,19 +118,14 @@ function principalConditions(principals: readonly PrincipalRef[]): SQL<unknown>[
 }
 
 function resourceConditions(resources: readonly ResourceBindingRef[]): SQL<unknown>[] {
-  const direct = resources.filter((resource) => resource.direct);
-  const inherited = resources.filter((resource) => !resource.direct);
-  return [
-    ...direct.map((resource) => and(
-      eq(contentPolicyDenials.resourceType, resource.type),
-      eq(contentPolicyDenials.resourceId, resource.id),
-    )!),
-    ...(inherited.length > 0
-      ? [and(
-          inArray(contentPolicyDenials.resourceType, inherited.map((resource) => resource.type)),
-          inArray(contentPolicyDenials.resourceId, inherited.map((resource) => resource.id)),
-          eq(contentPolicyDenials.appliesToDescendants, true),
-        )!]
-      : []),
-  ];
+  return resources.map((resource) => resource.direct
+    ? and(
+        eq(contentPolicyDenials.resourceType, resource.type),
+        eq(contentPolicyDenials.resourceId, resource.id),
+      )!
+    : and(
+        eq(contentPolicyDenials.resourceType, resource.type),
+        eq(contentPolicyDenials.resourceId, resource.id),
+        eq(contentPolicyDenials.appliesToDescendants, true),
+      )!);
 }

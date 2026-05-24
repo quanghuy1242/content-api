@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { UpdateUserProps } from "@/domain/users/user.entity";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
@@ -16,6 +17,7 @@ export class UpdateUserUseCase {
     userId: string;
     input: UpdateUserProps;
   }) {
+    requireContentScope(params.actor, "content:write");
     const user = await this.users.findById(params.userId);
     if (!user) {
       throw new NotFoundError("User not found");
@@ -29,4 +31,3 @@ export class UpdateUserUseCase {
     return user;
   }
 }
-

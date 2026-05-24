@@ -4,7 +4,8 @@ import type { ContentAdministrationPolicy } from "@/domain/iam/content-administr
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-directory";
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
-import type { PrincipalRef } from "@/domain/iam/content-permission";
+import { deriveDelegationClass, type PrincipalRef } from "@/domain/iam/content-permission";
+import type { ContentRole } from "@/domain/iam/content-role.entity";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
@@ -16,13 +17,13 @@ import {
 import {
   deserializeBindingMutation,
   serializeBindingMutation,
-} from "@/application/content-iam/content-iam-snapshot";
-import { recordDeniedPolicyMutation } from "@/application/content-iam/audit-denied-mutation";
+} from "@/domain/iam/content-iam-snapshot";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import {
   executeIdempotentContentIamMutation,
   requireIdempotencyKey,
-} from "@/application/content-iam/idempotent-content-iam";
-import { loadContentResource, type ContentResourceInput } from "@/application/content-iam/resource-loader";
+} from "@/domain/iam/idempotent-content-iam";
+import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
 export type CreatePolicyBindingInput = {
   principal: PrincipalRef;
@@ -39,6 +40,7 @@ export class CreatePolicyBindingUseCase {
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly contentApiAudience: string,
   ) {}
 
   async execute(params: {
@@ -71,7 +73,7 @@ export class CreatePolicyBindingUseCase {
       });
       throw error;
     }
-    await this.validatePrincipal(params.input.principal, resource.orgId, resource.type);
+    await this.validatePrincipal(params.input.principal, resource.orgId, resource.type, role);
 
     const binding = PolicyBinding.create({
       orgId: resource.orgId,
@@ -101,7 +103,7 @@ export class CreatePolicyBindingUseCase {
       key: requireIdempotencyKey(params.idempotencyKey),
       actor: params.actor,
       route,
-      input: params.input,
+      input: { resource: { type: resource.type, id: resource.id }, body: params.input },
       responseJson: () => serializeBindingMutation(binding, event),
       replay: deserializeBindingMutation,
       commit: async ({ idempotency }) => {
@@ -111,9 +113,11 @@ export class CreatePolicyBindingUseCase {
     });
   }
 
-  private async validatePrincipal(principal: PrincipalRef, orgId: string, resourceType: string) {
+  private async validatePrincipal(principal: PrincipalRef, orgId: string, resourceType: string, role: ContentRole) {
     if (principal.type === "user") {
-      if (resourceType === "org") {
+      const permissions = await this.roles.findPermissionKeys(role.id);
+      const requiresMembership = resourceType === "org" || deriveDelegationClass(permissions) !== "ordinary";
+      if (requiresMembership) {
         await this.principalDirectory.validateUserInOrganization({ userId: principal.id, orgId });
         return;
       }
@@ -127,7 +131,7 @@ export class CreatePolicyBindingUseCase {
     await this.principalDirectory.validateServiceAccountForOrganization({
       clientId: principal.id,
       orgId,
-      resource: "https://content-api.quanghuy.dev",
+      resource: this.contentApiAudience,
     });
   }
 }

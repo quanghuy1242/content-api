@@ -1,4 +1,5 @@
 import type { Actor } from "@/domain/authz/actor";
+import { actorWithReadScope } from "@/domain/authz/scopes";
 import type { ObjectStorage } from "@/domain/media/object-storage";
 import type { MediaRepository } from "@/domain/media/media.repository";
 import { MediaPolicy } from "@/domain/media/media.policy";
@@ -24,7 +25,7 @@ export class ServeMediaVariantUseCase {
     if (media.version !== params.version || media.status !== "ready") {
       throw new NotFoundError("Media variant not found");
     }
-    if (!(await this.mediaPolicy.canRead(params.actor, media))) {
+    if (!(await this.mediaPolicy.canRead(actorWithReadScope(params.actor), media))) {
       throw new NotFoundError("Media variant not found");
     }
 

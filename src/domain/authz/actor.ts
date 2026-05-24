@@ -7,6 +7,8 @@ export type UserActor = {
   organizationId?: string;
   teamIds: readonly string[];
   email?: string;
+  name?: string;
+  avatar?: string;
 };
 
 export type ServiceAccountActor = {

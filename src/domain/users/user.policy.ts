@@ -2,12 +2,12 @@ import type { Actor } from "@/domain/authz/actor";
 import type { User } from "@/domain/users/user.entity";
 
 /**
- * User management policy. Admins manage the collection; authenticated users can
- * read users and update their own profile, with presenter-level field hiding.
+ * User profile policy. Identity users come from `id`; content-api only creates
+ * local profile/authorship projections for the authenticated subject.
  */
 export class UserPolicy {
   canCreate(actor: Actor | null) {
-    return Promise.resolve(actor?.type === "user" && actor.role === "admin");
+    return Promise.resolve(actor?.type === "user");
   }
 
   canRead(actor: Actor | null) {

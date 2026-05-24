@@ -7,15 +7,22 @@ import migrationSql0001 from "../drizzle/0001_unique_starhawk.sql?raw";
 import migrationSql0002 from "../drizzle/0002_media_upload_flow.sql?raw";
 import migrationSql0003 from "../drizzle/0003_content_iam_policy.sql?raw";
 import { createApp } from "@/main";
+import { clearClientCredentialsTokenMemoryCache } from "@/infrastructure/identity/client-credentials-token-provider";
 
 const AUTH_ISSUER = "https://id.test/api/auth";
 const AUTH_AUDIENCE = "https://content-api.test";
 const AUTH_JWKS_URL = "https://id.test/api/auth/jwks";
 const ID_PRINCIPAL_VALIDATION_URL = "https://id.test";
-const ID_PRINCIPAL_VALIDATION_TOKEN = "principal-validation-token";
+const ID_PRINCIPAL_VALIDATION_TOKEN_URL = "https://id.test/api/auth/oauth2/token";
+const ID_PRINCIPAL_VALIDATION_CLIENT_ID = "content-api-principal-validation";
+const ID_PRINCIPAL_VALIDATION_CLIENT_SECRET = "principal-validation-secret";
+const ID_PRINCIPAL_VALIDATION_AUDIENCE = "https://id.test/principal-validation";
+const ID_PRINCIPAL_VALIDATION_SCOPE = "identity:principals:validate";
+const ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN = "principal-validation-access-token";
 
 let privateKey: CryptoKey;
 let publicJwk: JWK;
+let principalValidationTokenRequests = 0;
 
 const app = createApp({
   fetchImpl: async (input, init) => {
@@ -23,7 +30,33 @@ const app = createApp({
     if (url === AUTH_JWKS_URL) {
       return Response.json({ keys: [publicJwk] });
     }
+    if (url === ID_PRINCIPAL_VALIDATION_TOKEN_URL) {
+      principalValidationTokenRequests += 1;
+      const bodyText = typeof init?.body === "string"
+        ? init.body
+        : init?.body instanceof URLSearchParams
+          ? init.body.toString()
+          : "";
+      const form = new URLSearchParams(bodyText);
+      if (
+        form.get("grant_type") !== "client_credentials" ||
+        form.get("client_id") !== ID_PRINCIPAL_VALIDATION_CLIENT_ID ||
+        form.get("client_secret") !== ID_PRINCIPAL_VALIDATION_CLIENT_SECRET ||
+        form.get("resource") !== ID_PRINCIPAL_VALIDATION_AUDIENCE ||
+        form.get("scope") !== ID_PRINCIPAL_VALIDATION_SCOPE
+      ) {
+        return Response.json({ error: "invalid_client" }, { status: 401 });
+      }
+      return Response.json({
+        access_token: ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN,
+        token_type: "Bearer",
+        expires_in: 3600,
+      });
+    }
     if (url.startsWith(`${ID_PRINCIPAL_VALIDATION_URL}/api/auth/principal-validation/`)) {
+      if (init?.headers && new Headers(init.headers).get("authorization") !== `Bearer ${ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN}`) {
+        return Response.json({ valid: false }, { status: 401 });
+      }
       const bodyText = typeof init?.body === "string"
         ? init.body
         : input instanceof Request
@@ -47,6 +80,7 @@ async function issueToken(subject: string, options: {
 } = {}) {
   return new SignJWT({
     email: `${subject}@example.com`,
+    name: `${subject} name`,
     scope: options.scope ?? "content:read content:write",
     ...(options.orgId ? { org_id: options.orgId, team_ids: options.teamIds ?? [] } : { team_ids: [] }),
   })
@@ -171,9 +205,13 @@ async function request(
       AUTH_ISSUER,
       AUTH_AUDIENCE,
       AUTH_JWKS_URL,
-      AUTH_REQUIRED_SCOPE: "content:read",
+      AUTH_REQUIRED_SCOPE: "content:read content:write content:share",
       ID_PRINCIPAL_VALIDATION_URL,
-      ID_PRINCIPAL_VALIDATION_TOKEN,
+      ID_PRINCIPAL_VALIDATION_TOKEN_URL,
+      ID_PRINCIPAL_VALIDATION_CLIENT_ID,
+      ID_PRINCIPAL_VALIDATION_CLIENT_SECRET,
+      ID_PRINCIPAL_VALIDATION_AUDIENCE,
+      ID_PRINCIPAL_VALIDATION_SCOPE,
     },
     ctx,
   );
@@ -238,6 +276,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await reset();
+  clearClientCredentialsTokenMemoryCache();
+  principalValidationTokenRequests = 0;
   await seed();
 });
 
@@ -257,12 +297,12 @@ it("returns 401 for invalid bearer tokens", async () => {
   });
 });
 
-it("rejects id tokens with the wrong audience or missing required scope", async () => {
+it("rejects id tokens with the wrong audience or no accepted content scope", async () => {
   const wrongAudience = await issueToken("user-alice", { audience: "https://other-api.test" });
   const wrongAudienceRes = await request("/users", { token: wrongAudience });
   expect(wrongAudienceRes.status).toBe(401);
 
-  const missingScope = await issueToken("user-alice", { scope: "content:write" });
+  const missingScope = await issueToken("user-alice", { scope: "org:read" });
   const missingScopeRes = await request("/users", { token: missingScope });
   expect(missingScopeRes.status).toBe(401);
 });
@@ -275,6 +315,31 @@ it("accepts direct-share user tokens and rejects direct-share content:share", as
   const invalidShare = await issueToken("user-alice", { scope: "content:read content:share" });
   const invalidShareRes = await request("/users/user-alice", { token: invalidShare });
   expect(invalidShareRes.status).toBe(401);
+});
+
+it("enforces route-level read and write OAuth scopes", async () => {
+  const readOnly = await issueToken("user-alice", { scope: "content:read" });
+  const writeDenied = await request("/posts/post-draft/publish", {
+    method: "POST",
+    token: readOnly,
+  });
+  expect(writeDenied.status).toBe(403);
+
+  const writeOnly = await issueToken("user-alice", { scope: "content:write" });
+  const createRes = await request("/media", {
+    method: "POST",
+    token: writeOnly,
+    body: JSON.stringify({
+      alt: "Write-only upload",
+      filename: "write-only.png",
+      mimeType: "image/png",
+      filesize: 2048,
+    }),
+  });
+  expect(createRes.status).toBe(201);
+
+  const privateReadRes = await request("/media/media-alice", { token: writeOnly });
+  expect(privateReadRes.status).toBe(403);
 });
 
 it("accepts id service-account tokens without granting implicit user administration", async () => {
@@ -340,11 +405,26 @@ it("reads users with field-level visibility for self", async () => {
   await expect(res.json()).resolves.toMatchObject({
     data: {
       id: "user-alice",
-      email: "alice@example.com",
+      email: "user-alice@example.com",
       role: null,
       
     },
   });
+});
+
+it("fills a missing local user projection from the id subject instead of creating identity", async () => {
+  const token = await issueToken("user-new", { scope: "content:read" });
+  const res = await request("/users/user-new", { token });
+  expect(res.status).toBe(200);
+  await expect(res.json()).resolves.toMatchObject({
+    data: {
+      id: "user-new",
+      email: "user-new@example.com",
+      fullName: "user-new name",
+    },
+  });
+
+  expect(await countRows("select count(*) as count from users where id = ?", "user-new")).toBe(1);
 });
 
 it("publishes a draft post for its author", async () => {
@@ -612,6 +692,28 @@ it("prevents direct-share tokens and sensitive target principals from mutating C
   expect(ownerGrantRes.status).toBe(400);
 });
 
+it("allows organization authors to be delegated through ordinary org bindings", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const res = await request("/organizations/org-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:org.author",
+      reason: "author delegation",
+    }),
+  });
+  expect(res.status).toBe(201);
+  await expect(res.json()).resolves.toMatchObject({
+    data: {
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:org.author",
+      resource: { type: "org", id: "org-main" },
+    },
+  });
+});
+
 it("transfers book ownership atomically and rejects stale ownership transfers", async () => {
   const token = await bootstrapContentIamAdmin();
   await seedBookOwner();
@@ -738,6 +840,155 @@ it("returns 400 when Content IAM principal validation fails for durable writes",
   expect(wrongOrgTeamRes.status).toBe(400);
 });
 
+it("uses M2M client credentials for principal validation and caches the token", async () => {
+  const token = await bootstrapContentIamAdmin();
+  await seedBookOwner();
+
+  const bindingRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(bindingRes.status).toBe(201);
+
+  const denialRes = await request("/books/book-main/policy-denials", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      permission: "book.read",
+      appliesToDescendants: true,
+      reason: "test denial",
+    }),
+  });
+  expect(denialRes.status).toBe(201);
+  expect(principalValidationTokenRequests).toBe(1);
+});
+
+it("rejects bootstrap after a local organization Content IAM admin exists", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const res = await request("/organizations/org-main/content-iam/bootstrap", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ userId: "user-alice", reason: "second bootstrap" }),
+  });
+  expect(res.status).toBe(403);
+});
+
+it("does not replay Content IAM idempotency across different resource path params", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const key = crypto.randomUUID();
+  await env.DB.prepare("insert into books (id, org_id, title, created_by_user_id, visibility, status) values (?, ?, ?, ?, ?, ?)")
+    .bind("book-other", "org-main", "Other Book", "user-alice", "private", "draft")
+    .run();
+
+  const body = {
+    principal: { type: "user", id: "user-bob" },
+    roleId: "system:book.reader",
+  };
+  const first = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify(body),
+  });
+  expect(first.status).toBe(201);
+
+  const second = await request("/books/book-other/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify(body),
+  });
+  expect(second.status).toBe(409);
+});
+
+it("requires organization membership for sensitive direct-user Content IAM targets", async () => {
+  const token = await bootstrapContentIamAdmin();
+
+  const sharingManagerRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "wrong-org" },
+      roleId: "system:book.sharing_manager",
+    }),
+  });
+  expect(sharingManagerRes.status).toBe(400);
+
+  await seedBookOwner();
+  const ownershipRes = await request("/books/book-main/ownership-transfer", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      expectedCurrentOwnerUserId: "user-alice",
+      nextOwnerUserId: "wrong-org",
+    }),
+  });
+  expect(ownershipRes.status).toBe(400);
+});
+
+it("prevents revoking the last organization Content IAM admin", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const row = await env.DB.prepare(
+    "select id from content_policy_bindings where role_id = ? and resource_type = ? and resource_id = ?",
+  )
+    .bind("system:org.content_admin", "org", "org-main")
+    .first<{ id: string }>();
+  expect(row?.id).toBeTruthy();
+
+  const res = await request(`/organizations/org-main/policy-bindings/${row!.id}`, {
+    method: "DELETE",
+    token,
+  });
+  expect(res.status).toBe(400);
+});
+
+it("can recreate expired Content IAM bindings after cleanup", async () => {
+  const token = await bootstrapContentIamAdmin();
+  await env.DB.prepare(
+    "insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, expires_at, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      "expired-reader-binding",
+      "org-main",
+      "user",
+      "user-bob",
+      "system:book.reader",
+      "book",
+      "book-main",
+      Date.now() - 60_000,
+      "user",
+      "user-alice",
+    )
+    .run();
+
+  const res = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(res.status).toBe(201);
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where principal_id = ? and role_id = ? and resource_id = ?",
+    "user-bob",
+    "system:book.reader",
+    "book-main",
+  )).toBe(1);
+});
+
 it("replays post creation safely with the same idempotency key and rejects body mismatches", async () => {
   const token = await issueToken("user-alice");
   const key = crypto.randomUUID();
@@ -862,11 +1113,11 @@ it("replays category creation safely with the same idempotency key and rejects b
 });
 
 it("replays user creation safely with the same idempotency key and rejects body mismatches", async () => {
-  const token = await issueToken("user-admin");
+  const token = await issueToken("user-retry");
   const key = crypto.randomUUID();
   const body = {
-    email: "retry-user@example.com",
-    fullName: "Retry User",
+    email: "ignored-retry-user@example.com",
+    fullName: "Ignored Retry User",
     role: "user",
     avatar: null,
     bio: { summary: "retry" },
@@ -894,11 +1145,12 @@ it("replays user creation safely with the same idempotency key and rejects body 
     method: "POST",
     token,
     headers: { "idempotency-key": key },
-    body: JSON.stringify({ ...body, fullName: "Different User" }),
+    body: JSON.stringify({ ...body, bio: { summary: "different" } }),
   });
   expect(mismatch.status).toBe(409);
 
-  expect(await countRows("select count(*) as count from users where email = ?", body.email)).toBe(1);
+  expect(firstBody.data.id).toBe("user-retry");
+  expect(await countRows("select count(*) as count from users where email = ?", "user-retry@example.com")).toBe(1);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(1);
 });
 

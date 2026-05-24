@@ -25,7 +25,7 @@ Architecture planning documents and implementation status:
 - [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — implemented
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
-- [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — superseded by docs/013
+- [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — superseded by docs/012
 - [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
 - [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — IAM substrate, book product root, and legacy authz cleanup implemented; descendant hierarchy in progress
 - [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
@@ -33,7 +33,7 @@ Architecture planning documents and implementation status:
 - [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
 - [docs/011_post-006-007-gap-fixes.md](docs/011_post-006-007-gap-fixes.md) — gap fixes
 - [docs/012_content-lifecycle-plugin.md](docs/012_content-lifecycle-plugin.md) — implementation-grade proposal: pluggable lifecycle plugin (`draft`/`scheduled`/`published`/`archived`) with generic use cases, per-resource adapters, compare-and-set publish, hourly Cloudflare Cron Trigger, dedicated `*.archive` permissions, status removed from generic PATCH; supersedes docs/005; covers Post, Book, SiteConfig, future Chapter
-- [docs/013_site-config-collection.md](docs/013_site-config-collection.md) — implementation-grade proposal: promotable SiteConfig collection with Zod-validated dynamic blocks, lifecycle-plugin adoption from day one, partial-unique single-published invariant, and formal rationale for categories as org-owned resources (depends on docs/013)
+- [docs/013_site-config-collection.md](docs/013_site-config-collection.md) — implementation-grade proposal: promotable SiteConfig collection with Zod-validated dynamic blocks, lifecycle-plugin adoption from day one, partial-unique single-published invariant, and formal rationale for categories as org-owned resources (depends on docs/012)
 
 Auth is implemented as an OAuth2 resource server:
 

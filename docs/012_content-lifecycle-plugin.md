@@ -14,7 +14,7 @@
 > - `docs/005_publish-lifecycle-adapter.md` — superseded by this document
 > - `docs/007_content-iam-policy-binding-model.md`
 > - `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
-> - `docs/012_site-config-collection.md` — depends on this plugin
+> - `docs/013_site-config-collection.md` — depends on this plugin
 > - `.claude/skills/content-api-architecture/SKILL.md`
 > - `.claude/skills/content-iam-usage/SKILL.md`
 > - `src/domain/posts/post.entity.ts`
@@ -31,7 +31,7 @@
 >
 > Related docs:
 >
-> - `docs/012_site-config-collection.md` — first new resource that adopts this plugin from day one
+> - `docs/013_site-config-collection.md` — first new resource that adopts this plugin from day one
 >
 > Assumptions:
 >
@@ -104,7 +104,7 @@ Replace the per-resource publish/unpublish use cases with a single pluggable lif
 
 Concrete outcomes after this release:
 
-- `Post`, `Book`, and `SiteConfig` (the new resource introduced in `docs/012`) all use the same four lifecycle use cases.
+- `Post`, `Book`, and `SiteConfig` (the new resource introduced in `docs/013`) all use the same four lifecycle use cases.
 - Adding a fifth resource costs one entity interface implementation + one adapter file + one migration. No new application or domain code is required.
 - Authors can schedule a publish at a future time; an hourly cron promotes overdue items.
 - Lifecycle state transitions are race-safe under D1's lack of row locking via repository-level compare-and-set.
@@ -190,7 +190,7 @@ Cloudflare Cron Trigger ("0 * * * *") on the workers/scheduled-publish Worker
 | Book | `draft \| published \| archived` | no — `update({ status })` only | no | no | `book.update` |
 | Media | `pending_upload \| processing \| ready \| failed \| expired` + `visibility` | `publish-media.usecase.ts` flips visibility | no | no | `media.update` |
 | Chapter | not implemented | — | — | — | `chapter.publish` already in catalog |
-| SiteConfig | not implemented (this doc + `docs/012`) | — | — | — | — |
+| SiteConfig | not implemented (`docs/013`) | — | — | — | — |
 
 ### 3.3 Current Problems
 
@@ -320,7 +320,7 @@ export interface LifecycleManager<T extends LifecycleCapable> {
 }
 ```
 
-Adapter-method authorization decisions remain inside infrastructure adapters because the permission key is resource-specific. The use case is permission-key-agnostic.
+Adapter-method authorization decisions belong in application adapters because they invoke `ContentPolicy`; infrastructure remains persistence-only. The generic use case is permission-key-agnostic.
 
 ### 4.3 Generic Application Use Cases
 
@@ -426,10 +426,10 @@ export class ArchiveUseCase<T extends LifecycleCapable> {
 
 ### 4.4 Per-Resource Adapters
 
-Each opt-in resource adds one adapter under `src/infrastructure/lifecycle/`. The adapter is the only place where a resource-specific permission key is named.
+Each opt-in resource adds one adapter under `src/application/lifecycle/`. The adapter is the only place where a resource-specific permission key is named.
 
 ```ts
-// src/infrastructure/lifecycle/post-lifecycle-manager.ts
+// src/application/lifecycle/post-lifecycle-manager.ts
 import type { Actor } from "@/domain/auth/actor";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import { postResource } from "@/domain/iam/resource-loader";
@@ -470,7 +470,7 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
 }
 ```
 
-`BookLifecycleManager` and `SiteConfigLifecycleManager` follow the same shape with their own permission keys (see [§4.7](#47-content-iam--permission-catalog-and-role-wiring)) and resource-ref helpers. `SiteConfigLifecycleManager.canArchive` adds the "not the currently-active config" guard from `docs/012`.
+`BookLifecycleManager` and `SiteConfigLifecycleManager` follow the same shape with their own permission keys (see [§4.7](#47-content-iam--permission-catalog-and-role-wiring)) and resource-ref helpers. `SiteConfigLifecycleManager.canArchive` adds the "not the currently-active config" guard from `docs/013`.
 
 ### 4.5 Repository Contract — Compare-And-Set Publish
 
@@ -592,9 +592,9 @@ import type { AppBindings } from "@/config/env";
 import { createDb } from "@/infrastructure/db/client";
 import { DrizzlePostRepository } from "@/infrastructure/repositories/drizzle-post.repository";
 import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
-// (and DrizzleSiteConfigRepository once docs/012 ships)
-import { PostLifecycleManager } from "@/infrastructure/lifecycle/post-lifecycle-manager";
-import { BookLifecycleManager } from "@/infrastructure/lifecycle/book-lifecycle-manager";
+// (and DrizzleSiteConfigRepository once docs/013 ships)
+import { PostLifecycleManager } from "@/application/lifecycle/post-lifecycle-manager";
+import { BookLifecycleManager } from "@/application/lifecycle/book-lifecycle-manager";
 import type { LifecycleCapable } from "@/domain/lifecycle/lifecycle-entity";
 import type { LifecycleManager } from "@/domain/lifecycle/lifecycle-manager";
 
@@ -612,7 +612,7 @@ export function buildScheduledLifecycleManagers(env: AppBindings): readonly Life
   return [
     new PostLifecycleManager(new DrizzlePostRepository(db), undefined as never),
     new BookLifecycleManager(new DrizzleBookRepository(db), undefined as never),
-    // SiteConfigLifecycleManager added by docs/012
+    // SiteConfigLifecycleManager added by docs/013
   ];
 }
 
@@ -655,7 +655,7 @@ New `ContentPermissionKey` entries:
 | "book.archive"
 | "post.archive"
 | "chapter.archive"
-| "site_config.create"      // org.create_site_config is renamed below
+| "org.create_site_config"
 | "site_config.read"
 | "site_config.update"
 | "site_config.publish"
@@ -663,7 +663,7 @@ New `ContentPermissionKey` entries:
 | "site_config.delete"
 ```
 
-> Note: `org.create_site_config` from the previous `docs/012` draft is renamed to `site_config.create` for consistency with the existing `chapter.create` pattern; org-scoped creation is expressed through the `assignableResourceType: "org"` of the role that holds it, not through an `org.create_*` permission key. This aligns with how `org.create_book` is the exception (legacy) and new resource types follow the `<resource>.create` convention.
+> SiteConfig is created at the organization root, so its create permission follows the existing `org.create_book`, `org.create_post`, `org.create_category`, and `org.create_media` vocabulary. `chapter.create` is different because a chapter is created under a book.
 
 Permission rows added to `CONTENT_PERMISSIONS`:
 
@@ -672,7 +672,7 @@ Permission rows added to `CONTENT_PERMISSIONS`:
 { key: "book.archive",         description: "Archive a book (non-destructive)",       delegationClass: "ordinary" },
 { key: "post.archive",         description: "Archive a post (non-destructive)",       delegationClass: "ordinary" },
 { key: "chapter.archive",      description: "Archive a chapter (non-destructive)",    delegationClass: "ordinary" },
-{ key: "site_config.create",   description: "Create a site config in an organization", delegationClass: "ordinary" },
+{ key: "org.create_site_config", description: "Create a site config in an organization", delegationClass: "ordinary" },
 { key: "site_config.read",     description: "Read a draft or archived site config",   delegationClass: "ordinary" },
 { key: "site_config.update",   description: "Update a site config",                   delegationClass: "ordinary" },
 { key: "site_config.publish",  description: "Promote a site config to active",        delegationClass: "ordinary" },
@@ -692,7 +692,7 @@ New built-in role:
   assignableResourceType: "org",
   protected: false,
   permissions: [
-    "site_config.create",
+    "org.create_site_config",
     "site_config.read",
     "site_config.update",
     "site_config.publish",
@@ -710,7 +710,7 @@ Updates to existing built-in roles in `BUILT_IN_CONTENT_ROLES`:
 | `system:book.owner` | `book.publish`, `book.archive` |
 | `system:book.author` | `book.publish` |
 | `system:book.editor` | *(no publish, no archive — editors update but do not promote)* |
-| `system:org.content_admin` | `book.publish`, `book.archive`, `post.archive`, `chapter.archive`, `site_config.create`, `site_config.read`, `site_config.update`, `site_config.publish`, `site_config.archive`, `site_config.delete` |
+| `system:org.content_admin` | `book.publish`, `book.archive`, `post.archive`, `chapter.archive`, `org.create_site_config`, `site_config.read`, `site_config.update`, `site_config.publish`, `site_config.archive`, `site_config.delete` |
 
 `assertContentPermissionKey` continues to gate any string accepted as a permission. Built-in role rows are reseeded by `ContentRoleRepository.ensureSystemCatalog()` on next IAM use case execution (no migration needed for the role catalog; rows are seeded on demand).
 
@@ -895,7 +895,7 @@ New routes are added through `@hono/zod-openapi` `createRoute` + `app.openapi`, 
 | `POST` | `/books/{id}/schedule` | `content:write` | `books.schedule` | `book.publish` |
 | `POST` | `/books/{id}/archive` | `content:write` | `books.archive` | `book.archive` |
 
-Site config routes are defined in `docs/012`.
+Site config routes are defined in `docs/013`.
 
 Schedule body schema (shared):
 
@@ -958,10 +958,10 @@ src/application/lifecycle/
   schedule-publish.usecase.ts
   archive.usecase.ts
 
-src/infrastructure/lifecycle/
+src/application/lifecycle/
   post-lifecycle-manager.ts
   book-lifecycle-manager.ts
-  site-config-lifecycle-manager.ts   # introduced by docs/012
+  site-config-lifecycle-manager.ts   # introduced by docs/013
   chapter-lifecycle-manager.ts       # future, when Chapter is implemented
 
 src/composition/
@@ -1009,7 +1009,7 @@ Layer boundaries (enforced by `scripts/oxlint-js-plugins/architecture.js`):
 
 - `LifecycleCapable` and `LifecycleManager` live in `src/domain/lifecycle/` — pure interfaces, no framework imports.
 - Generic use cases live in `src/application/lifecycle/` — depend only on domain and `shared/errors`.
-- Adapters live in `src/infrastructure/lifecycle/` — they compose repositories + `ContentPolicy`.
+- Adapters live in `src/application/lifecycle/` — they compose repositories + `ContentPolicy`.
 - Entities implement `LifecycleCapable` by adding methods. No base class, no inheritance, no decorator.
 
 Adding a new resource costs one adapter file. Generic use cases are never modified.
@@ -1091,7 +1091,7 @@ Implication: if a user's permission is revoked after they schedule a post, the s
 | Permission | add `post.archive` |
 | Roles | `system:post.owner` gains `post.archive` |
 | Use cases deleted | `publish-post.usecase.ts`, `unpublish-post.usecase.ts` |
-| Adapter | `src/infrastructure/lifecycle/post-lifecycle-manager.ts` |
+| Adapter | `src/application/lifecycle/post-lifecycle-manager.ts` |
 | Routes added | `POST /posts/{id}/schedule`, `POST /posts/{id}/archive` |
 
 Existing `POST /posts/{id}/publish` and `POST /posts/{id}/unpublish` routes retain their request/response shape; only the handler plumbing changes (calls `posts.publish.execute(...)` on the generic use case).
@@ -1108,18 +1108,18 @@ Existing `POST /posts/{id}/publish` and `POST /posts/{id}/unpublish` routes reta
 | Mapper | add new fields; status is sourced from the entity snapshot only |
 | Permission | add `book.publish`, `book.archive` |
 | Roles | `system:book.owner`: `book.publish`, `book.archive`; `system:book.author`: `book.publish`; `system:book.editor`: no change |
-| Adapter | `src/infrastructure/lifecycle/book-lifecycle-manager.ts` |
+| Adapter | `src/application/lifecycle/book-lifecycle-manager.ts` |
 | Routes added | `POST /books/{id}/publish`, `/unpublish`, `/schedule`, `/archive` |
 
 ### 6.3 SiteConfig
 
-Implemented from day one against the plugin; see `docs/012`. Summary:
+Implemented from day one against the plugin; see `docs/013`. Summary:
 
 | Item | Action |
 |---|---|
-| Adapter | `src/infrastructure/lifecycle/site-config-lifecycle-manager.ts` |
+| Adapter | `src/application/lifecycle/site-config-lifecycle-manager.ts` |
 | `canArchive` extra rule | reject if entity is the currently-active config (DB lookup) |
-| Permission keys | `site_config.create/.read/.update/.publish/.archive/.delete` |
+| Permission keys | `org.create_site_config`, `site_config.read/.update/.publish/.archive/.delete` |
 | Routes | `/site-configs/{id}/publish`, `/unpublish`, `/schedule`, `/archive` plus CRUD |
 
 ### 6.4 Chapter
@@ -1148,7 +1148,7 @@ Phased to keep `pnpm check` green at every step:
 6. **LCY-F — Cron worker.** Create `workers/scheduled-publish/` as a new Cloudflare Worker (sibling of `workers/media-processor/`). Add `src/composition/scheduled-lifecycle.ts` with `buildScheduledLifecycleManagers` and `runScheduledPublish`. Add an integration test using a frozen clock and a seeded scheduled row. Extend the CI deploy workflow to deploy the new Worker alongside the API and media-processor Workers.
 7. **LCY-G — Documentation and cleanup.** Mark `docs/005` superseded. Update README. Update `docs/architecture.md` if it references the old publish use case names.
 
-`docs/012` (SiteConfig) is implementable in parallel after LCY-A/B/C land, but lands as a separate PR series tracked under that doc.
+`docs/013` (SiteConfig) is implementable in parallel after LCY-A/B/C land, but lands as a separate PR series tracked under that doc.
 
 ## 8. Migration And Rollout
 
@@ -1309,7 +1309,7 @@ Scope:
 - `src/domain/posts/post.entity.ts`
 - `src/domain/posts/post.repository.ts`
 - `src/infrastructure/repositories/drizzle-post.repository.ts`
-- `src/infrastructure/lifecycle/post-lifecycle-manager.ts` (new)
+- `src/application/lifecycle/post-lifecycle-manager.ts` (new)
 - `src/composition/create-request-container.ts`
 - `src/http/routes/posts.routes.ts`
 - Delete `src/application/posts/publish-post.usecase.ts`
@@ -1345,7 +1345,7 @@ Scope:
 - `src/domain/books/book.repository.ts`
 - `src/infrastructure/repositories/drizzle-book.repository.ts`
 - `src/infrastructure/repositories/mappers/book.mapper.ts`
-- `src/infrastructure/lifecycle/book-lifecycle-manager.ts` (new)
+- `src/application/lifecycle/book-lifecycle-manager.ts` (new)
 - `src/composition/create-request-container.ts`
 - `src/http/routes/books.routes.ts`
 - `src/http/schemas/books.schema.ts`
@@ -1412,20 +1412,20 @@ Tests:
 Scope:
 
 - `docs/005_publish-lifecycle-adapter.md`
-- `docs/013_content-lifecycle-plugin.md` (this doc)
+- `docs/012_content-lifecycle-plugin.md` (this doc)
 - `README.md`
 
 Tasks:
 
-- [ ] Mark `docs/005` `Status: superseded by docs/013` at the top of the file.
-- [ ] Update README "planning/status list" entry for `docs/013` to `implemented`.
+- [ ] Mark `docs/005` `Status: superseded by docs/012` at the top of the file.
+- [ ] Update README "planning/status list" entry for `docs/012` to `implemented`.
 - [ ] Update README to mention `triggers.crons` and the new lifecycle endpoints under "Routes".
 - [ ] Run `pnpm advise`. Suppress only catalogued duplications (entity lifecycle methods, lifecycle adapter shape) per `.advise-suppressions.json` conventions in `CLAUDE.md`.
 
 Acceptance criteria:
 
 - README links resolve.
-- `docs/005` clearly says superseded with a link to `docs/013`.
+- `docs/005` clearly says superseded with a link to `docs/012`.
 
 Tests:
 
@@ -1507,7 +1507,7 @@ For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflar
 - `src/application/lifecycle/{publish,unpublish,schedule-publish,archive}.usecase.ts` exist; each calls scope check → manager → entity method → save in that order.
 - `CrudAdapter` exposes `findRowsWhere` and `updateRowsConditional`; both have JSDoc; both have at least one test path through Post repository.
 - `Post` and `Book` implement `LifecycleCapable`; their props include `publishedAt`, `scheduledAt`, `archivedAt` (Post had `publishedAt` already).
-- `PostLifecycleManager` and `BookLifecycleManager` exist under `src/infrastructure/lifecycle/`.
+- `PostLifecycleManager` and `BookLifecycleManager` exist under `src/application/lifecycle/`.
 - `posts.routes.ts` exposes `/publish`, `/unpublish`, `/schedule`, `/archive`. `books.routes.ts` exposes the same four routes. `PATCH /books/{id}` rejects `status`.
 - `BUILT_IN_CONTENT_ROLES` contains `system:org.site_manager`; updated owner/admin roles include the new keys.
 - `drizzle/0007_lifecycle_fields.sql` applies cleanly on fresh D1.
@@ -1515,8 +1515,8 @@ For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflar
 - `.github/workflows/ci-deploy.yml` deploys the cron Worker after the API Worker.
 - `pnpm check` is green: lint (including architecture rules), duplicate gate, typecheck, vitest.
 - `pnpm advise` shows no new unacknowledged findings.
-- `README.md` lists the new endpoints and marks docs/013 implemented.
-- `docs/005` marked `superseded by docs/013`.
+- `README.md` lists the new endpoints and marks docs/012 implemented.
+- `docs/005` marked `superseded by docs/012`.
 - Deleted files: `src/application/posts/publish-post.usecase.ts`, `src/application/posts/unpublish-post.usecase.ts`.
 
 ## 14. Final Model
@@ -1532,10 +1532,10 @@ src/application/lifecycle/
   schedule-publish.usecase.ts    SchedulePublishUseCase<T> (validates future scheduledAt)
   archive.usecase.ts             ArchiveUseCase<T>
 
-src/infrastructure/lifecycle/
+src/application/lifecycle/
   post-lifecycle-manager.ts      can*(actor, post) → ContentPolicy.can("post.publish"|"post.archive", postResource(post))
   book-lifecycle-manager.ts      can*(actor, book) → ContentPolicy.can("book.publish"|"book.archive", bookResource(book))
-  site-config-lifecycle-manager.ts   adds "not the active config" guard inside canArchive (docs/012)
+  site-config-lifecycle-manager.ts   adds "not the active config" guard inside canArchive (docs/013)
 
 src/composition/
   create-request-container.ts    HTTP request graph (posts.publish, books.schedule, …)
@@ -1553,7 +1553,7 @@ drizzle/0007_lifecycle_fields.sql
 
 Catalog:
   + post.archive, book.publish, book.archive, chapter.archive
-  + site_config.create/.read/.update/.publish/.archive/.delete
+  + org.create_site_config, site_config.read/.update/.publish/.archive/.delete
   + system:org.site_manager role
   system:post.owner +post.archive
   system:book.owner +book.publish, +book.archive

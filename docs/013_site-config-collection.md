@@ -1,6 +1,6 @@
 # Site Config Collection
 
-> Status: implementation-grade proposal — ready for handoff (depends on docs/013)
+> Status: implementation-grade proposal — ready for handoff (depends on docs/012)
 >
 > Date: 2026-05-25
 >
@@ -13,7 +13,7 @@
 > - `docs/architecture.md`
 > - `docs/007_content-iam-policy-binding-model.md`
 > - `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
-> - `docs/013_content-lifecycle-plugin.md` — required prerequisite; lifecycle vocabulary and adapter interface live there
+> - `docs/012_content-lifecycle-plugin.md` — required prerequisite; lifecycle vocabulary and adapter interface live there
 > - `.claude/skills/content-api-architecture/SKILL.md`
 > - `.claude/skills/content-iam-usage/SKILL.md`
 > - `src/domain/iam/content-permission.ts`
@@ -26,12 +26,12 @@
 >
 > Related docs:
 >
-> - `docs/013_content-lifecycle-plugin.md` — SiteConfig adopts the lifecycle plugin from day one
+> - `docs/012_content-lifecycle-plugin.md` — SiteConfig adopts the lifecycle plugin from day one
 >
 > Assumptions:
 >
 > - Content IAM (`docs/007`) is operational. SiteConfig integrates exactly as Book/Post do.
-> - `docs/013` (Content Lifecycle Plugin) lands first. SiteConfig depends on `LifecycleCapable`, `LifecycleManager<T>`, the four generic use cases, and the partial-index pattern for `(scheduled_at) WHERE status = 'scheduled'`.
+> - `docs/012` (Content Lifecycle Plugin) lands first. SiteConfig depends on `LifecycleCapable`, `LifecycleManager<T>`, the four generic use cases, and the partial-index pattern for `(scheduled_at) WHERE status = 'scheduled'`.
 > - Blocks are validated at the API boundary by Zod and stored as a single JSON column. D1 (SQLite) supports JSON querying only through `json_extract`; this is acceptable because no first-release feature needs to query blocks by content.
 > - At most one `SiteConfig` per org may have `status = "published"` at a time. The invariant is enforced both by a DB partial unique index and by adapter-level checks.
 > - The `category.owner` system role is already marked deprecated in code with a reference to this doc; this doc formalizes that rationale.
@@ -100,7 +100,7 @@ Non-goals for the first release:
 - Block-level IAM bindings (org-level authority is sufficient for site configuration).
 - Importing/exporting site configs across orgs.
 - Querying or indexing block contents in SQL (acceptable because the front-end consumes the JSON whole).
-- Draft/live separation of the *currently published* config (a published config is mutated in place — see `docs/013 §11.1` for the future split).
+- Draft/live separation of the *currently published* config (a published config is mutated in place — see `docs/012 §11.1` for the future split).
 
 ## 2. System Summary
 
@@ -125,7 +125,7 @@ Content IAM evaluation:
 
 | Operation | Scope | Permission | Resource ref |
 |---|---|---|---|
-| Create | `content:write` | `site_config.create` | `organizationResource(orgId)` |
+| Create | `content:write` | `org.create_site_config` | `organizationResource(orgId)` |
 | Read active | none | none (public) | — |
 | Read draft/scheduled/archived | `content:read` | `site_config.read` | `siteConfigResource(config)` |
 | Update | `content:write` | `site_config.update` | `siteConfigResource(config)` |
@@ -139,12 +139,12 @@ Content IAM evaluation:
 
 | File | Role in this work |
 |---|---|
-| `src/domain/iam/content-permission.ts` | `ContentPermissionKey`, `ContentResourceType`, `CONTENT_PERMISSIONS`, `BUILT_IN_CONTENT_ROLES`. Updated by `docs/013` to add `site_config.*` keys and the `system:org.site_manager` role. |
+| `src/domain/iam/content-permission.ts` | `ContentPermissionKey`, `ContentResourceType`, `CONTENT_PERMISSIONS`, `BUILT_IN_CONTENT_ROLES`. Updated by `docs/012` to add `org.create_site_config`, `site_config.*` operation keys, and the `system:org.site_manager` role. |
 | `src/domain/iam/resource-loader.ts` | Resource-ref helpers. New `siteConfigResource(config)` needed. |
 | `src/domain/posts/post.entity.ts` | Reference entity pattern with class, props, create, reconstitute, toSnapshot. |
-| `src/domain/books/book.entity.ts` | Reference entity with status field; soon implements `LifecycleCapable` (docs/013). |
+| `src/domain/books/book.entity.ts` | Reference entity with status field; soon implements `LifecycleCapable` (docs/012). |
 | `src/infrastructure/db/schema.ts` | Existing Drizzle tables. No `site_configs` table. |
-| `src/infrastructure/persistence/crud-adapter.ts` | Shared CRUD primitive; gains `findRowsWhere` and `updateRowsConditional` in `docs/013`. SiteConfig uses both. |
+| `src/infrastructure/persistence/crud-adapter.ts` | Shared CRUD primitive; gains `findRowsWhere` and `updateRowsConditional` in `docs/012`. SiteConfig uses both. |
 | `src/infrastructure/repositories/drizzle-book-create.workflow.ts` | Reference workflow port: idempotent batch insert + owner binding + audit event. |
 | `src/application/posts/create-post.usecase.ts` | Reference idempotent create use case. |
 | `src/composition/create-request-container.ts` | Per-request DI graph where SiteConfig use cases must register. |
@@ -160,7 +160,7 @@ The `category.owner` built-in role is already marked deprecated in code (`src/do
 
 - No place to store site-level metadata or layout configuration for the front-end. Sites currently hardcode title, bio, hero image, etc. in code.
 - No mechanism for A/B layouts, seasonal campaigns, or mood-variant sites without a deploy.
-- The categories-as-org-owned decision is implemented but undocumented; the code points at "docs/012" which does not yet exist.
+- The categories-as-org-owned decision is implemented; the code points at `docs/012` rather than this SiteConfig rationale document.
 
 ## 4. Target Model
 
@@ -189,7 +189,7 @@ An org-scoped configuration record. An org may have many; exactly one is `publis
 
 ### 4.2 Lifecycle Mapping
 
-SiteConfig adopts `docs/013` directly. The vocabulary uses the same words:
+SiteConfig adopts `docs/012` directly. The vocabulary uses the same words:
 
 | Lifecycle state | SiteConfig meaning |
 |---|---|
@@ -228,10 +228,22 @@ There is no `deactivate` operation. To go dark, publish a minimal "maintenance m
 
 ### 4.4 Dynamic Block Schema
 
-Blocks are validated at the API boundary with a Zod discriminated union and stored as a JSON array (`blocks_json` text column).
+Blocks are represented by plain domain types, validated at the API boundary with a Zod discriminated union, and stored as a JSON array (`blocks_json` text column).
 
 ```ts
-// src/domain/site-config/site-block.schema.ts
+// src/domain/site-config/site-block.ts
+export type SiteBlock =
+  | { type: "hero"; title: string; subtitle?: string; mediaId?: string; cta?: { label: string; url: string } }
+  | { type: "bio"; body: string; avatarMediaId?: string }
+  | { type: "about"; heading?: string; body: string }
+  | { type: "featured_posts"; heading?: string; postIds: string[] }
+  | { type: "links"; heading?: string; items: { label: string; url: string }[] };
+
+export type SiteBlocks = SiteBlock[];
+```
+
+```ts
+// src/http/schemas/site-config-blocks.schema.ts
 import { z } from "@hono/zod-openapi";
 
 export const heroBlockSchema = z.object({
@@ -277,12 +289,9 @@ export const siteBlockSchema = z.discriminatedUnion("type", [
 ]).openapi("SiteBlock");
 
 export const siteBlocksSchema = z.array(siteBlockSchema).max(30).openapi("SiteBlocks");
-
-export type SiteBlock = z.infer<typeof siteBlockSchema>;
-export type SiteBlocks = z.infer<typeof siteBlocksSchema>;
 ```
 
-Adding a new block type is a code change: extend `siteBlockSchema`. Existing rows remain valid because the discriminator is a closed-set literal — a row that contains an unknown discriminant survives a future deploy only if the deploy preserves the old block type or strips unknown blocks during read. To keep read paths resilient, the row-to-entity mapper uses `siteBlocksSchema.safeParse(...)`; on failure it falls back to filtering blocks individually with `siteBlockSchema.safeParse(...)` and dropping unrecognized entries (with a structured `console.warn` event to flag rollbacks).
+Adding a new block type is a code change: extend `SiteBlock` and `siteBlockSchema`. Existing rows remain valid because the discriminator is a closed-set literal — a row that contains an unknown discriminant survives a future deploy only if the deploy preserves the old block type or strips unknown blocks during read. To keep read paths resilient, the row-to-entity mapper uses a framework-free decoder for the same `SiteBlock` shapes; on failure it filters blocks individually and drops unrecognized entries (with a structured `console.warn` event to flag rollbacks). The mapper must not import `site-config-blocks.schema.ts` from HTTP.
 
 `aboutContent` is typed as `unknown` and validated only as "is a JSON object". Lexical editor state is a tree that varies by editor configuration; the API contract is "JSON in, JSON out".
 
@@ -291,7 +300,7 @@ Adding a new block type is a code change: extend `siteBlockSchema`. Existing row
 ```ts
 // src/domain/site-config/site-config.entity.ts
 import type { LifecycleCapable, LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
-import type { SiteBlocks } from "@/domain/site-config/site-block.schema";
+import type { SiteBlocks } from "@/domain/site-config/site-block";
 import { ConflictError } from "@/shared/errors";
 
 export type SiteConfigProps = {
@@ -435,9 +444,8 @@ export interface SiteConfigRepository {
   save(config: SiteConfig): Promise<void>;
   delete(id: string): Promise<boolean>;
 
-  /** Required by the lifecycle plugin (docs/013 §4.5). */
+  /** Required by the lifecycle plugin (docs/012 §4.5) for cron candidate scanning. */
   findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-  publishScheduledReady(id: string, now: Date): Promise<boolean>;
 }
 ```
 
@@ -454,12 +462,15 @@ export interface SiteConfigPublishWorkflow {
    * violation on (org_id) WHERE status='published' into ConflictError.
    */
   publishAtomic(config: SiteConfig): Promise<void>;
+
+  /** Atomically publishes one due scheduled config while preserving the single-published invariant. */
+  publishScheduledReady(id: string, now: Date): Promise<boolean>;
 }
 ```
 
 ### 4.7 Database Schema
 
-Migration: `drizzle/0008_site_configs.sql` (one ordinal after `0007_lifecycle_fields.sql` from `docs/013`).
+Migration: `drizzle/0008_site_configs.sql` (one ordinal after `0007_lifecycle_fields.sql` from `docs/012`).
 
 ```sql
 CREATE TABLE site_configs (
@@ -488,7 +499,7 @@ CREATE INDEX site_configs_org_status_idx ON site_configs (org_id, status);
 CREATE UNIQUE INDEX site_configs_single_published_org_idx
   ON site_configs (org_id) WHERE status = 'published';
 
--- Cron predicate (matches docs/013 §4.5 partial index pattern).
+-- Cron predicate (matches docs/012 §4.5 partial index pattern).
 CREATE INDEX site_configs_scheduled_idx
   ON site_configs (scheduled_at) WHERE status = 'scheduled';
 ```
@@ -529,7 +540,7 @@ export const siteConfigs = sqliteTable(
 
 ### 4.8 Content IAM Integration
 
-All catalog additions are made by `docs/013 §4.7`. SiteConfig only needs to wire the resource-ref helper.
+All catalog additions are made by `docs/012 §4.7`. SiteConfig only needs to wire the resource-ref helper.
 
 `src/domain/iam/resource-loader.ts` addition:
 
@@ -548,27 +559,27 @@ export function siteConfigResource(config: SiteConfig): ContentResourceRef {
 
 `ContentResourceInput` is **not** extended for site_config — site configs are not policy-binding targets in v1; they inherit from org. If per-config bindings become necessary in the future, extend `ContentResourceInput` and add a `loadSiteConfigResource` helper.
 
-Permission keys (added by `docs/013`):
+Permission keys (added by `docs/012`):
 
 | Key | Description | delegationClass |
 |---|---|---|
-| `site_config.create` | Create a site config in an organization | `ordinary` |
+| `org.create_site_config` | Create a site config in an organization | `ordinary` |
 | `site_config.read` | Read a draft, scheduled, or archived site config | `ordinary` |
 | `site_config.update` | Update a site config | `ordinary` |
 | `site_config.publish` | Promote a site config to active (also unpublish/schedule) | `ordinary` |
 | `site_config.archive` | Archive a site config (non-active only) | `ordinary` |
 | `site_config.delete` | Delete a site config | `ordinary` |
 
-Roles (added or updated by `docs/013`):
+Roles (added or updated by `docs/012`):
 
 | Role | Permissions added |
 |---|---|
-| `system:org.site_manager` (new) | All six site_config keys |
-| `system:org.content_admin` | All six site_config keys |
+| `system:org.site_manager` (new) | `org.create_site_config` plus all five `site_config.*` keys |
+| `system:org.content_admin` | `org.create_site_config` plus all five `site_config.*` keys |
 
 ### 4.9 Application Use Cases
 
-SiteConfig adds **CRUD** use cases. Lifecycle use cases (`publish`, `unpublish`, `schedule`, `archive`) are the generic ones from `docs/013` parameterized with `SiteConfigLifecycleManager`.
+SiteConfig adds **CRUD** use cases. Lifecycle use cases (`publish`, `unpublish`, `schedule`, `archive`) are the generic ones from `docs/012` parameterized with `SiteConfigLifecycleManager`.
 
 ```
 src/application/site-config/
@@ -606,7 +617,7 @@ export class CreateSiteConfigUseCase {
     const ctx = await requireOwnedContentCreateContext({
       actor: params.actor,
       contentPolicy: this.contentPolicy,
-      orgCreatePermission: "site_config.create",
+      orgCreatePermission: "org.create_site_config",
     });
 
     const slug = await this.resolveSlug({ orgId: ctx.orgId, name: params.input.name, requestedSlug: params.input.slug });
@@ -641,14 +652,14 @@ export class CreateSiteConfigUseCase {
 }
 ```
 
-The `requireOwnedContentCreateContext` helper (from `src/application/content-ownership.ts`) gates the create on org membership + `site_config.create` and resolves the org id. Site configs do not create a per-resource owner binding; access flows through org-level roles only (see [§5.4](#54-org-level-iam-only-for-site-configs)).
+The `requireOwnedContentCreateContext` helper (from `src/application/content-ownership.ts`) gates the create on org membership + `org.create_site_config` and resolves the org id. Site configs do not create a per-resource owner binding; access flows through org-level roles only (see [§5.4](#54-org-level-iam-only-for-site-configs)).
 
 Update use case must reject any input that smuggles a `status`, `publishedAt`, `scheduledAt`, or `archivedAt`. The Zod request schema does not include those fields, so this is enforced at the boundary.
 
 ### 4.10 SiteConfig Lifecycle Adapter
 
 ```ts
-// src/infrastructure/lifecycle/site-config-lifecycle-manager.ts
+// src/application/lifecycle/site-config-lifecycle-manager.ts
 import type { Actor } from "@/domain/auth/actor";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import { siteConfigResource } from "@/domain/iam/resource-loader";
@@ -705,7 +716,7 @@ export class SiteConfigLifecycleManager implements LifecycleManager<SiteConfig> 
     return this.configs.findScheduledReadyIds(now, limit);
   }
   publishScheduledReady(id: string, now: Date) {
-    return this.configs.publishScheduledReady(id, now);
+    return this.publishWorkflow.publishScheduledReady(id, now);
   }
 }
 ```
@@ -713,7 +724,7 @@ export class SiteConfigLifecycleManager implements LifecycleManager<SiteConfig> 
 The cron driver's `publishScheduledReady(id, now)` for SiteConfig must also enforce the single-published invariant. Implementation:
 
 ```ts
-// src/infrastructure/repositories/drizzle-site-config.repository.ts (publishScheduledReady)
+// src/infrastructure/repositories/drizzle-site-config-publish.workflow.ts (publishScheduledReady)
 async publishScheduledReady(id: string, now: Date): Promise<boolean> {
   try {
     const result = await this.db.batch([
@@ -753,7 +764,7 @@ async publishScheduledReady(id: string, now: Date): Promise<boolean> {
 Two important notes:
 
 - D1 SQLite does not support arbitrary subqueries in `UPDATE … WHERE` against the same table in all builds. If Drizzle's subquery feature does not translate cleanly, replace the first batch statement with two passes: (a) `SELECT org_id FROM site_configs WHERE id = ?`; (b) `UPDATE site_configs SET status='archived' … WHERE org_id = ? AND status='published'`. The implementation backlog calls this out under [SCG-E](#scg-e-lifecycle-adapter-integration).
-- The unique partial index can still fire if another transaction publishes a different config in the same org between the two statements of the batch. The adapter catches that case and returns `false`.
+- The unique partial index can still fire if another transaction publishes a different config in the same org between the two statements of the batch. The workflow catches that case and returns `false`.
 
 ### 4.11 HTTP API Surface
 
@@ -762,7 +773,7 @@ Routes live in `src/http/routes/site-configs.routes.ts`. All routes require `con
 | Method | Path | Auth | Use case | Permission |
 |---|---|---|---|---|
 | `GET` | `/site-configs` | `content:read` | `siteConfigs.list` | `site_config.read` (org) |
-| `POST` | `/site-configs` | `content:write` | `siteConfigs.create` | `site_config.create` |
+| `POST` | `/site-configs` | `content:write` | `siteConfigs.create` | `org.create_site_config` |
 | `GET` | `/site-configs/active` | public | `siteConfigs.getActive` | — |
 | `GET` | `/site-configs/{id}` | `content:read` (active is public) | `siteConfigs.get` | `site_config.read` if not active |
 | `PATCH` | `/site-configs/{id}` | `content:write` | `siteConfigs.update` | `site_config.update` |
@@ -778,7 +789,7 @@ Schemas in `src/http/schemas/site-configs.schema.ts`:
 
 ```ts
 import { z } from "@hono/zod-openapi";
-import { siteBlocksSchema } from "@/domain/site-config/site-block.schema";
+import { siteBlocksSchema } from "./site-config-blocks.schema";
 
 const slugSchema = z.string().regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i).min(2).max(120);
 
@@ -848,7 +859,7 @@ This rule generalizes: any new resource that is a shared org taxonomy (tags, col
 ```
 src/domain/site-config/
   site-config.entity.ts                  # SiteConfig (LifecycleCapable)
-  site-block.schema.ts                   # Zod blocks (also imported by HTTP schemas)
+  site-block.ts                          # plain block types
   site-config.repository.ts              # SiteConfigRepository interface
   site-config-publish.workflow.ts        # SiteConfigPublishWorkflow interface (atomic publish)
 
@@ -865,10 +876,11 @@ src/infrastructure/repositories/
   drizzle-site-config-publish.workflow.ts
   mappers/site-config.mapper.ts
 
-src/infrastructure/lifecycle/
+src/application/lifecycle/
   site-config-lifecycle-manager.ts
 
 src/http/schemas/
+  site-config-blocks.schema.ts           # Zod/OpenAPI block validation
   site-configs.schema.ts
 
 src/http/presenters/
@@ -893,7 +905,7 @@ A singleton SiteConfig (one row, one `GET /site-config`) gives no history, no ca
 
 ### 5.2 Lifecycle Plugin From Day One
 
-`docs/013` lands first. SiteConfig does not ship a bespoke `ActivateSiteConfigUseCase`. The same `PublishUseCase<SiteConfig>` / `UnpublishUseCase<SiteConfig>` / `SchedulePublishUseCase<SiteConfig>` / `ArchiveUseCase<SiteConfig>` generic use cases are wired in `create-request-container.ts`. The vocabulary is `publish/published`, not `activate/active`, across permissions, endpoints, timestamps, and entity methods.
+`docs/012` lands first. SiteConfig does not ship a bespoke `ActivateSiteConfigUseCase`. The same `PublishUseCase<SiteConfig>` / `UnpublishUseCase<SiteConfig>` / `SchedulePublishUseCase<SiteConfig>` / `ArchiveUseCase<SiteConfig>` generic use cases are wired in `create-request-container.ts`. The vocabulary is `publish/published`, not `activate/active`, across permissions, endpoints, timestamps, and entity methods.
 
 Rationale: shipping a bespoke activate now and renaming later doubles the work, breaks public API once, and produces redundant docs.
 
@@ -938,11 +950,11 @@ Plain text is rejected — clients should use the `bio` field for short plain-te
 - **Separate `site_config_blocks` table.** A join per read for blocks that are always consumed together. Multi-statement writes on every edit. Marginal benefit (queries over block types) that no first-release feature needs.
 - **Bespoke activate use case (the original `docs/012` draft).** Replaced by lifecycle plugin reuse; see [§5.2](#52-lifecycle-plugin-from-day-one).
 - **Per-resource SiteConfig owner role.** Site configs are org-shared; per-resource ownership creates abandonment risk.
-- **`status` reachable through PATCH.** Same rule as `docs/013 §5.3`: lifecycle status only flows through dedicated endpoints. Enforced by `updateSiteConfigBodySchema.strict()`.
+- **`status` reachable through PATCH.** Same rule as `docs/012 §5.3`: lifecycle status only flows through dedicated endpoints. Enforced by `updateSiteConfigBodySchema.strict()`.
 
 ## 6. Implementation Strategy
 
-Prerequisite: `docs/013` LCY-A, LCY-B, LCY-C must be merged. Without LCY-A there is no `LifecycleCapable`; without LCY-B there are no `site_config.*` permission keys; without LCY-C the partial-index pattern is unproven.
+Prerequisite: `docs/012` LCY-A, LCY-B, LCY-C must be merged. Without LCY-A there is no `LifecycleCapable`; without LCY-B there are no SiteConfig permission keys; without LCY-C the partial-index pattern is unproven.
 
 Phased work, each phase keeps `pnpm check` green:
 
@@ -960,7 +972,7 @@ Phased work, each phase keeps `pnpm check` green:
 - **Database**: `drizzle/0008_site_configs.sql` is independent and additive. Apply via `pnpm db:migrate:local` / `pnpm db:migrate:remote` (CI handles remote).
 - **Deploy order**: migration → Worker. The new Drizzle table is unused by the previous Worker binary, so the migration is forward-compatible.
 - **No feature flag.** The collection is new; no existing client uses it.
-- **Cron**: the `SiteConfigLifecycleManager` is registered in `src/composition/scheduled-lifecycle.ts` (the shared helper consumed by the `workers/scheduled-publish/` Worker shipped by `docs/013 LCY-F`). No new Cloudflare Worker is created by this doc; SiteConfig piggybacks on the existing scheduled-publish Worker. Adding the manager to `buildScheduledLifecycleManagers` is the only wiring required for the cron path.
+- **Cron**: the `SiteConfigLifecycleManager` is registered in `src/composition/scheduled-lifecycle.ts` (the shared helper consumed by the `workers/scheduled-publish/` Worker shipped by `docs/012 LCY-F`). No new Cloudflare Worker is created by this doc; SiteConfig piggybacks on the existing scheduled-publish Worker. Adding the manager to `buildScheduledLifecycleManagers` is the only wiring required for the cron path.
 - **Rollback**: deploy the older Worker. The new table is inert. Do not drop the table on rollback; subsequent re-deploy keeps data.
 
 ## 8. Edge Cases And Failure Modes
@@ -968,13 +980,13 @@ Phased work, each phase keeps `pnpm check` green:
 | Scenario | Handling |
 |---|---|
 | Two concurrent publishes for different configs in the same org | Adapter's `publishAtomic` issues a batch with the archive step on the current published and the promote step on the target. The unique partial index on `(org_id) WHERE status='published'` rejects the second commit; infrastructure translates to `ConflictError` → `409`. |
-| Cron and manual publish race | Both go through compare-and-set logic. The adapter's `publishScheduledReady` catches the unique-index error and returns `false`. The manual call wins or vice versa; the row ends in `published` exactly once. |
+| Cron and manual publish race | Both go through compare-and-set logic. The publish workflow's `publishScheduledReady` catches the unique-index error and returns `false`. The manual call wins or vice versa; the row ends in `published` exactly once. |
 | `GET /site-configs/active` with no active config | `200` with empty data is rejected — return `404`. Front-end renders an unconfigured state. |
 | `heroMediaId` references deleted media | FK uses `ON DELETE SET NULL`; the field becomes `null` and presenters surface null. |
 | Block embeds `mediaId` that points to deleted media | Blocks are inside JSON; SQLite FK does not apply. Front-end shows a broken-media placeholder. A periodic cleanup job (future) can scan `blocks_json` for stale media IDs. |
 | Publishing an archived config | Entity rejects: `ConflictError("Cannot publish an archived site config")` → `409`. Caller must duplicate and publish. |
 | Updating an archived config | Entity rejects in `update()` → `409`. |
-| Block schema evolution — unknown block type on read | Mapper uses `siteBlocksSchema.safeParse` then per-block `siteBlockSchema.safeParse`, dropping unrecognized entries. Adds a `console.warn` record for ops. |
+| Block schema evolution — unknown block type on read | Mapper uses framework-free per-block decoding, dropping unrecognized entries and adding a `console.warn` record for ops. |
 | Slug collision on create | Repository `findBySlug` returns existing; use case raises `ConflictError("Slug already in use")` → `409`. If slug omitted, `randomizedSlugFromTitle` includes a random suffix; collision probability is negligible. |
 | Empty `blocks` array | Valid. Active config renders with only top-level fields. |
 | `postIds` in `featured_posts` block reference deleted posts | Not validated at write time. Front-end filters missing posts at render. |
@@ -984,7 +996,7 @@ Phased work, each phase keeps `pnpm check` green:
 | Cron picks up a scheduled config whose org gained an active config between schedule and cron | Compare-and-set commits the second config as the new active; the previous active is archived in the same batch. This is the documented behavior — schedule wins. To prevent it, the author should unpublish the schedule or activate manually beforehand. |
 | Concurrent publish at top-of-hour with multiple scheduled configs in same org | The first cron tick selects N candidates; for each, `publishScheduledReady` either succeeds or fails. Only one can succeed (unique partial index). The others remain `scheduled` and are picked up next hour. **Operator-visible note**: scheduling two configs for the same org at the same minute is a likely UX bug. Surfacing this in the admin UI is a non-goal here. |
 | `Idempotency-Key` reused with different body on create | `CONFLICT` per existing idempotency contract. |
-| Service-account create | Same authorization path as user; service account must have `site_config.create` on the org. |
+| Service-account create | Same authorization path as user; service account must have `org.create_site_config` on the org. |
 
 ## 9. Implementation Backlog
 
@@ -1018,12 +1030,13 @@ Tests:
 
 Scope:
 
-- `src/domain/site-config/site-block.schema.ts`
+- `src/domain/site-config/site-block.ts`
+- `src/http/schemas/site-config-blocks.schema.ts`
 - `src/shared/validation/fields.ts` (re-export or add `isValidSlug` if not present)
 
 Tasks:
 
-- [ ] Implement Zod discriminated union per §4.4.
+- [ ] Define plain block types under domain and implement the Zod discriminated union under HTTP schemas per §4.4.
 - [ ] Add `.openapi(...)` registration to every block schema so OpenAPI generation labels them.
 - [ ] Confirm slug regex and `randomizedSlugFromTitle` are in `src/shared/validation/fields.ts`; add `isValidSlug(value: string): boolean` if missing.
 
@@ -1051,9 +1064,9 @@ Tasks:
 
 - [ ] Implement `SiteConfigRepository` interface (§4.6).
 - [ ] Implement `SiteConfigPublishWorkflow` interface; the Drizzle implementation runs the two-step archive-then-promote batch with subquery or two-pass org-id resolution (§4.10).
-- [ ] Implement mappers: `siteConfigRowToEntity`, `siteConfigToInsertRow`, `siteConfigToUpdateRow`. All explicit field-by-field per `architecture/mapper-file`. Reconstitute via `SiteConfig.reconstitute`. Use mapper safe-parse for blocks on read.
+- [ ] Implement mappers: `siteConfigRowToEntity`, `siteConfigToInsertRow`, `siteConfigToUpdateRow`. All explicit field-by-field per `architecture/mapper-file`. Reconstitute via `SiteConfig.reconstitute`. Preserve the per-block fallback on read through framework-free decoding; do not import HTTP schemas into the mapper.
 - [ ] Implement `findScheduledReadyIds(now, limit)` using `CrudAdapter.findRowsWhere`.
-- [ ] Implement `publishScheduledReady(id, now)` using a `db.batch(...)` plus `isSqliteUniqueConstraintError(error, "site_configs.single_published_org")` translation.
+- [ ] Implement `publishScheduledReady(id, now)` on `DrizzleSiteConfigPublishWorkflow` using a `db.batch(...)` plus `isSqliteUniqueConstraintError(error, "site_configs.single_published_org")` translation.
 
 Acceptance criteria:
 
@@ -1079,7 +1092,7 @@ Scope:
 
 Tasks:
 
-- [ ] `CreateSiteConfigUseCase` mirrors `CreatePostUseCase` (idempotency, scope, IAM via `requireOwnedContentCreateContext`, slug resolution, workflow port). Permission key: `site_config.create`.
+- [ ] `CreateSiteConfigUseCase` mirrors `CreatePostUseCase` (idempotency, scope, IAM via `requireOwnedContentCreateContext`, slug resolution, workflow port). Permission key: `org.create_site_config`.
 - [ ] `GetActiveSiteConfigUseCase` takes `{ orgId }`, no actor, no permission check. Returns `null` if absent (route translates to `404`).
 - [ ] `GetSiteConfigUseCase` takes `{ actor, id }`; if active, returns it without IAM; otherwise calls `ContentPolicy.can("site_config.read", siteConfigResource(config))`.
 - [ ] `UpdateSiteConfigUseCase`: scope check → load → `can("site_config.update", ref)` → `entity.update(...)` → `repo.save(entity)`.
@@ -1099,7 +1112,7 @@ Tests:
 
 Scope:
 
-- `src/infrastructure/lifecycle/site-config-lifecycle-manager.ts` (new)
+- `src/application/lifecycle/site-config-lifecycle-manager.ts` (new)
 - `src/domain/iam/resource-loader.ts` (extend)
 
 Tasks:
@@ -1110,7 +1123,7 @@ Tasks:
   - `save` routes published states through `SiteConfigPublishWorkflow.publishAtomic` and other states through `repo.save`.
   - `can{Publish,Unpublish,Schedule}` → `ContentPolicy.can("site_config.publish", siteConfigResource(entity))`.
   - `canArchive` returns false for the published config; otherwise `ContentPolicy.can("site_config.archive", siteConfigResource(entity))`.
-  - `findScheduledReadyIds`, `publishScheduledReady` → repo.
+  - `findScheduledReadyIds` → repo; `publishScheduledReady` → publish workflow.
 
 Acceptance criteria:
 
@@ -1151,16 +1164,16 @@ Tests:
 Scope:
 
 - `src/composition/create-request-container.ts` (extend)
-- `src/composition/scheduled-lifecycle.ts` (extend — the helper consumed by `workers/scheduled-publish/src/index.ts` from `docs/013 LCY-F`)
+- `src/composition/scheduled-lifecycle.ts` (extend — the helper consumed by `workers/scheduled-publish/src/index.ts` from `docs/012 LCY-F`)
 
-**Do not** create a new Cloudflare Worker for SiteConfig. The scheduled-publish Worker shipped by `docs/013 LCY-F` already iterates every registered `LifecycleManager<LifecycleCapable>`; SiteConfig joins by adding its manager to the array returned by `buildScheduledLifecycleManagers(env)`.
+**Do not** create a new Cloudflare Worker for SiteConfig. The scheduled-publish Worker shipped by `docs/012 LCY-F` already iterates every registered `LifecycleManager<LifecycleCapable>`; SiteConfig joins by adding its manager to the array returned by `buildScheduledLifecycleManagers(env)`.
 
 Tasks:
 
 - [ ] Build per-request `siteConfigRepository`, `siteConfigCreateWorkflow`, `siteConfigPublishWorkflow`, `siteConfigLifecycleManager` in `create-request-container.ts`.
 - [ ] Register the CRUD use cases under `siteConfigs` in the container return object.
-- [ ] Add four lifecycle use cases (`publish`, `unpublish`, `schedule`, `archive`) under `siteConfigs`, each constructed from the corresponding generic class from `docs/013` against `siteConfigLifecycleManager`.
-- [ ] In `src/composition/scheduled-lifecycle.ts`, instantiate `SiteConfigLifecycleManager` (with `DrizzleSiteConfigRepository` and `DrizzleSiteConfigPublishWorkflow`) and append it to the array returned by `buildScheduledLifecycleManagers(env)`. No `ContentPolicy` is required on the cron path (see `docs/013 §4.6.2`).
+- [ ] Add four lifecycle use cases (`publish`, `unpublish`, `schedule`, `archive`) under `siteConfigs`, each constructed from the corresponding generic class from `docs/012` against `siteConfigLifecycleManager`.
+- [ ] In `src/composition/scheduled-lifecycle.ts`, instantiate `SiteConfigLifecycleManager` (with `DrizzleSiteConfigRepository` and `DrizzleSiteConfigPublishWorkflow`) and append it to the array returned by `buildScheduledLifecycleManagers(env)`. No `ContentPolicy` is required on the cron path (see `docs/012 §4.6.2`).
 
 Acceptance criteria:
 
@@ -1172,7 +1185,7 @@ Acceptance criteria:
 
 Scope:
 
-- `docs/012_site-config-collection.md` (this doc — status update)
+- `docs/013_site-config-collection.md` (this doc — status update)
 - `README.md`
 - `docs/architecture.md` (only if it lists collections)
 
@@ -1185,7 +1198,7 @@ Tasks:
 Acceptance criteria:
 
 - README references the new collection.
-- `docs/012` status reflects the merged state.
+- `docs/013` status reflects the merged state.
 
 ## 10. Future Backlog
 
@@ -1194,7 +1207,7 @@ Acceptance criteria:
 - **Block content cleanup job.** Periodic scan of `blocks_json` for media IDs that no longer resolve. Either invalidate the block or surface a maintenance event.
 - **A/B testing variants.** Add a sibling `variant_group_id` and weight selection. Not part of this release.
 - **Site config import/export.** A JSON dump/restore flow with safe slug remapping.
-- **Draft/live split (`docs/013 §11.1`).** When implemented, SiteConfig opts in by adding `saveDraft` / `findDraft` to its lifecycle manager. Authors edit a draft layered over the published config; publish applies the draft.
+- **Draft/live split (`docs/012 §11.1`).** When implemented, SiteConfig opts in by adding `saveDraft` / `findDraft` to its lifecycle manager. Authors edit a draft layered over the published config; publish applies the draft.
 
 ## 11. Test And Verification Plan
 
@@ -1207,23 +1220,23 @@ Acceptance criteria:
 | Integration — publish workflow | Concurrent `publishAtomic` calls on different configs in the same org: one succeeds, the other returns `ConflictError`. |
 | Integration — lifecycle adapter | Generic `PublishUseCase<SiteConfig>` with adapter publishes a draft and archives the prior published. `ArchiveUseCase<SiteConfig>` on published config → `Forbidden`. |
 | Integration — HTTP | All 10 endpoints. Public `GET /site-configs/active`, `404` when none active, idempotent create replay, `PATCH` rejecting `status`. |
-| Integration — IAM | Direct-share actor without `site_config.create` is forbidden on create; org `system:org.site_manager` member can publish; `system:org.content_admin` can do everything. |
+| Integration — IAM | Direct-share actor without `org.create_site_config` is forbidden on create; org `system:org.site_manager` member can publish; `system:org.content_admin` can do everything. |
 | Integration — cron | Scheduled config with `scheduledAt = now - 1s` is promoted by `runScheduledPublish`; prior published is archived. |
 | Race | Two concurrent publishes on different configs in the same org via `Promise.all` — assert exactly one ends `published`. |
 | Architecture lint | `pnpm lint` — verify `architecture/entity-class`, `architecture/mapper-file`, `architecture/route-module`, `architecture/no-plain-zod-import`, `architecture/req-valid-usage` all pass. |
-| Duplication | `pnpm check:dup` — Drizzle repo and mapper expected to clone-match book/post repo; add suppression entries pointing at this doc and `docs/013`. |
+| Duplication | `pnpm check:dup` — Drizzle repo and mapper expected to clone-match book/post repo; add suppression entries pointing at this doc and `docs/012`. |
 | Advisory | `pnpm advise` — no new unacknowledged findings. |
 
 ## 12. Definition Of Done
 
 - `site_configs` table created with all four indexes (`org_slug_idx`, `org_status_idx`, `single_published_org_idx`, `scheduled_idx`).
 - `SiteConfig` entity implements `LifecycleCapable` with all four transition methods, snapshot clone, and full getters.
-- `siteBlockSchema` and `siteBlocksSchema` Zod schemas in `src/domain/site-config/site-block.schema.ts`.
+- Plain `SiteBlock`/`SiteBlocks` types in `src/domain/site-config/site-block.ts`; `siteBlockSchema` and `siteBlocksSchema` Zod schemas in `src/http/schemas/site-config-blocks.schema.ts`.
 - `SiteConfigRepository`, `SiteConfigPublishWorkflow`, Drizzle implementations, and explicit mapper present.
 - `SiteConfigLifecycleManager` present and wired in `create-request-container.ts` and `scheduled-lifecycle.ts`.
-- Use cases under `src/application/site-config/`: create, get, get-active, list, update, delete. Lifecycle use cases are the generic ones from `docs/013`.
+- Use cases under `src/application/site-config/`: create, get, get-active, list, update, delete. Lifecycle use cases are the generic ones from `docs/012`.
 - Routes in `src/http/routes/site-configs.routes.ts`: 10 endpoints documented in §4.11, registered in `src/http/routes/index.ts`.
-- Permission keys and `system:org.site_manager` role active in the catalog (delivered by `docs/013`).
+- Permission keys and `system:org.site_manager` role active in the catalog (delivered by `docs/012`).
 - `siteConfigResource(...)` exported from `src/domain/iam/resource-loader.ts`.
 - `GET /site-configs/active` returns `200` with the active config, `404` when none exists, with no actor or permission requirement.
 - `POST /site-configs/{id}/publish` atomically archives the previous published config in the same org and promotes the target; concurrent attempts return `409`.
@@ -1239,37 +1252,38 @@ Acceptance criteria:
 ## 13. Final Model
 
 ```
-docs/013 prerequisites           lifecycle plugin + permission catalog + crud-adapter helpers
+docs/012 prerequisites           lifecycle plugin + permission catalog + crud-adapter helpers
 
 src/domain/site-config/
   site-config.entity.ts          SiteConfig implements LifecycleCapable
-  site-block.schema.ts           Zod discriminated union (hero, bio, about, featured_posts, links)
-  site-config.repository.ts      findById/findActive/findBySlug/list/save/delete + scheduled-ready methods
-  site-config-publish.workflow.ts publishAtomic(config) → archive current published + promote target
+  site-block.ts                  plain block types (hero, bio, about, featured_posts, links)
+  site-config.repository.ts      findById/findActive/findBySlug/list/save/delete + scheduled-ready scan
+  site-config-publish.workflow.ts publishAtomic/publishScheduledReady → archive current published + promote target
 
 src/infrastructure/repositories/
   drizzle-site-config.repository.ts
   drizzle-site-config-publish.workflow.ts
   mappers/site-config.mapper.ts  explicit one-to-one with safe-parse block fallback on read
 
-src/infrastructure/lifecycle/
+src/application/lifecycle/
   site-config-lifecycle-manager.ts
     canPublish/Unpublish/Schedule → "site_config.publish"
     canArchive                    → false if published; else "site_config.archive"
     save                          → publishAtomic for published, repo.save otherwise
 
 src/application/site-config/
-  create-site-config.usecase.ts        idempotent + slug resolution + "site_config.create"
+  create-site-config.usecase.ts        idempotent + slug resolution + "org.create_site_config"
   get-site-config.usecase.ts           public-read shortcut when active
   get-active-site-config.usecase.ts    no actor, no permission check
   list-site-configs.usecase.ts         cursor pagination, canMany filter
   update-site-config.usecase.ts        rejects archived; "site_config.update"
   delete-site-config.usecase.ts        rejects scheduled/published; "site_config.delete"
 
-(generic lifecycle use cases from docs/013 parameterize SiteConfigLifecycleManager:
+(generic lifecycle use cases from docs/012 parameterize SiteConfigLifecycleManager:
   PublishUseCase<SiteConfig>,  UnpublishUseCase<SiteConfig>,
   SchedulePublishUseCase<SiteConfig>, ArchiveUseCase<SiteConfig>)
 
+src/http/schemas/site-config-blocks.schema.ts Zod/OpenAPI discriminated union
 src/http/routes/site-configs.routes.ts  10 endpoints — CRUD + lifecycle + public active
 src/http/schemas/site-configs.schema.ts strict update body; slug regex; lexical-json aboutContent
 src/http/presenters/site-config.presenter.ts
@@ -1279,7 +1293,7 @@ src/infrastructure/db/schema.ts         siteConfigs table
 
 src/composition/create-request-container.ts   wires CRUD + lifecycle for site_config (HTTP path)
 src/composition/scheduled-lifecycle.ts        adds SiteConfigLifecycleManager to the cron-path manager array
-                                              (consumed by workers/scheduled-publish/src/index.ts — docs/013 LCY-F)
+                                              (consumed by workers/scheduled-publish/src/index.ts — docs/012 LCY-F)
 src/domain/iam/resource-loader.ts             + siteConfigResource(...)
 ```
 

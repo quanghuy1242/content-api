@@ -19,7 +19,6 @@ import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from 
 import {
   bookResponseSchema,
   createBookSchema,
-  organizationBookParamSchema,
   updateBookSchema,
 } from "@/http/schemas/books.schema";
 import {
@@ -65,12 +64,11 @@ const getBookRoute = createRoute({
 
 const createBookRoute = createRoute({
   method: "post",
-  path: "/organizations/{orgId}/books",
+  path: "/books",
   tags: ["books"],
   description: "Create a private draft book and its single direct owner binding atomically.",
   security: bearerSecurity,
   request: {
-    params: organizationBookParamSchema,
     headers: idempotencyHeaderSchema,
     body: jsonRequestBody(createBookSchema, "Book create payload"),
   },
@@ -236,12 +234,10 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
 
   app.openapi(createBookRoute, async (c) => {
     const actor = requireActor(c);
-    const params = c.req.valid("param");
     const headers = c.req.valid("header");
     const body = c.req.valid("json");
     const result = await c.get("container").books.create.execute({
       actor,
-      orgId: params.orgId,
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),

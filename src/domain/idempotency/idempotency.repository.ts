@@ -3,7 +3,7 @@ export type IdempotencyRoute =
   | "POST /media"
   | "POST /categories"
   | "POST /users"
-  | "POST /organizations/{orgId}/books"
+  | "POST /books"
   | "POST /books/{bookId}/policy-bindings"
   | "POST /books/{bookId}/policy-denials"
   | "POST /books/{bookId}/ownership-transfer"

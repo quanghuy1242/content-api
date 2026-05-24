@@ -16,6 +16,8 @@ import type { UserRepository } from "@/domain/users/user.repository";
 import { BOOKS_CREATE_ROUTE } from "@/shared/constants";
 import { ForbiddenError, ValidationError } from "@/shared/errors";
 
+type BookCreateContext = { actor: UserActor | ServiceAccountActor; orgId: string };
+
 export type CreateBookInput = {
   title: string;
   ownerUserId?: string;
@@ -34,47 +36,36 @@ export class CreateBookUseCase {
 
   async execute(params: {
     actor: Actor;
-    orgId: string;
     idempotencyKey?: string;
     input: CreateBookInput;
     requestId?: string;
   }) {
-    requireContentScope(params.actor, "content:write");
-    this.requireOrganizationContext(params.actor, params.orgId);
-    await this.roles.ensureSystemCatalog();
+    const { actor, orgId } = await this.requireCreateContext(params.actor);
 
-    const resource = organizationResource(params.orgId);
-    const allowed = await this.contentPolicy.can({
-      actor: params.actor,
-      permission: "org.create_book",
-      resource,
-    });
-    if (!allowed) throw new ForbiddenError("Not authorized to create a book in this organization");
-
-    const ownerUserId = await this.resolveOwnerUserId(params.actor, params.orgId, params.input.ownerUserId);
+    const ownerUserId = await this.resolveOwnerUserId(actor, orgId, params.input.ownerUserId);
     const book = Book.create({
-      orgId: params.orgId,
+      orgId,
       title: params.input.title,
       createdByUserId: ownerUserId,
     });
     const ownerBinding = PolicyBinding.create({
-      orgId: params.orgId,
+      orgId,
       principalType: "user",
       principalId: ownerUserId,
       roleId: "system:book.owner",
       resourceType: "book",
       resourceId: book.id,
       expiresAt: null,
-      createdByType: actorPrincipalType(params.actor),
-      createdById: actorPrincipalId(params.actor),
+      createdByType: actorPrincipalType(actor),
+      createdById: actorPrincipalId(actor),
     });
     const event = PolicyEvent.create({
-      orgId: params.orgId,
+      orgId,
       targetType: "book",
       targetId: book.id,
       action: "binding.created",
-      actorType: actorPrincipalType(params.actor),
-      actorId: actorPrincipalId(params.actor),
+      actorType: actorPrincipalType(actor),
+      actorId: actorPrincipalId(actor),
       requestId: params.requestId ?? null,
       reason: "Book owner assigned at creation",
       snapshotJson: JSON.stringify({ book: book.toSnapshot(), ownerBinding: ownerBinding.toSnapshot() }),
@@ -83,9 +74,9 @@ export class CreateBookUseCase {
     return executeIdempotentContentIamMutation({
       idempotency: this.idempotency,
       key: requireIdempotencyKey(params.idempotencyKey),
-      actor: params.actor,
+      actor,
       route: BOOKS_CREATE_ROUTE,
-      input: { orgId: params.orgId, body: params.input },
+      input: { body: params.input },
       responseJson: () => serializeBookCreation(book, ownerBinding, event),
       replay: deserializeBookCreation,
       commit: async ({ idempotency }) => {
@@ -100,16 +91,22 @@ export class CreateBookUseCase {
     });
   }
 
-  private requireOrganizationContext(
-    actor: Actor,
-    orgId: string,
-  ): asserts actor is UserActor | ServiceAccountActor {
-    if (actor.type === "system" || actor.organizationId !== orgId) {
+  private async requireCreateContext(actor: Actor): Promise<BookCreateContext> {
+    requireContentScope(actor, "content:write");
+    if (actor.type === "system" || !actor.organizationId) {
       throw new ForbiddenError("Book creation requires matching organization context");
     }
+    await this.roles.ensureSystemCatalog();
+    const allowed = await this.contentPolicy.can({
+      actor,
+      permission: "org.create_book",
+      resource: organizationResource(actor.organizationId),
+    });
+    if (!allowed) throw new ForbiddenError("Not authorized to create a book in this organization");
+    return { actor, orgId: actor.organizationId };
   }
 
-  private async resolveOwnerUserId(actor: Actor, orgId: string, inputOwnerUserId: string | undefined) {
+  private async resolveOwnerUserId(actor: UserActor | ServiceAccountActor, orgId: string, inputOwnerUserId: string | undefined) {
     if (actor.type === "user") {
       if (inputOwnerUserId && inputOwnerUserId !== actor.subject) {
         throw new ValidationError("A user-created book must be owned by its creator");
@@ -117,7 +114,7 @@ export class CreateBookUseCase {
       await this.users.ensureIdentityProjection(identityProjectionFromActor(actor));
       return actor.subject;
     }
-    if (actor.type !== "service_account" || !inputOwnerUserId) {
+    if (!inputOwnerUserId) {
       throw new ValidationError("Service-account book creation requires ownerUserId");
     }
     await this.principalDirectory.validateUserInOrganization({ userId: inputOwnerUserId, orgId });

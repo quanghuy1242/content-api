@@ -99,7 +99,6 @@ it("serves an OpenAPI document for the registered API routes", async () => {
       "/media",
       "/books",
       "/books/{id}",
-      "/organizations/{orgId}/books",
       "/books/{bookId}/policy-bindings",
       "/books/{bookId}/policy-denials",
       "/books/{bookId}/ownership-transfer",

@@ -23,5 +23,3 @@ export const bookResponseSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-
-export const organizationBookParamSchema = z.object({ orgId: idSchema });

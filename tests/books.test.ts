@@ -18,7 +18,7 @@ beforeEach(setupBeforeEach);
 it("creates a book with its owner binding atomically and replays the result idempotently", async () => {
   const token = await bootstrapContentIamAdmin();
   const key = crypto.randomUUID();
-  const first = await request("/organizations/org-main/books", {
+  const first = await request("/books", {
     method: "POST",
     token,
     headers: { "idempotency-key": key },
@@ -28,7 +28,7 @@ it("creates a book with its owner binding atomically and replays the result idem
   const firstBody = await first.json() as { data: { id: string; createdByUserId: string } };
   expect(firstBody.data.createdByUserId).toBe("user-alice");
 
-  const replay = await request("/organizations/org-main/books", {
+  const replay = await request("/books", {
     method: "POST",
     token,
     headers: { "idempotency-key": key },
@@ -49,7 +49,7 @@ it("creates a book with its owner binding atomically and replays the result idem
     firstBody.data.id,
   )).toBe(1);
 
-  const mismatch = await request("/organizations/org-main/books", {
+  const mismatch = await request("/books", {
     method: "POST",
     token,
     headers: { "idempotency-key": key },
@@ -71,7 +71,7 @@ it("allows an organization author to create a privately owned draft book", async
   });
   expect(authorGrant.status).toBe(201);
   const authorToken = await issueWorkspaceShareToken("user-bob");
-  const created = await request("/organizations/org-main/books", {
+  const created = await request("/books", {
     method: "POST",
     token: authorToken,
     headers: { "idempotency-key": crypto.randomUUID() },
@@ -87,13 +87,13 @@ it("commits only one owned book for concurrent identical idempotent creates", as
   const token = await bootstrapContentIamAdmin();
   const key = crypto.randomUUID();
   const responses = await Promise.all([
-    request("/organizations/org-main/books", {
+    request("/books", {
       method: "POST",
       token,
       headers: { "idempotency-key": key },
       body: JSON.stringify({ title: "Concurrent Book" }),
     }),
-    request("/organizations/org-main/books", {
+    request("/books", {
       method: "POST",
       token,
       headers: { "idempotency-key": key },
@@ -111,9 +111,9 @@ it("commits only one owned book for concurrent identical idempotent creates", as
   )).toBe(1);
 });
 
-it("rejects direct-share creation of an organization-root book", async () => {
+it("rejects direct-share token book creation (no organization context)", async () => {
   const directShare = await issueToken("user-alice", { scope: "content:write" });
-  const directShareCreate = await request("/organizations/org-main/books", {
+  const directShareCreate = await request("/books", {
     method: "POST",
     token: directShare,
     headers: { "idempotency-key": crypto.randomUUID() },
@@ -136,7 +136,7 @@ it("requires an explicit direct owner for authorized service-account book creati
   expect(grantImporter.status).toBe(201);
 
   const importer = await issueServiceAccountToken({ scope: "content:write" });
-  const missingOwner = await request("/organizations/org-main/books", {
+  const missingOwner = await request("/books", {
     method: "POST",
     token: importer,
     headers: { "idempotency-key": crypto.randomUUID() },
@@ -144,7 +144,7 @@ it("requires an explicit direct owner for authorized service-account book creati
   });
   expect(missingOwner.status).toBe(400);
 
-  const created = await request("/organizations/org-main/books", {
+  const created = await request("/books", {
     method: "POST",
     token: importer,
     headers: { "idempotency-key": crypto.randomUUID() },
@@ -163,7 +163,7 @@ it("requires an explicit direct owner for authorized service-account book creati
 
 it("uses Content IAM for private book reads and updates", async () => {
   const ownerToken = await bootstrapContentIamAdmin();
-  const create = await request("/organizations/org-main/books", {
+  const create = await request("/books", {
     method: "POST",
     token: ownerToken,
     headers: { "idempotency-key": crypto.randomUUID() },
@@ -199,7 +199,7 @@ it("uses Content IAM for private book reads and updates", async () => {
 
 it("allows public published book reads after an authorized update", async () => {
   const ownerToken = await bootstrapContentIamAdmin();
-  const create = await request("/organizations/org-main/books", {
+  const create = await request("/books", {
     method: "POST",
     token: ownerToken,
     headers: { "idempotency-key": crypto.randomUUID() },

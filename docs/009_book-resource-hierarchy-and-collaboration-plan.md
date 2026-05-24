@@ -78,7 +78,7 @@ The currently implemented product hierarchy is:
 org -> book
 ```
 
-The book table now backs product routes for organization-root creation, list, read, and update. Book creation atomically seeds a direct owner binding and enforces `org.create_book`. The remaining gap is below the book root: there are still no chapter/section/block tables, no comment or bookmark tables, and no descendant list/read/update product workflows.
+The book table now backs product routes for creation (`POST /books`), list, read, and update. `orgId` is inferred from the actor token (same pattern as posts and categories). Book creation atomically seeds a direct owner binding and enforces `org.create_book`. The remaining gap is below the book root: there are still no chapter/section/block tables, no comment or bookmark tables, and no descendant list/read/update product workflows.
 
 ## 3. Target Model
 
@@ -162,16 +162,16 @@ Tests:
 
 Implementation tasks:
 
-- [x] Add book create use case requiring `content:write`, matching workspace `org_id`, and local `org.create_book`.
+- [x] Add book create use case requiring `content:write` and local `org.create_book`; `orgId` is derived from the actor token (same pattern as posts and categories), route is `POST /books`.
 - [x] Add book read/update/list use cases using `ContentPolicy.can(...)` and `ContentPolicy.canMany(...)`.
 - [ ] Add chapter/section/block mutations using inherited book or direct descendant permissions.
-- [ ] Ensure direct-share actors cannot create organization-root books but can perform ordinary work inside a shared subtree when local policy allows it.
+- [ ] Ensure direct-share actors cannot create books (no organization context in token) but can perform ordinary work inside a shared subtree when local policy allows it.
 - [x] Keep Content IAM mutation routes separate from product resource routes.
 
 Tests:
 
-- organization author can create a book;
-- direct-share reader cannot create an organization-root book;
+- organization author can create a book via `POST /books`;
+- direct-share reader (no org context in token) cannot create a book;
 - book editor can update descendants;
 - explicit denial on a section overrides inherited book editor access.
 
@@ -289,7 +289,7 @@ Add API tests for:
 ## 10. Definition Of Done
 
 - The documented hierarchy resources exist as domain entities, repositories, mappers, routes, schemas, presenters, and tests.
-- Book creation is wired to `org.create_book` and creates an owner binding atomically.
+- Book creation (`POST /books`) is wired to `org.create_book`, infers `orgId` from the actor token, and creates an owner binding atomically.
 - Chapter/section/block/comment/bookmark/read-progress routes use local Content IAM decisions and do not query `id` on hot paths.
 - Direct-share behavior matches docs 006, 007, and auth docs 010.
 - README and docs 007 are updated from "substrate only" to the implemented product-resource coverage.

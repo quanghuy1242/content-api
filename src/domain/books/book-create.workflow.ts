@@ -9,7 +9,7 @@ export interface BookCreateWorkflow {
     ownerBinding: PolicyBinding;
     event: PolicyEvent;
     idempotency: Omit<IdempotencyRecord, "route" | "responseJson"> & {
-      route: Extract<IdempotencyRoute, "POST /organizations/{orgId}/books">;
+      route: Extract<IdempotencyRoute, "POST /books">;
       responseJson: string;
     };
   }): Promise<void>;

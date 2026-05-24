@@ -1,4 +1,4 @@
-import { eq, or, type SQL } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Post } from "@/domain/posts/post.entity";
 import type { PostRepository } from "@/domain/posts/post.repository";
@@ -23,17 +23,7 @@ export class DrizzlePostRepository implements PostRepository {
   async findMany(params: {
     limit: number;
     cursor?: string;
-    actorId?: string | null;
-    includeDrafts: boolean;
-    includeAll: boolean;
   }) {
-    let visibility: SQL<unknown> | undefined;
-    if (!params.includeAll) {
-      visibility = params.includeDrafts
-        ? or(eq(posts.status, "published"), params.actorId ? eq(posts.author, params.actorId) : undefined)
-        : eq(posts.status, "published");
-    }
-
     const page = await this.crud.listRows<typeof posts.$inferSelect>({
       table: posts,
       idColumn: posts.id,
@@ -41,7 +31,6 @@ export class DrizzlePostRepository implements PostRepository {
       getCursor: (row) => ({ createdAt: row.createdAt, id: row.id }),
       limit: params.limit,
       cursor: params.cursor,
-      where: visibility ? [visibility] : undefined,
     });
 
     return { data: page.data.map(postRowToEntity), page: page.page };

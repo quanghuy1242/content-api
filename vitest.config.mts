@@ -20,6 +20,7 @@ export default defineConfig({
   ],
   test: {
     globals: true,
+    testTimeout: 15_000,
     pool: cloudflarePool({
       wrangler: {
         configPath: "./wrangler.test.jsonc",

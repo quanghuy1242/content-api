@@ -75,7 +75,6 @@ export function postToUpdateRow(post: Post) {
     excerpt: snapshot.excerpt,
     contentJson: serializePostContent(post),
     coverImage: snapshot.coverImage,
-    author: snapshot.author,
     category: snapshot.category,
     status: snapshot.status,
     publishedAt: snapshot.publishedAt,

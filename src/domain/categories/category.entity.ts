@@ -7,6 +7,11 @@ export type CategoryProps = {
   slug: string;
   description: string;
   image: string;
+  /**
+   * Audit field only — records who created this category. Not an ownership claim.
+   * Categories are org-owned: any user with an org-level role granting category.read/update/delete
+   * can manage any category in the org, regardless of who created it. See docs/012.
+   */
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

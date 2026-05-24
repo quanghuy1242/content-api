@@ -15,9 +15,6 @@ export class ListPostsUseCase {
     const result = await this.posts.findMany({
       limit: params.limit,
       cursor: params.cursor,
-      actorId: null,
-      includeDrafts: true,
-      includeAll: true,
     });
     const privatePosts = result.data.filter((post) => post.status !== "published");
     const decisions = await this.contentPolicy.canMany({

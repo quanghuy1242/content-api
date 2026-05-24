@@ -1,19 +1,21 @@
 import type { Category } from "@/domain/categories/category.entity";
 import type { IdempotencyRoute } from "@/domain/idempotency/idempotency.repository";
-import type { PolicyBinding } from "@/domain/iam/policy-binding.entity";
-import type { PolicyEvent } from "@/domain/iam/policy-event.entity";
 
+/**
+ * Atomic category creation workflow.
+ *
+ * Categories are org-owned resources — no per-category IAM binding is created here.
+ * Access is governed entirely by org-level roles (system:org.author, system:org.content_admin).
+ * The `createdBy` field on the category is an audit trail, not an ownership claim.
+ * See docs/012 for the full decision rationale.
+ */
 export interface CategoryCreateWorkflow {
-  createWithOwner(params: {
+  create(params: {
     category: Category;
-    ownerBinding: PolicyBinding;
-    event: PolicyEvent;
   }): Promise<void>;
 
   createWithIdempotency(params: {
     category: Category;
-    ownerBinding: PolicyBinding;
-    event: PolicyEvent;
     idempotency: {
       key: string;
       actorId: string;

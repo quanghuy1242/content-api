@@ -147,7 +147,18 @@ export const BUILT_IN_CONTENT_ROLES = [
     name: "Organization Author",
     assignableResourceType: "org",
     protected: false,
-    permissions: ["org.create_book", "org.create_post", "org.create_category", "org.create_media"],
+    // Categories are org-owned resources, not per-user-owned. Any org author who can create
+    // categories can also read, update, and delete them — they collectively manage the shared
+    // org taxonomy. See docs/012 for the full decision rationale.
+    permissions: [
+      "org.create_book",
+      "org.create_post",
+      "org.create_category",
+      "org.create_media",
+      "category.read",
+      "category.update",
+      "category.delete",
+    ],
   },
   {
     id: "system:post.owner",
@@ -163,6 +174,10 @@ export const BUILT_IN_CONTENT_ROLES = [
     name: "Category Owner",
     assignableResourceType: "category",
     protected: true,
+    // Deprecated: no longer assigned on category creation. Categories are org-owned resources
+    // managed entirely through org-level roles (system:org.author, system:org.content_admin).
+    // This role definition is kept to preserve any historical bindings that may exist in
+    // production. See docs/012 for the decision rationale.
     permissions: ["category.read", "category.update", "category.delete", "media.read"],
   },
   {

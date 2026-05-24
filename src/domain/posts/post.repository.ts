@@ -5,9 +5,6 @@ export interface PostRepository {
   findMany(params: {
     limit: number;
     cursor?: string;
-    actorId?: string | null;
-    includeDrafts: boolean;
-    includeAll: boolean;
   }): Promise<CursorPage<Post>>;
   findById(id: string): Promise<Post | null>;
   findBySlug(slug: string): Promise<Post | null>;

@@ -180,14 +180,12 @@ Current automated coverage includes:
 
 ## Deployment
 
-CI/CD is handled by [.github/workflows/ci-deploy.yml](.github/workflows/ci-deploy.yml). On every push to `main` (or manual dispatch):
+CI/CD is handled by [.github/workflows/ci-deploy.yml](.github/workflows/ci-deploy.yml). On every push to `main` (or manual dispatch), a single GitHub Actions job runs this pipeline in order:
 
 1. `pnpm check` — lint, duplicate gate, typecheck, tests
-2. `migrate` — `wrangler d1 migrations apply content_api --remote`
-3. `deploy-api` — deploys the API Worker (`content-api`)
-4. `deploy-media-processor` — deploys the queue consumer (`content-api-media-processor`)
-
-Both deploy jobs run in parallel after migrations succeed.
+2. `wrangler d1 migrations apply content_api --remote`
+3. Deploy the API Worker (`content-api`)
+4. Deploy the queue consumer (`content-api-media-processor`)
 
 Required GitHub secrets:
 

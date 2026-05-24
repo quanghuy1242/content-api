@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -48,40 +48,6 @@ jobs:
       - name: Run CI check
         run: pnpm check
 
-  migrate:
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.1.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Resolve pnpm store path
-        shell: bash
-        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
-
       - name: Apply D1 migrations
         uses: cloudflare/wrangler-action@v3
         with:
@@ -89,40 +55,6 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: 4.92.0
           command: d1 migrations apply content_api --remote
-
-  deploy-api:
-    needs: migrate
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.1.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Resolve pnpm store path
-        shell: bash
-        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Deploy API Worker
         uses: cloudflare/wrangler-action@v3
@@ -143,40 +75,6 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ID_PRINCIPAL_VALIDATION_CLIENT_ID: ${{ secrets.ID_PRINCIPAL_VALIDATION_CLIENT_ID }}
           ID_PRINCIPAL_VALIDATION_CLIENT_SECRET: ${{ secrets.ID_PRINCIPAL_VALIDATION_CLIENT_SECRET }}
-
-  deploy-media-processor:
-    needs: migrate
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11.1.2
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Resolve pnpm store path
-        shell: bash
-        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> "$GITHUB_ENV"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.PNPM_STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Deploy Media Processor Worker
         uses: cloudflare/wrangler-action@v3

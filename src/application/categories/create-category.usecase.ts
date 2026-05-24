@@ -45,7 +45,7 @@ export class CreateCategoryUseCase {
 
   private async requireOwnerId(actor: Actor) {
     await assertAllowed(this.categoryPolicy.canCreate(actor), "Authentication required");
-    const ownerId = actor.type === "user" ? actor.localUserId : null;
+    const ownerId = actor.type === "user" ? actor.id : null;
     if (!ownerId) {
       throw new NotFoundError("Linked local user not found");
     }

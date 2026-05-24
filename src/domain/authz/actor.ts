@@ -1,16 +1,19 @@
 export type UserActor = {
   type: "user";
   id: string;
-  externalId: string;
+  subject: string;
   role: "admin" | "user";
+  scopes: readonly string[];
+  organizationId?: string;
+  teamIds: readonly string[];
   email?: string;
-  localUserId?: string;
 };
 
-export type ApiKeyActor = {
-  type: "api_key";
-  id: string;
-  scopes: string[];
+export type ServiceAccountActor = {
+  type: "service_account";
+  clientId: string;
+  organizationId: string;
+  scopes: readonly string[];
 };
 
 export type SystemActor = {
@@ -18,7 +21,7 @@ export type SystemActor = {
   id: "queue" | "cron" | "migration";
 };
 
-export type Actor = UserActor | ApiKeyActor | SystemActor;
+export type Actor = UserActor | ServiceAccountActor | SystemActor;
 
 export function isAdminActor(actor: Actor | null): actor is UserActor {
   return actor?.type === "user" && actor.role === "admin";

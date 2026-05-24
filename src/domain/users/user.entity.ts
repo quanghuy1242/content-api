@@ -7,14 +7,13 @@ export type UserProps = {
   avatar: string | null;
   bio: unknown | null;
   role: UserRole;
-  betterAuthUserId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CreateUserProps = Omit<UserProps, "id" | "createdAt" | "updatedAt">;
 
-export type UpdateUserProps = Partial<Omit<UserProps, "id" | "createdAt" | "updatedAt" | "betterAuthUserId">>;
+export type UpdateUserProps = Partial<Omit<UserProps, "id" | "createdAt" | "updatedAt">>;
 
 export class User {
   private constructor(private props: UserProps) {}
@@ -39,7 +38,6 @@ export class User {
   get avatar() { return this.props.avatar; }
   get bio() { return this.props.bio; }
   get role() { return this.props.role; }
-  get betterAuthUserId() { return this.props.betterAuthUserId; }
   get createdAt() { return this.props.createdAt; }
   get updatedAt() { return this.props.updatedAt; }
 

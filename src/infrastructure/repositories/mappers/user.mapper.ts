@@ -14,7 +14,6 @@ export function userRowToEntity(row: UserRow): User {
     avatar: row.avatar,
     bio: row.bioJson ?? null,
     role: row.role as "admin" | "user",
-    betterAuthUserId: row.betterAuthUserId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -32,7 +31,6 @@ export function userToInsertRow(user: User) {
     avatar: snap.avatar,
     bioJson: snap.bio,
     role: snap.role,
-    betterAuthUserId: snap.betterAuthUserId,
     createdAt: snap.createdAt,
     updatedAt: snap.updatedAt,
   };

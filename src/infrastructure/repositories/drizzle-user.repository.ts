@@ -9,8 +9,8 @@ import { userRowToEntity, userToInsertRow, userToUpdateRow } from "@/infrastruct
 type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 /**
- * Drizzle-backed user repository. It supports local user lookup for Auther
- * subjects and leaves field visibility to presenters and policies.
+ * Drizzle-backed user repository. Local user IDs are the stable `id` subject;
+ * field visibility stays in presenters and policies.
  */
 export class DrizzleUserRepository implements UserRepository {
   private readonly crud: CrudAdapter;
@@ -34,14 +34,6 @@ export class DrizzleUserRepository implements UserRepository {
 
   async findById(id: string) {
     const row = await this.crud.findRowById<typeof users.$inferSelect>(users, users.id, id);
-    return row ? userRowToEntity(row) : null;
-  }
-
-  async findByBetterAuthUserId(betterAuthUserId: string) {
-    const row = await this.crud.findFirstRow<typeof users.$inferSelect>(
-      users,
-      eq(users.betterAuthUserId, betterAuthUserId),
-    );
     return row ? userRowToEntity(row) : null;
   }
 

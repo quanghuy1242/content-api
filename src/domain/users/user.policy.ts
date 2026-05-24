@@ -17,7 +17,7 @@ export class UserPolicy {
   canUpdate(actor: Actor | null, user: User) {
     return Promise.resolve(
       actor?.type === "user" &&
-        (actor.role === "admin" || actor.localUserId === user.id || actor.id === user.id),
+        (actor.role === "admin" || actor.id === user.id),
     );
   }
 

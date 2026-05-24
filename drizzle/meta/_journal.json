@@ -15,6 +15,20 @@
       "when": 1779037070043,
       "tag": "0001_unique_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1779599520322,
+      "tag": "0002_media_upload_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1779599534188,
+      "tag": "0003_content_iam_policy",
+      "breakpoints": true
     }
   ]
 }

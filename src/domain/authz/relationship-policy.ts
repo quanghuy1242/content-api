@@ -39,7 +39,7 @@ export function canUserActorAccessByRelation(params: {
 
   return params.relationships.exists({
     subjectType: "user",
-    subjectId: params.actor.localUserId ?? params.actor.id,
+    subjectId: params.actor.id,
     relation: params.relation,
     objectType: params.objectType,
     objectId: params.objectId,

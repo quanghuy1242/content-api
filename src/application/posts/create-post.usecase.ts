@@ -46,11 +46,11 @@ export class CreatePostUseCase {
 
   private async requireAuthorId(actor: Actor) {
     await assertAllowed(this.postPolicy.canCreate(actor), "Authentication required");
-    if (actor.type !== "user" || !actor.localUserId) {
+    if (actor.type !== "user" || !actor.id) {
       throw new NotFoundError("Linked local user not found");
     }
 
-    return actor.localUserId;
+    return actor.id;
   }
 
   private buildPost(

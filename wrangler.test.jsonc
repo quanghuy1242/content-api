@@ -18,9 +18,12 @@
     }
   ],
   "vars": {
-    "AUTH_ISSUER": "https://auth.test",
-    "AUTH_AUDIENCE": "payload-content-api",
-    "AUTH_JWKS_URL": "https://auth.test/api/auth/jwks",
+    "AUTH_ISSUER": "https://id.test/api/auth",
+    "AUTH_AUDIENCE": "https://content-api.test",
+    "AUTH_JWKS_URL": "https://id.test/api/auth/jwks",
+    "AUTH_REQUIRED_SCOPE": "content:read",
+    "ID_PRINCIPAL_VALIDATION_URL": "https://id.test",
+    "ID_PRINCIPAL_VALIDATION_TOKEN": "principal-validation-token",
     "R2_ACCOUNT_ID": "local-account",
     "R2_BUCKET_NAME": "content-api-media",
     "R2_ACCESS_KEY_ID": "local-access-key",

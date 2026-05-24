@@ -168,6 +168,39 @@
       "tool": "fallow",
       "files": "src/application/categories/create-category.usecase.ts|src/application/users/create-user.usecase.ts",
       "reason": "Idempotent replay + conflict handling — same pattern across use cases"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/content-iam.routes.ts",
+      "rule": "complexity/file-too-large",
+      "reason": "Content IAM route module keeps the resource-scoped OpenAPI surface discoverable; handlers are still thin and architecture-linted"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/content-iam.routes.ts",
+      "rule": "complexity/function-too-long",
+      "reason": "Route registration — each handler validates, calls one use case, and presents; splitting the register function adds indirection"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/domain/iam/content-permission.ts",
+      "rule": "code-quality/duplicate-block",
+      "reason": "Permission matrices for built-in Content IAM roles are explicit product policy; extracting shared fragments obscures role differences"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/authz/relationship.entity.ts|src/domain/iam/policy-binding.entity.ts|src/domain/iam/policy-denial.entity.ts",
+      "reason": "Entity class shape is mandated by architecture; relationship/binding/denial snapshots are intentionally similar"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/categories/category.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter and toSnapshot pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/iam/policy-denial.entity.ts",
+      "reason": "Entity lifecycle and snapshot pattern — mandated consistency across entity classes"
     }
   ]
 }

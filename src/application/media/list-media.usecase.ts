@@ -5,7 +5,7 @@ export class ListMediaUseCase {
   constructor(private readonly media: MediaRepository) {}
 
   async execute(params: { actor: Actor | null; limit: number; cursor?: string }) {
-    const ownerId = params.actor?.type === "user" ? params.actor.localUserId : null;
+    const ownerId = params.actor?.type === "user" ? params.actor.id : null;
 
     return this.media.findMany({
       limit: params.limit,

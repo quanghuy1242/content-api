@@ -10,7 +10,7 @@ import type { userResponseSchema } from "@/http/schemas/users.schema";
  */
 export function presentUser(user: User, actor: Actor | null): z.infer<typeof userResponseSchema> {
   const isAdmin = actor?.type === "user" && actor.role === "admin";
-  const isSelf = actor?.type === "user" && (actor.localUserId === user.id || actor.id === user.id);
+  const isSelf = actor?.type === "user" && actor.id === user.id;
 
   return {
     id: user.id,
@@ -19,7 +19,6 @@ export function presentUser(user: User, actor: Actor | null): z.infer<typeof use
     bio: user.bio,
     email: isAdmin || isSelf ? user.email : null,
     role: isAdmin ? user.role : null,
-    betterAuthUserId: isAdmin ? user.betterAuthUserId : null,
     createdAt: user.createdAt.toISOString(),
     updatedAt: user.updatedAt.toISOString(),
   };

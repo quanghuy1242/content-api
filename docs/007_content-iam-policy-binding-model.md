@@ -1,6 +1,6 @@
 # Content IAM Policy Binding Model
 
-> Status: implementation-grade proposal
+> Status: implemented
 >
 > Date: 2026-05-23
 >
@@ -42,6 +42,15 @@
 > - Ordinary Content IAM administration is resource-scoped. The first implementation does not expose platform-global or wildcard content bindings.
 > - `id` user access tokens will expire after 15 minutes; an already-issued `team_ids` claim may therefore be stale for at most 15 minutes, while refresh or new issuance reflects current membership.
 > - Direct user sharing to an external collaborator or reader must not require turning that person into an organization/team member; the token contract must support direct-user-bound resource access without team-derived authority.
+>
+> Implementation notes:
+>
+> - Implemented Content IAM tables, repositories, policies, workflows, OpenAPI routes, and `id` principal-validation adapter in `content-api`.
+> - Permission keys and protected built-in roles are code-owned and seeded through `ContentRoleRepository.ensureSystemCatalog()` during IAM management workflows.
+> - Book and organization binding/denial routes, organization role-management routes, org-admin bootstrap/delegation, and book ownership transfer are resource-scoped; no global/wildcard endpoint exists.
+> - The generated `0003_content_iam_policy` migration adds Content IAM persistence, books, and the `users.id = id.sub` identity cleanup. `0002_media_upload_flow` metadata is now represented in Drizzle's journal before `0003`.
+> - Legacy Auther mirror/deferred-grant routes remain only as first-batch compatibility surfaces; new content authorization state is Content IAM.
+> - Tests cover `id` token shapes, denial precedence, direct-share restrictions, principal-validation failures, ownership transfer, and ordinary-only custom roles.
 
 ## Table Of Contents
 

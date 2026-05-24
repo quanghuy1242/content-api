@@ -7,22 +7,25 @@ type AuthConfig = {
   issuer: string;
   audience: string;
   jwksUrl: string;
+  requiredScope: string;
   fetchImpl?: typeof fetch;
 };
 
 type VerifiedToken = JWTPayload & {
-  token_use?: string;
   email?: string;
-  roles?: string[];
+  scope?: string;
+  org_id?: string;
+  team_ids?: unknown;
+  azp?: string;
+  client_id?: string;
 };
 
 /**
- * OAuth2 resource-server boundary for Auther access tokens.
+ * OAuth2 resource-server boundary for `id` access tokens.
  *
  * The use case validates bearer JWTs with the configured remote JWKS, issuer,
- * audience, expiry, and `token_use=access` before mapping the external subject
- * to a local actor. It intentionally lives in application code because authn is
- * workflow logic, while resource-specific authorization stays in policies.
+ * audience, expiry, and coarse scope before building a content-api actor.
+ * Object authorization remains local policy state and never queries `id`.
  */
 export class AuthenticateBearerTokenUseCase {
   private readonly jwks;
@@ -57,23 +60,67 @@ export class AuthenticateBearerTokenUseCase {
     }
 
     const verified = payload as VerifiedToken;
-    if (verified.token_use !== "access") {
-      throw new UnauthorizedError("Invalid token");
-    }
-    if (typeof verified.sub !== "string" || !verified.sub) {
+    const scopes = parseScopes(verified.scope);
+    if (!scopes.includes(this.config.requiredScope)) {
       throw new UnauthorizedError("Invalid token");
     }
 
-    const localUser = await this.users.findByBetterAuthUserId(verified.sub);
-    const role = verified.roles?.includes("admin") || localUser?.role === "admin" ? "admin" : "user";
+    if (typeof verified.sub === "string" && verified.sub) {
+      return this.buildUserActor(verified, scopes);
+    }
+
+    return this.buildServiceAccountActor(verified, scopes);
+  }
+
+  private async buildUserActor(verified: VerifiedToken, scopes: readonly string[]): Promise<Actor> {
+    const subject = verified.sub ?? "";
+    const organizationId = typeof verified.org_id === "string" && verified.org_id ? verified.org_id : undefined;
+    const teamIds = parseTeamIds(verified.team_ids);
+
+    if (!organizationId) {
+      if (teamIds.length > 0 || scopes.includes("content:share")) {
+        throw new UnauthorizedError("Invalid token");
+      }
+    }
+
+    const localUser = await this.users.findById(subject);
+    const role = localUser?.role === "admin" ? "admin" : "user";
 
     return {
       type: "user",
-      id: localUser?.id ?? verified.sub,
-      localUserId: localUser?.id,
-      externalId: verified.sub,
+      id: subject,
+      subject,
       role,
+      scopes,
+      organizationId,
+      teamIds,
       email: typeof verified.email === "string" ? verified.email : undefined,
     };
   }
+
+  private buildServiceAccountActor(verified: VerifiedToken, scopes: readonly string[]): Actor {
+    const clientId = typeof verified.azp === "string" && verified.azp ? verified.azp : verified.client_id;
+    if (typeof clientId !== "string" || !clientId) {
+      throw new UnauthorizedError("Invalid token");
+    }
+    if (typeof verified.org_id !== "string" || !verified.org_id) {
+      throw new UnauthorizedError("Invalid token");
+    }
+
+    return {
+      type: "service_account",
+      clientId,
+      organizationId: verified.org_id,
+      scopes,
+    };
+  }
+}
+
+function parseScopes(scope: unknown): string[] {
+  return typeof scope === "string" ? scope.split(" ").filter(Boolean) : [];
+}
+
+function parseTeamIds(teamIds: unknown): string[] {
+  if (!Array.isArray(teamIds)) return [];
+  return teamIds.filter((teamId): teamId is string => typeof teamId === "string" && teamId.length > 0);
 }

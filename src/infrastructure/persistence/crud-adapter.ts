@@ -57,6 +57,41 @@ export class CrudAdapter {
   }
 
   /**
+   * Builds a Drizzle update statement without executing it.
+   *
+   * Workflow infrastructure uses this when a state mutation and audit event must
+   * commit in one D1 batch while still keeping query construction centralized.
+   */
+  buildUpdate(table: AnySQLiteTable, values: Record<string, unknown>, condition: SQL<unknown>): BatchItem<"sqlite"> {
+    return (this.db as never as {
+      update: (table: AnySQLiteTable) => {
+        set: (values: Record<string, unknown>) => {
+          where: (condition: SQL<unknown>) => unknown;
+        };
+      };
+    })
+      .update(table)
+      .set(this.withoutUndefined(values))
+      .where(condition) as unknown as BatchItem<"sqlite">;
+  }
+
+  /**
+   * Builds a Drizzle delete statement without executing it.
+   *
+   * Workflow infrastructure uses this for audited revocation and replacement
+   * flows that need deletes and inserts to commit together.
+   */
+  buildDelete(table: AnySQLiteTable, condition: SQL<unknown>): BatchItem<"sqlite"> {
+    return (this.db as never as {
+      delete: (table: AnySQLiteTable) => {
+        where: (condition: SQL<unknown>) => unknown;
+      };
+    })
+      .delete(table)
+      .where(condition) as unknown as BatchItem<"sqlite">;
+  }
+
+  /**
    * Returns a cursor page using the API's stable `(createdAt, id)` seek cursor.
    * Repositories can add resource-specific `where` predicates but should not
    * duplicate cursor or limit logic outside this method.

@@ -114,7 +114,6 @@ export function registerUserRoutes(app: OpenAPIHono<AppEnv>) {
         ...body,
         avatar: body.avatar ?? null,
         bio: body.bio ?? null,
-        betterAuthUserId: body.betterAuthUserId ?? null,
       },
     });
     return c.json({ data: presentUser(result, actor) }, HTTP_STATUS_CREATED);

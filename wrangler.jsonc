@@ -18,9 +18,11 @@
     }
   ],
 	"vars": {
-		"AUTH_ISSUER": "https://auth.quanghuy.dev",
-		"AUTH_AUDIENCE": "payload-content-api",
-		"AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
+		"AUTH_ISSUER": "https://id.quanghuy.dev/api/auth",
+		"AUTH_AUDIENCE": "https://content-api.quanghuy.dev",
+		"AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
+		"AUTH_REQUIRED_SCOPE": "content:read",
+		"ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
 		"R2_BUCKET_NAME": "content-api-media",
 		"MAX_IMAGE_UPLOAD_BYTES": "10485760",
 		"UPLOAD_URL_TTL_SECONDS": "300"

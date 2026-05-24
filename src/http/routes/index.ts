@@ -3,6 +3,7 @@ import type { AppEnv } from "@/http/app-env";
 import { healthResponseSchema, jsonContent } from "@/http/openapi";
 import { registerAuthzRoutes } from "@/http/routes/authz.routes";
 import { registerCategoryRoutes } from "@/http/routes/categories.routes";
+import { registerContentIamRoutes } from "@/http/routes/content-iam.routes";
 import { registerMediaRoutes } from "@/http/routes/media.routes";
 import { registerPostRoutes } from "@/http/routes/posts.routes";
 import { registerUserRoutes } from "@/http/routes/users.routes";
@@ -29,5 +30,6 @@ export function registerRoutes(app: OpenAPIHono<AppEnv>) {
   registerCategoryRoutes(app);
   registerPostRoutes(app);
   registerMediaRoutes(app);
+  registerContentIamRoutes(app);
   registerAuthzRoutes(app);
 }

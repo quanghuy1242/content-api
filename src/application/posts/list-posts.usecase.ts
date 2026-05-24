@@ -5,7 +5,7 @@ export class ListPostsUseCase {
   constructor(private readonly posts: PostRepository) {}
 
   async execute(params: { actor: Actor | null; limit: number; cursor?: string }) {
-    const actorId = params.actor?.type === "user" ? params.actor.localUserId : null;
+    const actorId = params.actor?.type === "user" ? params.actor.id : null;
     return this.posts.findMany({
       limit: params.limit,
       cursor: params.cursor,

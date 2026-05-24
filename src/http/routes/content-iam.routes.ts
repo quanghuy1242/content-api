@@ -1,0 +1,650 @@
+import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
+import type { AppEnv } from "@/http/app-env";
+import {
+  bearerSecurity,
+  commonErrorResponses,
+  jsonContent,
+  jsonRequestBody,
+  listResponseSchema,
+} from "@/http/openapi";
+import {
+  presentContentRole,
+  presentPolicyBinding,
+  presentPolicyDenial,
+  presentPolicyEvent,
+} from "@/http/presenters/content-iam.presenter";
+import { requireActor } from "@/http/routes/helpers";
+import { idempotencyHeaderSchema } from "@/http/schemas/common.schema";
+import {
+  bindingIdParamSchema,
+  bookIdParamSchema,
+  bootstrapOrganizationContentAdminSchema,
+  contentIamListQuerySchema,
+  contentRoleResponseSchema,
+  createContentRoleSchema,
+  createPolicyBindingSchema,
+  createPolicyDenialSchema,
+  delegateOrganizationContentAdminSchema,
+  denialIdParamSchema,
+  orgBindingIdParamSchema,
+  orgDenialIdParamSchema,
+  orgIdParamSchema,
+  ownershipTransferResponseSchema,
+  policyBindingResponseSchema,
+  policyDenialResponseSchema,
+  policyEventResponseSchema,
+  policyMutationResponseSchema,
+  replaceContentRolePermissionsSchema,
+  roleIdParamSchema,
+  transferBookOwnershipSchema,
+} from "@/http/schemas/content-iam.schema";
+import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
+
+const listBookBindingsRoute = createRoute({
+  method: "get",
+  path: "/books/{bookId}/policy-bindings",
+  tags: ["content-iam"],
+  description: "List direct Content IAM policy bindings on a book.",
+  security: bearerSecurity,
+  request: { params: bookIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyBindingResponseSchema), "Book policy bindings"),
+    ...commonErrorResponses,
+  },
+});
+
+const createBookBindingRoute = createRoute({
+  method: "post",
+  path: "/books/{bookId}/policy-bindings",
+  tags: ["content-iam"],
+  description: "Create a resource-scoped Content IAM binding on a book.",
+  security: bearerSecurity,
+  request: {
+    params: bookIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createPolicyBindingSchema, "Policy binding create payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyBindingResponseSchema), "Created policy binding"),
+    ...commonErrorResponses,
+  },
+});
+
+const revokeBookBindingRoute = createRoute({
+  method: "delete",
+  path: "/books/{bookId}/policy-bindings/{bindingId}",
+  tags: ["content-iam"],
+  description: "Revoke a direct Content IAM policy binding on a book.",
+  security: bearerSecurity,
+  request: { params: bindingIdParamSchema },
+  responses: {
+    204: { description: "Policy binding revoked" },
+    ...commonErrorResponses,
+  },
+});
+
+const listBookDenialsRoute = createRoute({
+  method: "get",
+  path: "/books/{bookId}/policy-denials",
+  tags: ["content-iam"],
+  description: "List direct Content IAM policy denials on a book.",
+  security: bearerSecurity,
+  request: { params: bookIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyDenialResponseSchema), "Book policy denials"),
+    ...commonErrorResponses,
+  },
+});
+
+const createBookDenialRoute = createRoute({
+  method: "post",
+  path: "/books/{bookId}/policy-denials",
+  tags: ["content-iam"],
+  description: "Create a resource-scoped Content IAM denial on a book.",
+  security: bearerSecurity,
+  request: {
+    params: bookIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createPolicyDenialSchema, "Policy denial create payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyDenialResponseSchema), "Created policy denial"),
+    ...commonErrorResponses,
+  },
+});
+
+const revokeBookDenialRoute = createRoute({
+  method: "delete",
+  path: "/books/{bookId}/policy-denials/{denialId}",
+  tags: ["content-iam"],
+  description: "Revoke a direct Content IAM policy denial on a book.",
+  security: bearerSecurity,
+  request: { params: denialIdParamSchema },
+  responses: {
+    204: { description: "Policy denial revoked" },
+    ...commonErrorResponses,
+  },
+});
+
+const transferBookOwnershipRoute = createRoute({
+  method: "post",
+  path: "/books/{bookId}/ownership-transfer",
+  tags: ["content-iam"],
+  description: "Atomically transfer a book's direct-user owner binding.",
+  security: bearerSecurity,
+  request: {
+    params: bookIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(transferBookOwnershipSchema, "Ownership transfer payload"),
+  },
+  responses: {
+    201: jsonContent(ownershipTransferResponseSchema, "Transferred book ownership"),
+    ...commonErrorResponses,
+  },
+});
+
+const listBookEventsRoute = createRoute({
+  method: "get",
+  path: "/books/{bookId}/policy-events",
+  tags: ["content-iam"],
+  description: "List Content IAM audit events for a book.",
+  security: bearerSecurity,
+  request: { params: bookIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyEventResponseSchema), "Book policy events"),
+    ...commonErrorResponses,
+  },
+});
+
+const listOrgBindingsRoute = createRoute({
+  method: "get",
+  path: "/organizations/{orgId}/policy-bindings",
+  tags: ["content-iam"],
+  description: "List organization-scoped Content IAM policy bindings.",
+  security: bearerSecurity,
+  request: { params: orgIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyBindingResponseSchema), "Organization policy bindings"),
+    ...commonErrorResponses,
+  },
+});
+
+const createOrgBindingRoute = createRoute({
+  method: "post",
+  path: "/organizations/{orgId}/policy-bindings",
+  tags: ["content-iam"],
+  description: "Create an ordinary organization-scoped Content IAM binding.",
+  security: bearerSecurity,
+  request: {
+    params: orgIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createPolicyBindingSchema, "Organization policy binding create payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyBindingResponseSchema), "Created organization policy binding"),
+    ...commonErrorResponses,
+  },
+});
+
+const revokeOrgBindingRoute = createRoute({
+  method: "delete",
+  path: "/organizations/{orgId}/policy-bindings/{bindingId}",
+  tags: ["content-iam"],
+  description: "Revoke an organization-scoped Content IAM binding.",
+  security: bearerSecurity,
+  request: { params: orgBindingIdParamSchema },
+  responses: {
+    204: { description: "Organization policy binding revoked" },
+    ...commonErrorResponses,
+  },
+});
+
+const listOrgDenialsRoute = createRoute({
+  method: "get",
+  path: "/organizations/{orgId}/policy-denials",
+  tags: ["content-iam"],
+  description: "List organization-scoped Content IAM policy denials.",
+  security: bearerSecurity,
+  request: { params: orgIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyDenialResponseSchema), "Organization policy denials"),
+    ...commonErrorResponses,
+  },
+});
+
+const createOrgDenialRoute = createRoute({
+  method: "post",
+  path: "/organizations/{orgId}/policy-denials",
+  tags: ["content-iam"],
+  description: "Create an organization-scoped ordinary permission denial.",
+  security: bearerSecurity,
+  request: {
+    params: orgIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createPolicyDenialSchema, "Organization policy denial create payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyDenialResponseSchema), "Created organization policy denial"),
+    ...commonErrorResponses,
+  },
+});
+
+const revokeOrgDenialRoute = createRoute({
+  method: "delete",
+  path: "/organizations/{orgId}/policy-denials/{denialId}",
+  tags: ["content-iam"],
+  description: "Revoke an organization-scoped Content IAM denial.",
+  security: bearerSecurity,
+  request: { params: orgDenialIdParamSchema },
+  responses: {
+    204: { description: "Organization policy denial revoked" },
+    ...commonErrorResponses,
+  },
+});
+
+const listOrgEventsRoute = createRoute({
+  method: "get",
+  path: "/organizations/{orgId}/policy-events",
+  tags: ["content-iam"],
+  description: "List Content IAM audit events for an organization.",
+  security: bearerSecurity,
+  request: { params: orgIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(policyEventResponseSchema), "Organization policy events"),
+    ...commonErrorResponses,
+  },
+});
+
+const bootstrapOrgAdminRoute = createRoute({
+  method: "post",
+  path: "/organizations/{orgId}/content-iam/bootstrap",
+  tags: ["content-iam"],
+  description: "Bootstrap or recover the first local organization Content IAM administrator.",
+  security: bearerSecurity,
+  request: {
+    params: orgIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(bootstrapOrganizationContentAdminSchema, "Organization Content IAM bootstrap payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyBindingResponseSchema), "Bootstrapped organization Content IAM admin"),
+    ...commonErrorResponses,
+  },
+});
+
+const delegateOrgAdminRoute = createRoute({
+  method: "post",
+  path: "/organizations/{orgId}/content-iam/admins",
+  tags: ["content-iam"],
+  description: "Delegate organization Content IAM administrator authority to a direct user.",
+  security: bearerSecurity,
+  request: {
+    params: orgIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(delegateOrganizationContentAdminSchema, "Organization Content IAM admin delegation payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(policyBindingResponseSchema), "Delegated organization Content IAM admin"),
+    ...commonErrorResponses,
+  },
+});
+
+const listOrgRolesRoute = createRoute({
+  method: "get",
+  path: "/organizations/{orgId}/content-roles",
+  tags: ["content-iam"],
+  description: "List built-in and organization-defined Content IAM roles.",
+  security: bearerSecurity,
+  request: { params: orgIdParamSchema, query: contentIamListQuerySchema },
+  responses: {
+    200: jsonContent(listResponseSchema(contentRoleResponseSchema), "Organization content roles"),
+    ...commonErrorResponses,
+  },
+});
+
+const createOrgRoleRoute = createRoute({
+  method: "post",
+  path: "/organizations/{orgId}/content-roles",
+  tags: ["content-iam"],
+  description: "Create an ordinary organization-defined Content IAM role.",
+  security: bearerSecurity,
+  request: {
+    params: orgIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(createContentRoleSchema, "Content role create payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(contentRoleResponseSchema), "Created content role"),
+    ...commonErrorResponses,
+  },
+});
+
+const replaceOrgRolePermissionsRoute = createRoute({
+  method: "put",
+  path: "/organizations/{orgId}/content-roles/{roleId}/permissions",
+  tags: ["content-iam"],
+  description: "Replace an organization-defined Content IAM role permission set.",
+  security: bearerSecurity,
+  request: {
+    params: roleIdParamSchema,
+    headers: idempotencyHeaderSchema,
+    body: jsonRequestBody(replaceContentRolePermissionsSchema, "Content role permission replacement payload"),
+  },
+  responses: {
+    201: jsonContent(policyMutationResponseSchema(contentRoleResponseSchema), "Updated content role permissions"),
+    ...commonErrorResponses,
+  },
+});
+
+const disableOrgRoleRoute = createRoute({
+  method: "delete",
+  path: "/organizations/{orgId}/content-roles/{roleId}",
+  tags: ["content-iam"],
+  description: "Disable an organization-defined Content IAM role.",
+  security: bearerSecurity,
+  request: { params: roleIdParamSchema },
+  responses: {
+    204: { description: "Content role disabled" },
+    ...commonErrorResponses,
+  },
+});
+
+export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
+  app.openapi(listBookBindingsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listBindings.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyBinding), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(createBookBindingRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.createBinding.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(revokeBookBindingRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.revokeBinding.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      bindingId: params.bindingId,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
+  });
+
+  app.openapi(listBookDenialsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listDenials.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyDenial), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(createBookDenialRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.createDenial.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyDenial(result.denial), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(revokeBookDenialRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.revokeDenial.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      denialId: params.denialId,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
+  });
+
+  app.openapi(transferBookOwnershipRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.transferOwnership.execute({
+      actor,
+      bookId: params.bookId,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({
+      currentOwner: presentPolicyBinding(result.currentOwner),
+      nextOwner: presentPolicyBinding(result.nextOwner),
+      auditEventId: result.event.id,
+    }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(listBookEventsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listEvents.execute({
+      actor,
+      resource: { type: "book", id: params.bookId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyEvent), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(listOrgBindingsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listBindings.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyBinding), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(createOrgBindingRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.createBinding.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(revokeOrgBindingRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.revokeBinding.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      bindingId: params.bindingId,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
+  });
+
+  app.openapi(listOrgDenialsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listDenials.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyDenial), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(createOrgDenialRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.createDenial.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyDenial(result.denial), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(revokeOrgDenialRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.revokeDenial.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      denialId: params.denialId,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
+  });
+
+  app.openapi(listOrgEventsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listEvents.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentPolicyEvent), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(bootstrapOrgAdminRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.bootstrapOrganizationAdmin.execute({
+      actor,
+      orgId: params.orgId,
+      userId: body.userId,
+      idempotencyKey: headers["idempotency-key"],
+      reason: body.reason,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(delegateOrgAdminRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.delegateOrganizationAdmin.execute({
+      actor,
+      orgId: params.orgId,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(listOrgRolesRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const query = c.req.valid("query");
+    const result = await c.get("container").contentIam.listRoles.execute({
+      actor,
+      orgId: params.orgId,
+      limit: query.limit,
+      cursor: query.cursor,
+    });
+    return c.json({ data: result.data.map(presentContentRole), page: result.page }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(createOrgRoleRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.createRole.execute({
+      actor,
+      orgId: params.orgId,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({
+      data: presentContentRole({ role: result.role, permissions: result.permissions }),
+      auditEventId: result.event.id,
+    }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(replaceOrgRolePermissionsRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const headers = c.req.valid("header");
+    const body = c.req.valid("json");
+    const result = await c.get("container").contentIam.replaceRolePermissions.execute({
+      actor,
+      orgId: params.orgId,
+      roleId: params.roleId,
+      idempotencyKey: headers["idempotency-key"],
+      input: body,
+      requestId: c.get("requestId"),
+    });
+    return c.json({
+      data: presentContentRole({ role: result.role, permissions: result.permissions }),
+      auditEventId: result.event.id,
+    }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(disableOrgRoleRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.disableRole.execute({
+      actor,
+      orgId: params.orgId,
+      roleId: params.roleId,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
+  });
+}

@@ -33,7 +33,7 @@ export class CreateUserUseCase {
 
   private async requireActorId(actor: Actor) {
     await assertAllowed(this.userPolicy.canCreate(actor), "Only admins can create users");
-    return actor.type === "user" ? actor.localUserId ?? actor.id : actor.id;
+    return actor.type === "user" ? actor.id : "system";
   }
 
   private async assertEmailAvailable(email: string) {

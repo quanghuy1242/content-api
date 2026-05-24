@@ -1,6 +1,6 @@
 # Migrate Content API From Auther To `id`
 
-> Status: implementation-grade proposal
+> Status: implemented
 >
 > Date: 2026-05-22
 >
@@ -31,6 +31,13 @@
 > - `docs/007_content-iam-policy-binding-model.md`
 > - `docs/architecture.md`
 > - `docs/payloadcms-access-control-policy-spec.md`
+>
+> Implementation notes:
+>
+> - Implemented in `content-api` with a local `jose` verifier so tests can inject fixture JWKS fetches.
+> - Worker env now targets `https://id.quanghuy.dev/api/auth` and the public Content API audience.
+> - Local user identity uses `users.id = id.sub`; `better_auth_user_id` is removed by the generated `0003_content_iam_policy` migration.
+> - Vitest fixtures now issue `id`-shaped user, direct-share, and M2M tokens.
 
 ## Table Of Contents
 

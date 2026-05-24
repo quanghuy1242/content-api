@@ -6,9 +6,9 @@ Cloudflare Workers content API built with Hono, D1, and Drizzle. This repo imple
 - `categories`
 - `posts`
 - `media` direct-to-R2 uploads, processor-generated variants, and API-served variant streaming
-- `grant-mirror`
-- `deferred-grants`
-- `relationships` for ReBAC-style authorization facts
+- `books` as the first Content IAM resource boundary
+- Content IAM permission/role/binding/denial/audit administration
+- legacy `grant-mirror`, `deferred-grants`, and `relationships` endpoints retained for first-batch compatibility; new content authorization uses Content IAM
 
 ## Contracts
 
@@ -17,7 +17,7 @@ This implementation follows the contracts in:
 - [docs/architecture.md](docs/architecture.md)
 - [docs/payloadcms-schema-spec.md](docs/payloadcms-schema-spec.md)
 - [docs/payloadcms-access-control-policy-spec.md](docs/payloadcms-access-control-policy-spec.md)
-- `~/pjs/auther` resource-token/JWKS behavior
+- `~/pjs/auth` (`id`) OAuth2 resource-server token behavior
 
 Architecture planning documents and implementation status:
 
@@ -26,16 +26,19 @@ Architecture planning documents and implementation status:
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 - [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — proposal
-- [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — proposal
-- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — proposal
+- [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
+- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — implemented
 
 Auth is implemented as an OAuth2 resource server:
 
-- bearer JWTs are validated against Auther JWKS
+- bearer JWTs are validated against `id` JWKS with `jose`
 - `iss` must match `AUTH_ISSUER`
 - `aud` must match `AUTH_AUDIENCE`
-- `token_use` must be `access`
-- authenticated actors are attached to Hono context and mapped to local users through `betterAuthUserId`
+- `scope` must include `AUTH_REQUIRED_SCOPE`
+- user actors use `sub` directly as `users.id`
+- direct-share user tokens have no `org_id`, no team authority, and cannot carry `content:share`
+- M2M tokens authenticate as service-account actors through `azp`/`client_id`, without implicit admin authority
+- Content IAM durable policy writes validate target users, teams, and service accounts through `id` principal-validation endpoints; hot-path object checks stay local
 
 ## Stack
 
@@ -90,9 +93,11 @@ wrangler r2 bucket notification create content-api-media \
 ```jsonc
 {
   "vars": {
-    "AUTH_ISSUER": "https://auth.quanghuy.dev",
-    "AUTH_AUDIENCE": "payload-content-api",
-    "AUTH_JWKS_URL": "https://auth.quanghuy.dev/api/auth/jwks",
+    "AUTH_ISSUER": "https://id.quanghuy.dev/api/auth",
+    "AUTH_AUDIENCE": "https://content-api.quanghuy.dev",
+    "AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
+    "AUTH_REQUIRED_SCOPE": "content:read",
+    "ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
     "R2_BUCKET_NAME": "content-api-media",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
@@ -105,6 +110,8 @@ Create `.dev.vars` from the committed example:
 ```bash
 cp .dev.vars.example .dev.vars
 ```
+
+Set `ID_PRINCIPAL_VALIDATION_TOKEN` in `.dev.vars` or as a Cloudflare secret. It is the dedicated integration token used only for low-volume Content IAM principal validation writes.
 
 4. Apply local migrations:
 
@@ -154,11 +161,13 @@ pnpm advise
 Current automated coverage includes:
 
 - `401` unauthenticated
-- `401` invalid token
+- `401` invalid token, wrong audience, missing required scope, and invalid direct-share `content:share`
 - `403` forbidden
 - `404` missing resource
 - media upload lifecycle, idempotent create replay, and queue ack/retry behavior
 - happy paths across posts, media, users, and authz-admin resources
+- `id`-shaped user, direct-share, and service-account token fixtures
+- Content IAM bootstrap, binding, denial, ownership transfer, custom role, principal-validation failure, and denial-precedence coverage
 
 ## Deployment
 

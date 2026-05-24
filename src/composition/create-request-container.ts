@@ -10,6 +10,20 @@ import { DeleteDeferredGrantUseCase } from "@/application/deferred-grants/delete
 import { GetDeferredGrantUseCase } from "@/application/deferred-grants/get-deferred-grant.usecase";
 import { ListDeferredGrantsUseCase } from "@/application/deferred-grants/list-deferred-grants.usecase";
 import { UpdateDeferredGrantUseCase } from "@/application/deferred-grants/update-deferred-grant.usecase";
+import { BootstrapOrganizationContentAdminUseCase } from "@/application/content-iam/bootstrap-organization-content-admin.usecase";
+import { CreateContentRoleUseCase } from "@/application/content-iam/create-content-role.usecase";
+import { CreatePolicyBindingUseCase } from "@/application/content-iam/create-policy-binding.usecase";
+import { CreatePolicyDenialUseCase } from "@/application/content-iam/create-policy-denial.usecase";
+import { DelegateOrganizationContentAdminUseCase } from "@/application/content-iam/delegate-organization-content-admin.usecase";
+import { DisableContentRoleUseCase } from "@/application/content-iam/disable-content-role.usecase";
+import { ListContentRolesUseCase } from "@/application/content-iam/list-content-roles.usecase";
+import { ListPolicyBindingsUseCase } from "@/application/content-iam/list-policy-bindings.usecase";
+import { ListPolicyDenialsUseCase } from "@/application/content-iam/list-policy-denials.usecase";
+import { ListPolicyEventsUseCase } from "@/application/content-iam/list-policy-events.usecase";
+import { ReplaceContentRolePermissionsUseCase } from "@/application/content-iam/replace-content-role-permissions.usecase";
+import { RevokePolicyBindingUseCase } from "@/application/content-iam/revoke-policy-binding.usecase";
+import { RevokePolicyDenialUseCase } from "@/application/content-iam/revoke-policy-denial.usecase";
+import { TransferBookOwnershipUseCase } from "@/application/content-iam/transfer-book-ownership.usecase";
 import { CreateGrantMirrorUseCase } from "@/application/grant-mirror/create-grant-mirror.usecase";
 import { DeleteGrantMirrorUseCase } from "@/application/grant-mirror/delete-grant-mirror.usecase";
 import { GetGrantMirrorUseCase } from "@/application/grant-mirror/get-grant-mirror.usecase";
@@ -41,12 +55,17 @@ import { UpdateUserUseCase } from "@/application/users/update-user.usecase";
 import { CategoryPolicy } from "@/domain/categories/category.policy";
 import { DeferredGrantPolicy } from "@/domain/deferred-grants/deferred-grant.policy";
 import { GrantMirrorPolicy } from "@/domain/grant-mirror/grant-mirror.policy";
+import { ContentAdministrationPolicy } from "@/domain/iam/content-administration.policy";
+import { LocalContentPolicy } from "@/domain/iam/content-policy";
 import { MediaPolicy } from "@/domain/media/media.policy";
 import { PostPolicy } from "@/domain/posts/post.policy";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
 import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
+import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
+import { DrizzleContentIamMutationWorkflow } from "@/infrastructure/repositories/drizzle-content-iam-mutation.workflow";
+import { DrizzleContentRoleRepository } from "@/infrastructure/repositories/drizzle-content-role.repository";
 import { DrizzleDeferredGrantRepository } from "@/infrastructure/repositories/drizzle-deferred-grant.repository";
 import { DrizzleGrantMirrorRepository } from "@/infrastructure/repositories/drizzle-grant-mirror.repository";
 import { DrizzleIdempotencyRepository } from "@/infrastructure/repositories/drizzle-idempotency.repository";
@@ -54,9 +73,13 @@ import { DrizzleMediaRepository } from "@/infrastructure/repositories/drizzle-me
 import { DrizzleMediaCreateWorkflow } from "@/infrastructure/repositories/drizzle-media-create.workflow";
 import { DrizzlePostRepository } from "@/infrastructure/repositories/drizzle-post.repository";
 import { DrizzlePostCreateWorkflow } from "@/infrastructure/repositories/drizzle-post-create.workflow";
+import { DrizzlePolicyBindingRepository } from "@/infrastructure/repositories/drizzle-policy-binding.repository";
+import { DrizzlePolicyDenialRepository } from "@/infrastructure/repositories/drizzle-policy-denial.repository";
+import { DrizzlePolicyEventRepository } from "@/infrastructure/repositories/drizzle-policy-event.repository";
 import { DrizzleRelationshipRepository } from "@/infrastructure/repositories/drizzle-relationship.repository";
 import { DrizzleUserRepository } from "@/infrastructure/repositories/drizzle-user.repository";
 import { DrizzleUserCreateWorkflow } from "@/infrastructure/repositories/drizzle-user-create.workflow";
+import { IdContentPrincipalDirectory } from "@/infrastructure/identity/id-content-principal-directory";
 import { R2PresignedUrlSigner } from "@/infrastructure/storage/r2-presigned-url-signer";
 import { R2ObjectStorage } from "@/infrastructure/storage/r2-object-storage";
 
@@ -72,6 +95,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const config = parseEnv(env);
   const db = createDb(env);
   const userRepository = new DrizzleUserRepository(db);
+  const bookRepository = new DrizzleBookRepository(db);
   const categoryRepository = new DrizzleCategoryRepository(db);
   const mediaRepository = new DrizzleMediaRepository(db);
   const grantMirrorRepository = new DrizzleGrantMirrorRepository(db);
@@ -79,6 +103,21 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const relationshipRepository = new DrizzleRelationshipRepository(db);
   const postRepository = new DrizzlePostRepository(db);
   const idempotencyRepository = new DrizzleIdempotencyRepository(db);
+  const contentRoleRepository = new DrizzleContentRoleRepository(db);
+  const policyBindingRepository = new DrizzlePolicyBindingRepository(db);
+  const policyDenialRepository = new DrizzlePolicyDenialRepository(db);
+  const policyEventRepository = new DrizzlePolicyEventRepository(db);
+  const contentIamMutationWorkflow = new DrizzleContentIamMutationWorkflow(db);
+  const contentPolicy = new LocalContentPolicy(policyBindingRepository, policyDenialRepository);
+  const contentAdministrationPolicy = new ContentAdministrationPolicy(
+    contentPolicy,
+    (roleId) => contentRoleRepository.findPermissionKeys(roleId),
+  );
+  const principalDirectory = new IdContentPrincipalDirectory({
+    baseUrl: config.ID_PRINCIPAL_VALIDATION_URL,
+    token: config.ID_PRINCIPAL_VALIDATION_TOKEN,
+    fetchImpl: options?.fetchImpl,
+  });
   const mediaStorage = new R2ObjectStorage(env.MEDIA_R2);
   const mediaUploadSigner = new R2PresignedUrlSigner({
     accountId: config.R2_ACCOUNT_ID,
@@ -103,6 +142,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         issuer: config.AUTH_ISSUER,
         audience: config.AUTH_AUDIENCE,
         jwksUrl: config.AUTH_JWKS_URL,
+        requiredScope: config.AUTH_REQUIRED_SCOPE,
         fetchImpl: options?.fetchImpl,
       },
       userRepository,
@@ -160,6 +200,78 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       unpublish: new UnpublishMediaUseCase(mediaRepository, mediaPolicy),
       delete: new DeleteMediaUseCase(mediaRepository, mediaPolicy),
       serveVariant: new ServeMediaVariantUseCase(mediaRepository, mediaPolicy, mediaStorage),
+    },
+    contentIam: {
+      bootstrapOrganizationAdmin: new BootstrapOrganizationContentAdminUseCase(
+        contentRoleRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        principalDirectory,
+      ),
+      delegateOrganizationAdmin: new DelegateOrganizationContentAdminUseCase(
+        contentRoleRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        principalDirectory,
+        contentPolicy,
+      ),
+      listBindings: new ListPolicyBindingsUseCase(bookRepository, policyBindingRepository, contentPolicy),
+      createBinding: new CreatePolicyBindingUseCase(
+        bookRepository,
+        contentRoleRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        principalDirectory,
+        contentAdministrationPolicy,
+      ),
+      revokeBinding: new RevokePolicyBindingUseCase(
+        bookRepository,
+        policyBindingRepository,
+        contentIamMutationWorkflow,
+        contentAdministrationPolicy,
+      ),
+      listDenials: new ListPolicyDenialsUseCase(bookRepository, policyDenialRepository, contentPolicy),
+      createDenial: new CreatePolicyDenialUseCase(
+        bookRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        principalDirectory,
+        contentAdministrationPolicy,
+      ),
+      revokeDenial: new RevokePolicyDenialUseCase(
+        bookRepository,
+        policyDenialRepository,
+        contentIamMutationWorkflow,
+        contentAdministrationPolicy,
+      ),
+      listEvents: new ListPolicyEventsUseCase(bookRepository, policyEventRepository, contentPolicy),
+      transferOwnership: new TransferBookOwnershipUseCase(
+        bookRepository,
+        policyBindingRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        principalDirectory,
+        contentAdministrationPolicy,
+      ),
+      listRoles: new ListContentRolesUseCase(contentRoleRepository, contentPolicy),
+      createRole: new CreateContentRoleUseCase(
+        contentRoleRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        contentAdministrationPolicy,
+      ),
+      replaceRolePermissions: new ReplaceContentRolePermissionsUseCase(
+        contentRoleRepository,
+        idempotencyRepository,
+        contentIamMutationWorkflow,
+        contentAdministrationPolicy,
+      ),
+      disableRole: new DisableContentRoleUseCase(
+        contentRoleRepository,
+        contentIamMutationWorkflow,
+        contentAdministrationPolicy,
+      ),
+      roles: contentRoleRepository,
     },
     grantMirror: {
       list: new ListGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),

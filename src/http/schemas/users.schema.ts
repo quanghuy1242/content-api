@@ -7,10 +7,9 @@ export const userCreateSchema = z.object({
   avatar: z.string().optional().nullable(),
   bio: z.unknown().optional().nullable(),
   role: roleSchema.default("user"),
-  betterAuthUserId: z.string().optional().nullable(),
 });
 
-export const userUpdateSchema = userCreateSchema.partial().omit({ betterAuthUserId: true });
+export const userUpdateSchema = userCreateSchema.partial();
 
 export const userResponseSchema = z.object({
   id: idSchema,
@@ -19,7 +18,6 @@ export const userResponseSchema = z.object({
   bio: z.unknown().nullable(),
   email: emailSchema.nullable(),
   role: roleSchema.nullable(),
-  betterAuthUserId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

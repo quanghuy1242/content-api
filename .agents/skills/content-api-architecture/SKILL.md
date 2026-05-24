@@ -16,6 +16,112 @@ Use this skill to preserve the clean architecture of the local `content-api` rep
 
 For detailed file-level rules, read [references/architecture-rules.md](references/architecture-rules.md).
 
+## Repository Layout
+
+The repo ships **one main API Worker** under `src/` and **N additional Workers** under `workers/<name>/`, each with its own `wrangler.jsonc`. The main API Worker entry is `src/main.ts` (see top-level `wrangler.jsonc` `main` field — it is NOT `src/index.ts`). New cron, queue, scheduled, or processor Workers go under `workers/<name>/`, never inside `src/`. `pnpm-workspace.yaml` lists only `"."` — `workers/*` are sibling deployment units, not pnpm workspace packages.
+
+Use this tree to locate files and to choose the right home for new code. Patterns (e.g. `*.usecase.ts`) are conventions enforced by `scripts/oxlint-js-plugins/architecture.js` and by the `Resource Pattern` section below — do not invent new suffixes.
+
+```
+content-api/
+├── src/                                  # Main API Worker source; entry: src/main.ts
+│   ├── main.ts                           # Worker entry; exports default { fetch, scheduled? }; builds OpenAPIHono + container
+│   │
+│   ├── domain/                           # Pure domain layer — NO Hono, Drizzle, D1, or infrastructure imports
+│   │   ├── <resource>/
+│   │   │   ├── *.entity.ts               # Domain entity class (private props, create/reconstitute/toSnapshot)
+│   │   │   ├── *.repository.ts           # Repository INTERFACE only (domain contract)
+│   │   │   ├── *.policy.ts               # Domain authorization decisions (when not covered by Content IAM)
+│   │   │   └── *.workflow.ts             # Workflow port INTERFACE for atomic multi-row writes (e.g. create+owner+audit)
+│   │   ├── auth/                         # Actor types, scope helpers (requireContentScope), assertAllowed
+│   │   ├── iam/                          # Content IAM: permissions, built-in roles, ContentPolicy, resource-loader helpers
+│   │   └── idempotency/                  # IdempotencyRepository contract + IdempotencyRecord type
+│   │
+│   ├── application/                      # Explicit use cases — depends on domain interfaces + shared/errors only
+│   │   └── <resource>/
+│   │       └── *.usecase.ts              # One verb per file: create/get/list/update/publish/unpublish/delete/...
+│   │
+│   ├── http/                             # Hono OpenAPI layer — thin handlers, no business logic
+│   │   ├── app-env.ts                    # Hono Variables/Bindings types (container, actor, request id)
+│   │   ├── openapi.ts                    # Shared OpenAPI helpers: bearerSecurity, jsonContent, response envelopes
+│   │   ├── routes/<resource>.routes.ts   # createRoute() + app.openapi(); one .execute(...) per handler
+│   │   ├── schemas/<resource>.schema.ts  # Zod request/response schemas; `z` MUST come from @hono/zod-openapi
+│   │   ├── presenters/<resource>.presenter.ts  # Domain entity → response JSON (NOT persistence mapping)
+│   │   └── middleware/*.middleware.ts    # auth, error envelope, request id; no resource logic
+│   │
+│   ├── infrastructure/                   # Adapters that satisfy domain contracts; ONLY layer that touches Drizzle/D1/R2
+│   │   ├── db/
+│   │   │   ├── client.ts                 # Drizzle/D1 client factory
+│   │   │   └── schema.ts                 # Single source of truth for D1 tables (sqliteTable definitions + indexes)
+│   │   ├── persistence/
+│   │   │   ├── crud-adapter.ts           # Shared CRUD primitive — every public method needs JSDoc
+│   │   │   └── sqlite-errors.ts          # Storage-driver error detectors (only place allowed to parse UNIQUE/constraint text)
+│   │   ├── repositories/
+│   │   │   ├── drizzle-<resource>.repository.ts        # Implements domain repo; uses CrudAdapter, never raw this.db.insert/update/delete
+│   │   │   ├── drizzle-<resource>-<flow>.workflow.ts   # Implements workflow port; ONLY place allowed to call db.batch(...)
+│   │   │   └── mappers/<resource>.mapper.ts            # Row ↔ entity; ONLY place that calls Entity.reconstitute(...); cannot import application/http/composition
+│   │   ├── identity/                     # `id` (auth) adapters: principal-validation client, client-credentials token provider
+│   │   ├── images/                       # Cloudflare Images service adapter
+│   │   └── storage/                      # R2 object storage adapter + presigned-URL signer
+│   │
+│   ├── composition/                      # Request-scoped DI graph
+│   │   └── create-request-container.ts   # ONLY place that wires repos + workflows + policies + use cases together
+│   │
+│   ├── config/
+│   │   └── env.ts                        # Zod-validated env parsing; Worker bindings type
+│   │
+│   ├── shared/                           # Cross-cutting primitives used by ≥2 layers — NOT a dumping ground
+│   │   ├── errors.ts                     # AppError + ValidationError/Unauthorized/Forbidden/NotFound/Conflict — ONLY place for custom Error classes
+│   │   ├── constants.ts                  # HTTP status codes, route name constants, idempotency TTL
+│   │   ├── idempotency.ts                # Canonical request-body hashing
+│   │   ├── pagination/                   # encodeCursor/decodeCursor + CursorPage<T> type
+│   │   ├── validation/                   # Reusable Zod field schemas (slugs, ids, timestamps)
+│   │   └── media/                        # Shared media constants used by main API + media-processor Worker
+│   │
+│   └── types/                            # Global ambient types (cloudflare-env.d.ts, raw imports)
+│
+├── workers/                              # ADDITIONAL Cloudflare Workers (queue consumers, cron drivers, processors)
+│   └── <worker-name>/                    # Each Worker is self-contained — separate wrangler + tsconfig
+│       ├── wrangler.jsonc                # Own bindings; can share D1/R2/Queues with the API Worker
+│       ├── tsconfig.json
+│       └── src/                          # This Worker's source — usually one or two files (config + index/handler)
+│                                         # Example today: workers/media-processor/ consumes the R2 object-create queue.
+│                                         # New scheduled/queue Workers (e.g. scheduled-publish) belong here, NOT under src/.
+│
+├── drizzle/                              # Generated D1 migrations: NNNN_<slug>.sql, sequential; meta/ tracks Drizzle Kit state
+│
+├── tests/                                # Vitest + @cloudflare/vitest-pool-workers integration tests
+│   ├── helpers.ts                        # JWT minting, container fixtures, D1 seeding
+│   └── *.test.ts                         # Run inside a real Workers runtime against in-memory D1
+│
+├── docs/                                 # Planning + implementation docs, numbered NNN_<slug>.md
+│
+├── scripts/                              # Repo tooling
+│   ├── oxlint-js-plugins/architecture.js # The architecture-lint plugin — extend only via content-api-architecture-lint skill
+│   ├── check-duplication-threshold.mjs   # Wrapper enforcing the Fallow mild duplicate threshold
+│   └── filter-advise.mjs                 # Filters known noise from `pnpm advise` using .advise-suppressions.json
+│
+├── patches/                              # pnpm patch-package targets
+├── .claude/skills/                       # Local Claude skills (this file is content-api-architecture/SKILL.md)
+├── .oxlintrc.json                        # Oxlint config; wires the architecture plugin
+├── .advise-suppressions.json             # Known-noise suppressions consumed by filter-advise.mjs
+├── wrangler.jsonc                        # Main API Worker config: name=content-api, main=src/main.ts, D1+R2 bindings
+├── wrangler.test.jsonc                   # Test-runtime Worker config (committed mock R2 creds)
+├── drizzle.config.ts                     # Drizzle Kit config (schema → drizzle/)
+├── package.json                          # pnpm scripts: check, lint, lint:fix, check:dup, typecheck, test, advise, db:*
+├── pnpm-workspace.yaml                   # Workspace: only "." — workers/* are NOT pnpm packages
+└── README.md
+```
+
+Notable conventions reinforced by the tree:
+
+- **Cron / queue / processor handlers go in `workers/<name>/`, not in `src/`.** Each new Worker is its own deployment unit with its own `wrangler.jsonc`. CI deploys them as separate Cloudflare Workers.
+- **The main API Worker entry is `src/main.ts`.** Do not assume `src/index.ts`.
+- **Mappers under `src/infrastructure/repositories/mappers/` are the only place that calls `Entity.reconstitute(...)`** and the only place that can be imported by both `drizzle-<resource>.repository.ts` and `drizzle-<resource>-<flow>.workflow.ts`.
+- **`db.batch(...)` is only allowed in `drizzle-<resource>-<flow>.workflow.ts` files**, never in `*.repository.ts`.
+- **Drizzle migrations are sequential numbered files.** Next migration number is one greater than the highest existing `drizzle/NNNN_*.sql`.
+- **`workers/*` Workers may share `src/shared/**` only by relative import or via path alias in their own tsconfig.** They do not pull `src/application/**`, `src/domain/**`, or `src/infrastructure/**` wholesale; if they need that surface, the dependency should be reviewed.
+
 ## Required Workflow
 
 1. Identify the layer touched by the request before editing.

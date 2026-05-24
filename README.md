@@ -31,6 +31,9 @@ Architecture planning documents and implementation status:
 - [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
 - [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — in progress; BKH-A book product routes verified, descendant hierarchy pending
 - [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
+- [docs/011_post-006-007-gap-fixes.md](docs/011_post-006-007-gap-fixes.md) — gap fixes
+- [docs/012_site-config-collection.md](docs/012_site-config-collection.md) — proposal: promotable SiteConfig collection with dynamic block schema and Content IAM; also formalizes categories-as-org-resources rationale
+- [docs/013_content-lifecycle-plugin.md](docs/013_content-lifecycle-plugin.md) — proposal: pluggable lifecycle plugin (draft/published/scheduled/archived) superseding docs/005; covers Post, Book, Chapter, SiteConfig
 
 Auth is implemented as an OAuth2 resource server:
 

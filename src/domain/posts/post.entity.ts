@@ -4,6 +4,7 @@ export type PostStatus = "draft" | "published";
 
 export type PostProps = {
   id: string;
+  orgId: string;
   title: string;
   slug: string;
   excerpt: string | null;
@@ -56,6 +57,7 @@ export class Post {
   }
 
   get id() { return this.props.id; }
+  get orgId() { return this.props.orgId; }
   get title() { return this.props.title; }
   get slug() { return this.props.slug; }
   get excerpt() { return this.props.excerpt; }

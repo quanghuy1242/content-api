@@ -25,7 +25,8 @@
 > Verification run:
 >
 > - Initial reviewed commits: `corepack pnpm check` passed with 50 Vitest tests before remediation.
-> - Remediated worktree: `corepack pnpm check` passed: oxlint with zero findings, Fallow mild gate at 1.2% below the 3% threshold, typecheck, and 68 Vitest tests.
+> - Remediated IAM-substrate worktree: `corepack pnpm check` passed: oxlint with zero findings, Fallow mild gate at 1.2% below the 3% threshold, typecheck, and 68 Vitest tests.
+> - Follow-up legacy-authz cleanup: API tests passed with 75 Vitest tests after removing Auther mirror/deferred-grant/relationship routes and tables.
 > - Remediated worktree: `corepack pnpm advise` passed with all known findings suppressed (`30` Aislop, `11` Fallow); the added route duplication suppression follows the repository's mandated route-handler exception.
 > - Remediated worktree: `git diff --check` passed.
 >
@@ -255,9 +256,9 @@ The current gate therefore demonstrates internal consistency and broad happy-pat
 
 Scope:
 
-- `src/application/grant-mirror/*.usecase.ts`
-- `src/application/deferred-grants/*.usecase.ts`
-- `src/application/relationships/*.usecase.ts`
+- removed `src/application/grant-mirror/*.usecase.ts`
+- removed `src/application/deferred-grants/*.usecase.ts`
+- removed `src/application/relationships/*.usecase.ts`
 - `src/domain/iam/content-administration.policy.ts`
 - `tests/api.test.ts`
 
@@ -363,7 +364,8 @@ corepack pnpm advise
 
 | Finding / audit addition | Current implementation evidence | Test evidence |
 |---|---|---|
-| P1-1 compatibility route scope bypass | `src/application/grant-mirror/*`, `deferred-grants/*`, and `relationships/*` require read or write OAuth scope before admin policy | narrow-scope legacy route test |
+| P1-1 compatibility route scope bypass | legacy `grant-mirror`, `deferred-grants`, and `relationships` routes/modules are removed; migration `0005_remove_legacy_authz` drops their tables | OpenAPI exclusion plus direct `404` route tests |
+| Additional legacy relationship cleanup | post/category/media policies use row owner fields instead of `relationships`; idempotent create workflows no longer write relationship rows | row-ownership access test plus post/category/media idempotent replay tests |
 | P1-2 protected sharing-manager delegation | `ContentAdministrationPolicy` resolves direct book owner or direct organization content-admin bindings before assigning/revoking `book.sharing_manager` | sharing-manager delegation and revoke denial test |
 | P1-3 tenant role isolation | `CreatePolicyBindingUseCase` rejects a non-system role whose namespace differs from the loaded resource organization | cross-organization custom-role binding test |
 | P1-4 non-destructive identity projection | optional identity projection fields update only when claims are present; first projection uses deterministic fallback values | omitted-profile-claims regression test |

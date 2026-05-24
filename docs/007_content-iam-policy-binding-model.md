@@ -1,6 +1,6 @@
 # Content IAM Policy Binding Model
 
-> Status: IAM substrate and book product root implemented; descendant resource hierarchy remains in progress in `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
+> Status: IAM substrate, book product root, and legacy authz cleanup implemented; descendant resource hierarchy remains in progress in `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
 >
 > Date: 2026-05-23
 >
@@ -53,8 +53,7 @@
 > - The public bootstrap operation is single-use per organization after that reservation is committed; a future operational recovery mechanism must remain separately controlled and audited.
 > - Protected sharing-manager assignment/revocation requires direct owner or direct organization content-admin authority; tenant-defined roles cannot cross organization namespaces.
 > - The book binding list route implements `view=direct|effective`, and organization administrator delegation/revocation uses `/organizations/{orgId}/content-admins[/{bindingId}]`.
-> - Legacy Auther mirror/deferred-grant routes remain only as first-batch compatibility surfaces; new content authorization state is Content IAM.
-> - Compatibility authz routes now enforce explicit OAuth read/write scopes while they remain in use by legacy post/media/category authorization.
+> - Legacy Auther mirror/deferred-grant/relationship routes and tables are removed by `0005_remove_legacy_authz`; product ownership now uses row owner fields or Content IAM.
 > - Tests cover `id` token shapes, projection non-destruction, denial precedence, direct-share restrictions, protected delegation, principal validation, tenant isolation, effective binding explanations, mutation idempotency, and concurrent write invariants.
 > - Book product routes now create private drafts under `org.create_book`, atomically seed a direct owner binding, support qualified service-account imports with an explicit user owner, and enforce local policy on private reads and updates; descendant product resources remain pending.
 
@@ -1844,7 +1843,7 @@ Tests:
 Scope:
 
 - `src/domain/iam/`
-- `src/domain/authz/actor.ts`
+- `src/domain/auth/actor.ts`
 
 Tasks:
 
@@ -1996,24 +1995,30 @@ Tests:
 
 Scope:
 
-- `src/domain/authz/relationship*`
-- `src/application/relationships/*`
-- `src/application/grant-mirror/*`
-- `src/application/deferred-grants/*`
-- routes and schemas for authz admin resources
+- removed `src/domain/authz/relationship*`
+- removed `src/application/relationships/*`
+- removed `src/application/grant-mirror/*`
+- removed `src/application/deferred-grants/*`
+- removed routes and schemas for authz admin resources
+- moved still-current actor/scope helpers from `src/domain/authz/*` to `src/domain/auth/*`
 
 Tasks:
 
-- [ ] Stop using `relationships` for new content ownership.
-- [ ] Remove or deprecate `grant_mirror` and `deferred_grants`.
-- [ ] Remove old unscoped authz-admin routes once resource-scoped Content IAM management routes replace them.
-- [ ] Update README implemented scope.
+- [x] Stop using `relationships` for new content ownership.
+- [x] Remove or deprecate `grant_mirror` and `deferred_grants`.
+- [x] Remove old unscoped authz-admin routes once resource-scoped Content IAM management routes replace them.
+- [x] Update README implemented scope.
 
 Acceptance criteria:
 
 - Auther mirror concepts no longer define product authorization.
 
 Tests:
+
+- OpenAPI excludes `/grant-mirror`, `/deferred-grants`, and `/relationships`.
+- Direct requests to those legacy routes return `404`.
+- Post, category, and media authorization uses row ownership without seeded relationship rows.
+- Idempotent post/category/media creation writes only the product row plus idempotency row.
 
 - `pnpm lint`
 - `pnpm check:dup`

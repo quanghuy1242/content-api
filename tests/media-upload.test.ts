@@ -249,6 +249,7 @@ function buildPendingMedia(input: {
   const now = new Date();
   return Media.reconstitute({
     id: input.id,
+    orgId: "org-main",
     alt: "test",
     lowResUrl: null,
     optimizedUrl: null,

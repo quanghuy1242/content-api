@@ -9,11 +9,6 @@ import { DeleteCategoryUseCase } from "@/application/categories/delete-category.
 import { GetCategoryUseCase } from "@/application/categories/get-category.usecase";
 import { ListCategoriesUseCase } from "@/application/categories/list-categories.usecase";
 import { UpdateCategoryUseCase } from "@/application/categories/update-category.usecase";
-import { CreateDeferredGrantUseCase } from "@/application/deferred-grants/create-deferred-grant.usecase";
-import { DeleteDeferredGrantUseCase } from "@/application/deferred-grants/delete-deferred-grant.usecase";
-import { GetDeferredGrantUseCase } from "@/application/deferred-grants/get-deferred-grant.usecase";
-import { ListDeferredGrantsUseCase } from "@/application/deferred-grants/list-deferred-grants.usecase";
-import { UpdateDeferredGrantUseCase } from "@/application/deferred-grants/update-deferred-grant.usecase";
 import { BootstrapOrganizationContentAdminUseCase } from "@/application/content-iam/bootstrap-organization-content-admin.usecase";
 import { CreateContentRoleUseCase } from "@/application/content-iam/create-content-role.usecase";
 import { CreatePolicyBindingUseCase } from "@/application/content-iam/create-policy-binding.usecase";
@@ -28,11 +23,6 @@ import { ReplaceContentRolePermissionsUseCase } from "@/application/content-iam/
 import { RevokePolicyBindingUseCase } from "@/application/content-iam/revoke-policy-binding.usecase";
 import { RevokePolicyDenialUseCase } from "@/application/content-iam/revoke-policy-denial.usecase";
 import { TransferBookOwnershipUseCase } from "@/application/content-iam/transfer-book-ownership.usecase";
-import { CreateGrantMirrorUseCase } from "@/application/grant-mirror/create-grant-mirror.usecase";
-import { DeleteGrantMirrorUseCase } from "@/application/grant-mirror/delete-grant-mirror.usecase";
-import { GetGrantMirrorUseCase } from "@/application/grant-mirror/get-grant-mirror.usecase";
-import { ListGrantMirrorUseCase } from "@/application/grant-mirror/list-grant-mirror.usecase";
-import { UpdateGrantMirrorUseCase } from "@/application/grant-mirror/update-grant-mirror.usecase";
 import { CreateMediaUploadUseCase } from "@/application/media/create-media-upload.usecase";
 import { DeleteMediaUseCase } from "@/application/media/delete-media.usecase";
 import { GetMediaUseCase } from "@/application/media/get-media.usecase";
@@ -48,21 +38,13 @@ import { ListPostsUseCase } from "@/application/posts/list-posts.usecase";
 import { PublishPostUseCase } from "@/application/posts/publish-post.usecase";
 import { UnpublishPostUseCase } from "@/application/posts/unpublish-post.usecase";
 import { UpdatePostUseCase } from "@/application/posts/update-post.usecase";
-import { CreateRelationshipUseCase } from "@/application/relationships/create-relationship.usecase";
-import { DeleteRelationshipUseCase } from "@/application/relationships/delete-relationship.usecase";
-import { ListRelationshipsUseCase } from "@/application/relationships/list-relationships.usecase";
 import { CreateUserUseCase } from "@/application/users/create-user.usecase";
 import { DeleteUserUseCase } from "@/application/users/delete-user.usecase";
 import { GetUserUseCase } from "@/application/users/get-user.usecase";
 import { ListUsersUseCase } from "@/application/users/list-users.usecase";
 import { UpdateUserUseCase } from "@/application/users/update-user.usecase";
-import { CategoryPolicy } from "@/domain/categories/category.policy";
-import { DeferredGrantPolicy } from "@/domain/deferred-grants/deferred-grant.policy";
-import { GrantMirrorPolicy } from "@/domain/grant-mirror/grant-mirror.policy";
 import { ContentAdministrationPolicy } from "@/domain/iam/content-administration.policy";
 import { LocalContentPolicy } from "@/domain/iam/content-policy";
-import { MediaPolicy } from "@/domain/media/media.policy";
-import { PostPolicy } from "@/domain/posts/post.policy";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
 import { ClientCredentialsTokenProvider } from "@/infrastructure/identity/client-credentials-token-provider";
@@ -73,8 +55,6 @@ import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-boo
 import { DrizzleBookCreateWorkflow } from "@/infrastructure/repositories/drizzle-book-create.workflow";
 import { DrizzleContentIamMutationWorkflow } from "@/infrastructure/repositories/drizzle-content-iam-mutation.workflow";
 import { DrizzleContentRoleRepository } from "@/infrastructure/repositories/drizzle-content-role.repository";
-import { DrizzleDeferredGrantRepository } from "@/infrastructure/repositories/drizzle-deferred-grant.repository";
-import { DrizzleGrantMirrorRepository } from "@/infrastructure/repositories/drizzle-grant-mirror.repository";
 import { DrizzleIdempotencyRepository } from "@/infrastructure/repositories/drizzle-idempotency.repository";
 import { DrizzleMediaRepository } from "@/infrastructure/repositories/drizzle-media.repository";
 import { DrizzleMediaCreateWorkflow } from "@/infrastructure/repositories/drizzle-media-create.workflow";
@@ -83,7 +63,6 @@ import { DrizzlePostCreateWorkflow } from "@/infrastructure/repositories/drizzle
 import { DrizzlePolicyBindingRepository } from "@/infrastructure/repositories/drizzle-policy-binding.repository";
 import { DrizzlePolicyDenialRepository } from "@/infrastructure/repositories/drizzle-policy-denial.repository";
 import { DrizzlePolicyEventRepository } from "@/infrastructure/repositories/drizzle-policy-event.repository";
-import { DrizzleRelationshipRepository } from "@/infrastructure/repositories/drizzle-relationship.repository";
 import { DrizzleUserRepository } from "@/infrastructure/repositories/drizzle-user.repository";
 import { DrizzleUserCreateWorkflow } from "@/infrastructure/repositories/drizzle-user-create.workflow";
 import { R2PresignedUrlSigner } from "@/infrastructure/storage/r2-presigned-url-signer";
@@ -105,9 +84,6 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const bookCreateWorkflow = new DrizzleBookCreateWorkflow(db);
   const categoryRepository = new DrizzleCategoryRepository(db);
   const mediaRepository = new DrizzleMediaRepository(db);
-  const grantMirrorRepository = new DrizzleGrantMirrorRepository(db);
-  const deferredGrantRepository = new DrizzleDeferredGrantRepository(db);
-  const relationshipRepository = new DrizzleRelationshipRepository(db);
   const postRepository = new DrizzlePostRepository(db);
   const idempotencyRepository = new DrizzleIdempotencyRepository(db);
   const contentRoleRepository = new DrizzleContentRoleRepository(db);
@@ -147,11 +123,6 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const categoryCreateWorkflow = new DrizzleCategoryCreateWorkflow(db);
   const userCreateWorkflow = new DrizzleUserCreateWorkflow(db);
   const userPolicy = new UserPolicy();
-  const categoryPolicy = new CategoryPolicy(relationshipRepository);
-  const mediaPolicy = new MediaPolicy(relationshipRepository);
-  const postPolicy = new PostPolicy(relationshipRepository);
-  const grantMirrorPolicy = new GrantMirrorPolicy();
-  const deferredGrantPolicy = new DeferredGrantPolicy();
 
   return {
     auth: new AuthenticateBearerTokenUseCase(
@@ -172,54 +143,54 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       delete: new DeleteUserUseCase(userRepository, userPolicy),
     },
     categories: {
-      list: new ListCategoriesUseCase(categoryRepository, categoryPolicy),
-      get: new GetCategoryUseCase(categoryRepository, categoryPolicy),
+      list: new ListCategoriesUseCase(categoryRepository, contentPolicy),
+      get: new GetCategoryUseCase(categoryRepository, contentPolicy),
       create: new CreateCategoryUseCase(
         categoryRepository,
-        relationshipRepository,
         userRepository,
+        contentRoleRepository,
         idempotencyRepository,
         categoryCreateWorkflow,
-        categoryPolicy,
+        contentPolicy,
       ),
-      update: new UpdateCategoryUseCase(categoryRepository, categoryPolicy),
-      delete: new DeleteCategoryUseCase(categoryRepository, categoryPolicy),
+      update: new UpdateCategoryUseCase(categoryRepository, contentPolicy),
+      delete: new DeleteCategoryUseCase(categoryRepository, contentPolicy),
     },
     posts: {
-      list: new ListPostsUseCase(postRepository),
-      get: new GetPostUseCase(postRepository, postPolicy),
+      list: new ListPostsUseCase(postRepository, contentPolicy),
+      get: new GetPostUseCase(postRepository, contentPolicy),
       create: new CreatePostUseCase(
         postRepository,
-        relationshipRepository,
         userRepository,
+        contentRoleRepository,
         idempotencyRepository,
         postCreateWorkflow,
-        postPolicy,
+        contentPolicy,
       ),
-      update: new UpdatePostUseCase(postRepository, postPolicy),
-      publish: new PublishPostUseCase(postRepository, postPolicy),
-      unpublish: new UnpublishPostUseCase(postRepository, postPolicy),
-      delete: new DeletePostUseCase(postRepository, postPolicy),
+      update: new UpdatePostUseCase(postRepository, contentPolicy),
+      publish: new PublishPostUseCase(postRepository, contentPolicy),
+      unpublish: new UnpublishPostUseCase(postRepository, contentPolicy),
+      delete: new DeletePostUseCase(postRepository, contentPolicy),
     },
     media: {
-      list: new ListMediaUseCase(mediaRepository),
-      get: new GetMediaUseCase(mediaRepository, mediaPolicy),
+      list: new ListMediaUseCase(mediaRepository, contentPolicy),
+      get: new GetMediaUseCase(mediaRepository, contentPolicy),
       create: new CreateMediaUploadUseCase(
         mediaRepository,
-        relationshipRepository,
         userRepository,
+        contentRoleRepository,
         idempotencyRepository,
         mediaCreateWorkflow,
-        mediaPolicy,
+        contentPolicy,
         mediaUploadSigner,
         config.MAX_IMAGE_UPLOAD_BYTES,
         config.UPLOAD_URL_TTL_SECONDS,
       ),
-      update: new UpdateMediaUseCase(mediaRepository, mediaPolicy),
-      publish: new PublishMediaUseCase(mediaRepository, mediaPolicy),
-      unpublish: new UnpublishMediaUseCase(mediaRepository, mediaPolicy),
-      delete: new DeleteMediaUseCase(mediaRepository, mediaPolicy),
-      serveVariant: new ServeMediaVariantUseCase(mediaRepository, mediaPolicy, mediaStorage),
+      update: new UpdateMediaUseCase(mediaRepository, contentPolicy),
+      publish: new PublishMediaUseCase(mediaRepository, contentPolicy),
+      unpublish: new UnpublishMediaUseCase(mediaRepository, contentPolicy),
+      delete: new DeleteMediaUseCase(mediaRepository, contentPolicy),
+      serveVariant: new ServeMediaVariantUseCase(mediaRepository, contentPolicy, mediaStorage),
     },
     books: {
       list: new ListBooksUseCase(bookRepository, contentPolicy),
@@ -309,25 +280,6 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentAdministrationPolicy,
       ),
       roles: contentRoleRepository,
-    },
-    grantMirror: {
-      list: new ListGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),
-      get: new GetGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),
-      create: new CreateGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),
-      update: new UpdateGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),
-      delete: new DeleteGrantMirrorUseCase(grantMirrorRepository, grantMirrorPolicy),
-    },
-    deferredGrants: {
-      list: new ListDeferredGrantsUseCase(deferredGrantRepository, deferredGrantPolicy),
-      get: new GetDeferredGrantUseCase(deferredGrantRepository, deferredGrantPolicy),
-      create: new CreateDeferredGrantUseCase(deferredGrantRepository, deferredGrantPolicy),
-      update: new UpdateDeferredGrantUseCase(deferredGrantRepository, deferredGrantPolicy),
-      delete: new DeleteDeferredGrantUseCase(deferredGrantRepository, deferredGrantPolicy),
-    },
-    relationships: {
-      list: new ListRelationshipsUseCase(relationshipRepository, grantMirrorPolicy),
-      create: new CreateRelationshipUseCase(relationshipRepository, grantMirrorPolicy),
-      delete: new DeleteRelationshipUseCase(relationshipRepository, grantMirrorPolicy),
     },
   };
 }

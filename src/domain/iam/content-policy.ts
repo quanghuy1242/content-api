@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { ContentPermissionKey, PrincipalRef } from "@/domain/iam/content-permission";
 import { bindingRefsForResource, type ContentResourceRef } from "@/domain/iam/content-resource";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";

@@ -1,11 +1,19 @@
-import type { Relationship } from "@/domain/authz/relationship.entity";
 import type { IdempotencyRoute } from "@/domain/idempotency/idempotency.repository";
+import type { PolicyBinding } from "@/domain/iam/policy-binding.entity";
+import type { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { Media } from "@/domain/media/media.entity";
 
 export interface MediaCreateWorkflow {
+  createWithOwner(params: {
+    media: Media;
+    ownerBinding: PolicyBinding;
+    event: PolicyEvent;
+  }): Promise<void>;
+
   createWithIdempotency(params: {
     media: Media;
-    ownerRelationship: Relationship;
+    ownerBinding: PolicyBinding;
+    event: PolicyEvent;
     idempotency: {
       key: string;
       actorId: string;

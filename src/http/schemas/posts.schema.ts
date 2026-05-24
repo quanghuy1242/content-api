@@ -15,6 +15,7 @@ export const updatePostBodySchema = createPostBodySchema.partial();
 
 export const postResponseSchema = z.object({
   id: idSchema,
+  orgId: idSchema,
   title: z.string(),
   slug: slugSchema,
   excerpt: z.string().nullable(),

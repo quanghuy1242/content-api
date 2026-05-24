@@ -6,6 +6,7 @@ export type MediaVisibility = "private" | "public";
 
 export type MediaProps = {
   id: string;
+  orgId: string;
   alt: string;
   lowResUrl: string | null;
   optimizedUrl: string | null;
@@ -94,6 +95,7 @@ export class Media {
   }
 
   get id() { return this.props.id; }
+  get orgId() { return this.props.orgId; }
   get alt() { return this.props.alt; }
   get lowResUrl() { return this.props.lowResUrl; }
   get optimizedUrl() { return this.props.optimizedUrl; }

@@ -27,6 +27,7 @@ export function postRowToEntity(row: PostRow): Post {
   const content = parseContentJson(row.contentJson);
   return Post.reconstitute({
     id: row.id,
+    orgId: row.orgId,
     title: row.title,
     slug: row.slug,
     excerpt: row.excerpt,
@@ -49,6 +50,7 @@ export function postToInsertRow(post: Post) {
   const snapshot = post.toSnapshot();
   return {
     id: snapshot.id,
+    orgId: snapshot.orgId,
     title: snapshot.title,
     slug: snapshot.slug,
     excerpt: snapshot.excerpt,

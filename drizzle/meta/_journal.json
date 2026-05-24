@@ -36,6 +36,20 @@
       "when": 1779606034620,
       "tag": "0004_content_iam_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1779613923697,
+      "tag": "0005_remove_legacy_authz",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1779615886372,
+      "tag": "0006_content_resources_org_scope",
+      "breakpoints": true
     }
   ]
 }

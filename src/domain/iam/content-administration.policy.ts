@@ -1,4 +1,4 @@
-import type { Actor, UserActor } from "@/domain/authz/actor";
+import type { Actor, UserActor } from "@/domain/auth/actor";
 import type { ContentRole } from "@/domain/iam/content-role.entity";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import {

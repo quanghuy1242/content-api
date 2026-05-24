@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import { deriveDelegationClass, type PrincipalRef } from "@/domain/iam/content-permission";
 import { LocalContentPolicy, principalsForActor } from "@/domain/iam/content-policy";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";

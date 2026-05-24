@@ -13,12 +13,6 @@ export const roleSchema = z.enum(["admin", "user"]);
 export const statusSchema = z.enum(["draft", "published"]);
 export const mediaStatusSchema = z.enum(["pending_upload", "processing", "ready", "failed", "expired"]);
 export const mediaVisibilitySchema = z.enum(["private", "public"]);
-export const grantMirrorEntityTypeSchema = z.enum(["book", "chapter", "comment"]);
-export const subjectTypeSchema = z.enum(["user", "group", "api_key"]);
-export const sourceSubjectTypeSchema = z.enum(["user", "group"]);
-export const syncStatusSchema = z.enum(["active", "revoked", "pending"]);
-export const deferredGrantStatusSchema = z.enum(["pending", "processed", "expired"]);
-export const deferredGrantTypeSchema = z.enum(["grant", "revocation_tombstone"]);
 
 /**
  * Deterministic slug generation for resources whose docs use `createSlugHook`.

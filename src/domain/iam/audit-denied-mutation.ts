@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { ContentResourceRef } from "@/domain/iam/content-resource";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";

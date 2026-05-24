@@ -1,18 +1,20 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor, UserActor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
-import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
-import type { Relationship } from "@/domain/authz/relationship.entity";
-import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
+import type { Actor, UserActor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
+import {
+  createDirectOwnerBinding,
+  createOwnerAssignedEvent,
+  requireOwnedContentCreateContext,
+} from "@/application/content-ownership";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { Media, type CreateMediaProps, type MediaProps } from "@/domain/media/media.entity";
 import type { MediaCreateWorkflow } from "@/domain/media/media-create.workflow";
 import type { ObjectStorageSigner } from "@/domain/media/object-storage";
 import type { MediaRepository } from "@/domain/media/media.repository";
-import { MediaPolicy } from "@/domain/media/media.policy";
 import { identityProjectionFromActor } from "@/domain/users/user-projection";
 import type { UserRepository } from "@/domain/users/user.repository";
-import { ConflictError, IdempotencyReservationConflictError, NotFoundError, ValidationError } from "@/shared/errors";
+import { ConflictError, IdempotencyReservationConflictError, ValidationError } from "@/shared/errors";
 import {
   HTTP_STATUS_CREATED,
   IDEMPOTENCY_TTL_MS,
@@ -46,26 +48,39 @@ export type CreateMediaUploadResult = {
 export class CreateMediaUploadUseCase {
   constructor(
     private readonly mediaRepository: MediaRepository,
-    private readonly relationships: RelationshipRepository,
     private readonly users: UserRepository,
+    private readonly roles: ContentRoleRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly mediaCreateWorkflow: MediaCreateWorkflow,
-    private readonly mediaPolicy: MediaPolicy,
+    private readonly contentPolicy: ContentPolicy,
     private readonly signer: ObjectStorageSigner,
     private readonly maxImageUploadBytes: number,
     private readonly uploadUrlTtlSeconds: number,
   ) {}
 
   async execute(params: { actor: Actor; idempotencyKey?: string; input: CreateMediaUploadInput }) {
-    const ownerId = await this.requireOwnerId(params.actor);
+    const { actor, orgId } = await this.requireCreateContext(params.actor);
+    const ownerId = actor.id;
     const normalizedInput = this.normalizeAndValidate(params.input);
-    const media = this.buildMedia(ownerId, normalizedInput);
-    const ownerRelationship = this.buildOwnerRelationship(ownerId, media.id);
+    const media = this.buildMedia(orgId, ownerId, normalizedInput);
+    const ownerBinding = createDirectOwnerBinding({
+      orgId,
+      userId: ownerId,
+      roleId: "system:media.owner",
+      resourceType: "media",
+      resourceId: media.id,
+    });
+    const event = createOwnerAssignedEvent({
+      orgId,
+      userId: ownerId,
+      resourceType: "media",
+      resourceId: media.id,
+      snapshotJson: JSON.stringify({ media: media.toSnapshot(), ownerBinding: ownerBinding.toSnapshot() }),
+    });
     const successPayload = await this.buildSuccessPayload(media);
 
     if (!params.idempotencyKey) {
-      await this.mediaRepository.create(media);
-      await this.relationships.create(ownerRelationship);
+      await this.mediaCreateWorkflow.createWithOwner({ media, ownerBinding, event });
       return successPayload;
     }
 
@@ -74,20 +89,22 @@ export class CreateMediaUploadUseCase {
       actorId: ownerId,
       requestInput: normalizedInput,
       media,
-      ownerRelationship,
+      ownerBinding,
+      event,
       successPayload,
     });
   }
 
-  private async requireOwnerId(actor: Actor) {
+  private async requireCreateContext(actor: Actor) {
     requireContentScope(actor, "content:write");
-    await assertAllowed(this.mediaPolicy.canCreate(actor), "Authentication required");
-    if (actor.type !== "user") {
-      throw new NotFoundError("Linked local user not found");
-    }
-
-    await this.ensureOwnerProjection(actor);
-    return actor.id;
+    await this.roles.ensureSystemCatalog();
+    const context = await requireOwnedContentCreateContext({
+      actor,
+      contentPolicy: this.contentPolicy,
+      orgCreatePermission: "org.create_media",
+    });
+    await this.ensureOwnerProjection(context.actor);
+    return context;
   }
 
   private async ensureOwnerProjection(actor: UserActor) {
@@ -113,8 +130,9 @@ export class CreateMediaUploadUseCase {
     };
   }
 
-  private buildMedia(ownerId: string, input: CreateMediaUploadInput) {
+  private buildMedia(orgId: string, ownerId: string, input: CreateMediaUploadInput) {
     return Media.create({
+      orgId,
       alt: input.alt,
       owner: ownerId,
       filename: input.filename,
@@ -123,15 +141,6 @@ export class CreateMediaUploadUseCase {
       focalX: input.focalX ?? null,
       focalY: input.focalY ?? null,
       uploadExpiresAt: new Date(Date.now() + this.uploadUrlTtlSeconds * MILLISECONDS_PER_SECOND),
-    });
-  }
-
-  private buildOwnerRelationship(ownerId: string, mediaId: string) {
-    return createUserSubjectRelationship({
-      subjectId: ownerId,
-      relation: "owner",
-      objectType: "media",
-      objectId: mediaId,
     });
   }
 
@@ -164,7 +173,8 @@ export class CreateMediaUploadUseCase {
     actorId: string;
     requestInput: CreateMediaUploadInput;
     media: Media;
-    ownerRelationship: Relationship;
+    ownerBinding: Parameters<MediaCreateWorkflow["createWithOwner"]>[0]["ownerBinding"];
+    event: Parameters<MediaCreateWorkflow["createWithOwner"]>[0]["event"];
     successPayload: CreateMediaUploadResult;
   }) {
     const requestHash = await sha256Hex(params.requestInput);
@@ -186,7 +196,8 @@ export class CreateMediaUploadUseCase {
     try {
       await this.mediaCreateWorkflow.createWithIdempotency({
         media: params.media,
-        ownerRelationship: params.ownerRelationship,
+        ownerBinding: params.ownerBinding,
+        event: params.event,
         idempotency: {
           key: params.key,
           actorId: params.actorId,
@@ -272,6 +283,7 @@ function deserializeSuccessPayload(value: string): CreateMediaUploadResult {
   return {
     media: Media.reconstitute({
       id: parsed.media.id,
+      orgId: parsed.media.orgId,
       alt: parsed.media.alt,
       lowResUrl: parsed.media.lowResUrl,
       optimizedUrl: parsed.media.optimizedUrl,

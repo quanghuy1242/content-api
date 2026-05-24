@@ -2,7 +2,16 @@ import { ValidationError } from "@/shared/errors";
 
 export type ContentDelegationClass = "ordinary" | "policy_management" | "ownership_transfer" | "organization_admin";
 
-export type ContentResourceType = "org" | "book" | "chapter" | "section" | "block" | "media" | "comment";
+export type ContentResourceType =
+  | "org"
+  | "book"
+  | "post"
+  | "category"
+  | "chapter"
+  | "section"
+  | "block"
+  | "media"
+  | "comment";
 
 export type PrincipalType = "user" | "team" | "service_account";
 
@@ -13,8 +22,18 @@ export type PrincipalRef = {
 
 export type ContentPermissionKey =
   | "org.create_book"
+  | "org.create_post"
+  | "org.create_category"
+  | "org.create_media"
   | "org.manage_bindings"
   | "org.manage_roles"
+  | "post.read"
+  | "post.update"
+  | "post.delete"
+  | "post.publish"
+  | "category.read"
+  | "category.update"
+  | "category.delete"
   | "book.read"
   | "book.update"
   | "book.delete"
@@ -31,6 +50,7 @@ export type ContentPermissionKey =
   | "comment.moderate"
   | "media.read"
   | "media.create"
+  | "media.update"
   | "media.attach"
   | "media.delete";
 
@@ -58,8 +78,18 @@ const ORGANIZATION_ADMIN_DELEGATION_RANK = 3;
 /** Code-owned Content IAM permissions registered into D1 for role composition. */
 export const CONTENT_PERMISSIONS = [
   { key: "org.create_book", description: "Create a book inside an organization", delegationClass: "ordinary" },
+  { key: "org.create_post", description: "Create a post inside an organization", delegationClass: "ordinary" },
+  { key: "org.create_category", description: "Create a category inside an organization", delegationClass: "ordinary" },
+  { key: "org.create_media", description: "Create media inside an organization", delegationClass: "ordinary" },
   { key: "org.manage_bindings", description: "Manage organization-scoped Content IAM bindings", delegationClass: "organization_admin" },
   { key: "org.manage_roles", description: "Manage organization-defined Content IAM roles", delegationClass: "organization_admin" },
+  { key: "post.read", description: "Read private or draft posts", delegationClass: "ordinary" },
+  { key: "post.update", description: "Update posts", delegationClass: "ordinary" },
+  { key: "post.delete", description: "Delete posts", delegationClass: "ordinary" },
+  { key: "post.publish", description: "Publish or unpublish posts", delegationClass: "ordinary" },
+  { key: "category.read", description: "Read categories", delegationClass: "ordinary" },
+  { key: "category.update", description: "Update categories", delegationClass: "ordinary" },
+  { key: "category.delete", description: "Delete categories", delegationClass: "ordinary" },
   { key: "book.read", description: "Read a private book", delegationClass: "ordinary" },
   { key: "book.update", description: "Update book metadata or content", delegationClass: "ordinary" },
   { key: "book.delete", description: "Delete a book", delegationClass: "ordinary" },
@@ -76,6 +106,7 @@ export const CONTENT_PERMISSIONS = [
   { key: "comment.moderate", description: "Moderate comments", delegationClass: "ordinary" },
   { key: "media.read", description: "Read private media", delegationClass: "ordinary" },
   { key: "media.create", description: "Create media", delegationClass: "ordinary" },
+  { key: "media.update", description: "Update media metadata or visibility", delegationClass: "ordinary" },
   { key: "media.attach", description: "Attach media to content", delegationClass: "ordinary" },
   { key: "media.delete", description: "Delete media", delegationClass: "ordinary" },
 ] as const satisfies readonly ContentPermissionDefinition[];
@@ -88,7 +119,27 @@ export const BUILT_IN_CONTENT_ROLES = [
     name: "Organization Content Administrator",
     assignableResourceType: "org",
     protected: true,
-    permissions: ["org.manage_bindings", "org.manage_roles", "org.create_book", "book.manage_bindings", "book.transfer_ownership"],
+    permissions: [
+      "org.manage_bindings",
+      "org.manage_roles",
+      "org.create_book",
+      "org.create_post",
+      "org.create_category",
+      "org.create_media",
+      "book.manage_bindings",
+      "book.transfer_ownership",
+      "post.read",
+      "post.update",
+      "post.delete",
+      "post.publish",
+      "category.read",
+      "category.update",
+      "category.delete",
+      "media.read",
+      "media.create",
+      "media.update",
+      "media.delete",
+    ],
   },
   {
     id: "system:org.author",
@@ -96,7 +147,31 @@ export const BUILT_IN_CONTENT_ROLES = [
     name: "Organization Author",
     assignableResourceType: "org",
     protected: false,
-    permissions: ["org.create_book"],
+    permissions: ["org.create_book", "org.create_post", "org.create_category", "org.create_media"],
+  },
+  {
+    id: "system:post.owner",
+    key: "post.owner",
+    name: "Post Owner",
+    assignableResourceType: "post",
+    protected: true,
+    permissions: ["post.read", "post.update", "post.delete", "post.publish", "media.read"],
+  },
+  {
+    id: "system:category.owner",
+    key: "category.owner",
+    name: "Category Owner",
+    assignableResourceType: "category",
+    protected: true,
+    permissions: ["category.read", "category.update", "category.delete", "media.read"],
+  },
+  {
+    id: "system:media.owner",
+    key: "media.owner",
+    name: "Media Owner",
+    assignableResourceType: "media",
+    protected: true,
+    permissions: ["media.read", "media.create", "media.update", "media.delete"],
   },
   {
     id: "system:book.owner",
@@ -120,6 +195,7 @@ export const BUILT_IN_CONTENT_ROLES = [
       "comment.moderate",
       "media.read",
       "media.create",
+      "media.update",
       "media.attach",
       "media.delete",
     ],

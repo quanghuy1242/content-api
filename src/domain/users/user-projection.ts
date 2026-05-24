@@ -1,4 +1,4 @@
-import type { UserActor } from "@/domain/authz/actor";
+import type { UserActor } from "@/domain/auth/actor";
 import type { IdentityProjectionUserProps } from "@/domain/users/user.entity";
 
 export function identityProjectionFromActor(actor: UserActor): IdentityProjectionUserProps {

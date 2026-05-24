@@ -11,7 +11,7 @@ type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 /**
  * Drizzle-backed post repository. Visibility predicates for read queries are
  * persistence filters requested by use cases; authorization decisions stay in
- * `PostPolicy`.
+ * application use cases through Content IAM.
  */
 export class DrizzlePostRepository implements PostRepository {
   private readonly crud: CrudAdapter;

@@ -1,28 +1,30 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor, UserActor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
-import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
-import { Relationship } from "@/domain/authz/relationship.entity";
-import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
+import type { Actor, UserActor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
+import {
+  createDirectOwnerBinding,
+  createOwnerAssignedEvent,
+  requireOwnedContentCreateContext,
+} from "@/application/content-ownership";
 import type { CategoryCreateWorkflow } from "@/domain/categories/category-create.workflow";
 import { Category, type CategoryProps } from "@/domain/categories/category.entity";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
-import { CategoryPolicy } from "@/domain/categories/category.policy";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { identityProjectionFromActor } from "@/domain/users/user-projection";
 import type { UserRepository } from "@/domain/users/user.repository";
-import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
+import { ConflictError, IdempotencyReservationConflictError } from "@/shared/errors";
 import { CATEGORIES_CREATE_ROUTE, HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
 
 export class CreateCategoryUseCase {
   constructor(
     private readonly categories: CategoryRepository,
-    private readonly relationships: RelationshipRepository,
     private readonly users: UserRepository,
+    private readonly roles: ContentRoleRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly categoryCreateWorkflow: CategoryCreateWorkflow,
-    private readonly categoryPolicy: CategoryPolicy,
+    private readonly contentPolicy: ContentPolicy,
   ) {}
 
   async execute(params: {
@@ -30,12 +32,27 @@ export class CreateCategoryUseCase {
     idempotencyKey?: string;
     input: Pick<CategoryProps, "name" | "description" | "image">;
   }) {
-    const ownerId = await this.requireOwnerId(params.actor);
-    const category = this.buildCategory(ownerId, params.input);
-    const ownerRelationship = this.buildOwnerRelationship(ownerId, category.id);
+    const { actor, orgId } = await this.requireCreateContext(params.actor);
+    const ownerId = actor.id;
+    const category = this.buildCategory(orgId, ownerId, params.input);
+    const ownerBinding = createDirectOwnerBinding({
+      orgId,
+      userId: ownerId,
+      roleId: "system:category.owner",
+      resourceType: "category",
+      resourceId: category.id,
+    });
+    const event = createOwnerAssignedEvent({
+      orgId,
+      userId: ownerId,
+      resourceType: "category",
+      resourceId: category.id,
+      snapshotJson: JSON.stringify({ category: category.toSnapshot(), ownerBinding: ownerBinding.toSnapshot() }),
+    });
 
     if (!params.idempotencyKey) {
-      return this.executeWithoutIdempotency(category, ownerRelationship);
+      await this.categoryCreateWorkflow.createWithOwner({ category, ownerBinding, event });
+      return category;
     }
 
     return this.executeWithIdempotency({
@@ -43,27 +60,30 @@ export class CreateCategoryUseCase {
       actorId: ownerId,
       input: params.input,
       category,
-      ownerRelationship,
+      ownerBinding,
+      event,
     });
   }
 
-  private async requireOwnerId(actor: Actor) {
+  private async requireCreateContext(actor: Actor) {
     requireContentScope(actor, "content:write");
-    await assertAllowed(this.categoryPolicy.canCreate(actor), "Authentication required");
-    if (actor.type !== "user") {
-      throw new NotFoundError("Linked local user not found");
-    }
-
-    await this.ensureOwnerProjection(actor);
-    return actor.id;
+    await this.roles.ensureSystemCatalog();
+    const context = await requireOwnedContentCreateContext({
+      actor,
+      contentPolicy: this.contentPolicy,
+      orgCreatePermission: "org.create_category",
+    });
+    await this.ensureOwnerProjection(context.actor);
+    return context;
   }
 
   private async ensureOwnerProjection(actor: UserActor) {
     await this.users.ensureIdentityProjection(identityProjectionFromActor(actor));
   }
 
-  private buildCategory(ownerId: string, input: Pick<CategoryProps, "name" | "description" | "image">) {
+  private buildCategory(orgId: string, ownerId: string, input: Pick<CategoryProps, "name" | "description" | "image">) {
     return Category.create({
+      orgId,
       name: input.name,
       description: input.description,
       image: input.image,
@@ -71,27 +91,13 @@ export class CreateCategoryUseCase {
     });
   }
 
-  private buildOwnerRelationship(ownerId: string, categoryId: string) {
-    return createUserSubjectRelationship({
-      subjectId: ownerId,
-      relation: "owner",
-      objectType: "category",
-      objectId: categoryId,
-    });
-  }
-
-  private async executeWithoutIdempotency(category: Category, ownerRelationship: Relationship) {
-    const created = await this.categories.create(category);
-    await this.relationships.create(ownerRelationship);
-    return created;
-  }
-
   private async executeWithIdempotency(params: {
     key: string;
     actorId: string;
     input: Pick<CategoryProps, "name" | "description" | "image">;
     category: Category;
-    ownerRelationship: Relationship;
+    ownerBinding: Parameters<CategoryCreateWorkflow["createWithOwner"]>[0]["ownerBinding"];
+    event: Parameters<CategoryCreateWorkflow["createWithOwner"]>[0]["event"];
   }) {
     const requestHash = await sha256Hex(params.input);
     const replay = await this.idempotency.findActive({
@@ -112,7 +118,8 @@ export class CreateCategoryUseCase {
     try {
       await this.categoryCreateWorkflow.createWithIdempotency({
         category: params.category,
-        ownerRelationship: params.ownerRelationship,
+        ownerBinding: params.ownerBinding,
+        event: params.event,
         idempotency: {
           key: params.key,
           actorId: params.actorId,

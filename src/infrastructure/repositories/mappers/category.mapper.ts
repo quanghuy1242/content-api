@@ -9,6 +9,7 @@ type CategoryRow = typeof categories.$inferSelect;
 export function categoryRowToEntity(row: CategoryRow): Category {
   return Category.reconstitute({
     id: row.id,
+    orgId: row.orgId,
     name: row.name,
     slug: row.slug,
     description: row.description,
@@ -26,6 +27,7 @@ export function categoryToInsertRow(category: Category) {
   const snap = category.toSnapshot();
   return {
     id: snap.id,
+    orgId: snap.orgId,
     name: snap.name,
     slug: snap.slug,
     description: snap.description,

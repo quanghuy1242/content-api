@@ -1,5 +1,5 @@
 import type { AppBindings } from "@/config/env";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { createRequestContainer } from "@/composition/create-request-container";
 
 export type AppContainer = ReturnType<typeof createRequestContainer>;

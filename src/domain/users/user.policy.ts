@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { User } from "@/domain/users/user.entity";
 
 /**

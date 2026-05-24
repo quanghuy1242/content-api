@@ -78,7 +78,7 @@ The currently implemented product hierarchy is:
 org -> book
 ```
 
-The book table is present for policy anchoring, but there is no public book creation route, no chapter/section/block tables, no comment or bookmark tables, and no list/read/update product workflows for the book body itself.
+The book table now backs product routes for organization-root creation, list, read, and update. Book creation atomically seeds a direct owner binding and enforces `org.create_book`. The remaining gap is below the book root: there are still no chapter/section/block tables, no comment or bookmark tables, and no descendant list/read/update product workflows.
 
 ## 3. Target Model
 

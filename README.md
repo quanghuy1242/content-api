@@ -8,7 +8,7 @@ Cloudflare Workers content API built with Hono, D1, and Drizzle. This repo imple
 - `media` direct-to-R2 uploads, processor-generated variants, and API-served variant streaming
 - `books` as the first collaborative product and Content IAM resource boundary
 - Content IAM permission/role/binding/denial/audit administration
-- legacy `grant-mirror`, `deferred-grants`, and `relationships` endpoints retained for first-batch compatibility; new content authorization uses Content IAM
+- legacy Auther grant mirror, deferred grant, relationship tables, and admin routes removed; product ownership uses row ownership or Content IAM
 
 ## Contracts
 
@@ -27,7 +27,7 @@ Architecture planning documents and implementation status:
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 - [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — proposal
 - [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
-- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — IAM substrate and book product root implemented; descendant hierarchy in progress
+- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — IAM substrate, book product root, and legacy authz cleanup implemented; descendant hierarchy in progress
 - [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
 - [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — in progress; BKH-A book product routes verified, descendant hierarchy pending
 - [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
@@ -173,7 +173,7 @@ Current automated coverage includes:
 - `403` forbidden
 - `404` missing resource
 - media upload lifecycle, idempotent create replay, and queue ack/retry behavior
-- happy paths across posts, media, users, and authz-admin resources
+- happy paths across posts, media, users, books, and Content IAM resources
 - `id`-shaped user, direct-share, and service-account token fixtures
 - Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M principal-validation fetch/cache, and denial-precedence coverage
 - Book root creation, atomic owner binding, idempotent create replay/concurrency, direct-share root rejection, M2M explicit-owner import, private reads/updates, and public published reads

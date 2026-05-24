@@ -10,6 +10,7 @@ type MediaRow = typeof media.$inferSelect;
 export function mediaRowToEntity(row: MediaRow): Media {
   return Media.reconstitute({
     id: row.id,
+    orgId: row.orgId,
     alt: row.alt,
     lowResUrl: row.lowResUrl,
     optimizedUrl: row.optimizedUrl,
@@ -74,6 +75,7 @@ export function mediaToUpdateRow(input: Media) {
 function mediaSnapshotToPersistence(snapshot: MediaProps) {
   return {
     id: snapshot.id,
+    orgId: snapshot.orgId,
     alt: snapshot.alt,
     lowResUrl: snapshot.lowResUrl,
     optimizedUrl: snapshot.optimizedUrl,

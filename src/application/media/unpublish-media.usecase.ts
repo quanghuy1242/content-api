@@ -1,14 +1,15 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import { assertAllowed } from "@/domain/auth/assert-can";
+import type { Actor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import { mediaResource } from "@/domain/iam/resource-loader";
 import type { MediaRepository } from "@/domain/media/media.repository";
-import { MediaPolicy } from "@/domain/media/media.policy";
 import { NotFoundError } from "@/shared/errors";
 
 export class UnpublishMediaUseCase {
   constructor(
     private readonly mediaRepository: MediaRepository,
-    private readonly mediaPolicy: MediaPolicy,
+    private readonly contentPolicy: ContentPolicy,
   ) {}
 
   async execute(params: { actor: Actor; mediaId: string }) {
@@ -18,7 +19,10 @@ export class UnpublishMediaUseCase {
       throw new NotFoundError("Media not found");
     }
 
-    await assertAllowed(this.mediaPolicy.canUnpublish(params.actor, media), "You cannot unpublish this media");
+    await assertAllowed(
+      this.contentPolicy.can({ actor: params.actor, permission: "media.update", resource: mediaResource(media) }),
+      "You cannot unpublish this media",
+    );
 
     media.unpublish();
     return this.mediaRepository.update(media);

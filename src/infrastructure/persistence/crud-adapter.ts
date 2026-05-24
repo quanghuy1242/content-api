@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, lt, or, type SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { AnySQLiteColumn, AnySQLiteTable } from "drizzle-orm/sqlite-core";
@@ -233,15 +233,6 @@ export class CrudAdapter {
       .where(condition);
 
     return result.meta?.changes ?? 0;
-  }
-
-  /**
-   * Builds the shared "column is any of these values" predicate used by
-   * relationship-backed repositories, so they do not each choose their own
-   * equivalent `inArray` expression.
-   */
-  relationAnyCondition(column: AnySQLiteColumn, values: string[]) {
-    return inArray(column, values);
   }
 
   private buildInsertQuery(table: AnySQLiteTable, values: Record<string, unknown>) {

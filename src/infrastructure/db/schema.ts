@@ -14,6 +14,7 @@ export const users = sqliteTable("users", {
 
 export const categories = sqliteTable("categories", {
   id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   description: text("description").notNull(),
@@ -25,6 +26,7 @@ export const categories = sqliteTable("categories", {
 
 export const posts = sqliteTable("posts", {
   id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
   excerpt: text("excerpt"),
@@ -40,6 +42,7 @@ export const posts = sqliteTable("posts", {
 
 export const media = sqliteTable("media", {
   id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
   alt: text("alt").notNull(),
   lowResUrl: text("low_res_url"),
   optimizedUrl: text("optimized_url"),
@@ -220,66 +223,6 @@ export const contentIamBootstrapOrganizations = sqliteTable("content_iam_bootstr
   orgId: text("org_id").primaryKey(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 });
-
-export const grantMirror = sqliteTable(
-  "grant_mirror",
-  {
-    id: text("id").primaryKey(),
-    autherTupleId: text("auther_tuple_id").notNull().unique(),
-    payloadUserId: text("payload_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
-    entityType: text("entity_type").notNull(),
-    entityId: text("entity_id").notNull(),
-    relation: text("relation").notNull(),
-    sourceSubjectType: text("source_subject_type").notNull(),
-    requiresLiveCheck: integer("requires_live_check", { mode: "boolean" }).notNull().default(false),
-    syncStatus: text("sync_status").notNull().default("active"),
-    syncedAt: integer("synced_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [
-    index("grant_mirror_payload_user_entity_status_idx").on(table.payloadUserId, table.entityType, table.syncStatus),
-    index("grant_mirror_source_subject_payload_user_idx").on(table.sourceSubjectType, table.payloadUserId),
-    index("grant_mirror_sync_status_synced_at_idx").on(table.syncStatus, table.syncedAt),
-  ],
-);
-
-export const deferredGrants = sqliteTable("deferred_grants", {
-  id: text("id").primaryKey(),
-  betterAuthUserId: text("better_auth_user_id").notNull(),
-  tupleId: text("tuple_id").notNull().unique(),
-  entityType: text("entity_type").notNull(),
-  entityId: text("entity_id").notNull(),
-  relation: text("relation").notNull(),
-  sourceSubjectType: text("source_subject_type").notNull(),
-  hasCondition: integer("has_condition", { mode: "boolean" }).notNull().default(false),
-  status: text("status").notNull().default("pending"),
-  processedAt: integer("processed_at", { mode: "timestamp_ms" }),
-  type: text("type").notNull().default("grant"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
-});
-
-export const relationships = sqliteTable(
-  "relationships",
-  {
-    id: text("id").primaryKey(),
-    subjectType: text("subject_type").notNull(),
-    subjectId: text("subject_id").notNull(),
-    relation: text("relation").notNull(),
-    objectType: text("object_type").notNull(),
-    objectId: text("object_id").notNull(),
-    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
-  },
-  (table) => [
-    uniqueIndex("relationships_unique_idx").on(
-      table.subjectType,
-      table.subjectId,
-      table.relation,
-      table.objectType,
-      table.objectId,
-    ),
-    index("relationships_subject_idx").on(table.subjectType, table.subjectId),
-    index("relationships_object_idx").on(table.objectType, table.objectId),
-  ],
-);
 
 export const idempotencyKeys = sqliteTable(
   "idempotency_keys",

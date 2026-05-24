@@ -1,6 +1,6 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor, UserActor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import { assertAllowed } from "@/domain/auth/assert-can";
+import type { Actor, UserActor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import { User, type CreateUserProps, type UserProps } from "@/domain/users/user.entity";
 import { identityProjectionFromActor } from "@/domain/users/user-projection";

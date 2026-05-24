@@ -39,7 +39,7 @@ function makeFallowSignature(group) {
 }
 
 function runTool(cmd, args, label) {
-  const result = spawnSync("pnpm", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], cwd: REPO_ROOT });
+  const result = spawnSync("corepack", ["pnpm", ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], cwd: REPO_ROOT });
   if (result.error) {
     process.stderr.write(`${label} failed to run: ${result.error.message}\n`);
     return null;

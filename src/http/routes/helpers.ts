@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import { UnauthorizedError } from "@/shared/errors";
 
 /**

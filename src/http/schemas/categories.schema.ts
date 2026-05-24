@@ -12,6 +12,7 @@ export const categoryUpdateSchema = categoryCreateSchema.partial();
 
 export const categoryResponseSchema = z.object({
   id: idSchema,
+  orgId: idSchema,
   name: z.string(),
   slug: slugSchema,
   description: z.string(),

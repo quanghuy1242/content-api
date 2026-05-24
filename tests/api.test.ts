@@ -7,6 +7,9 @@ import migrationSql0001 from "../drizzle/0001_unique_starhawk.sql?raw";
 import migrationSql0002 from "../drizzle/0002_media_upload_flow.sql?raw";
 import migrationSql0003 from "../drizzle/0003_content_iam_policy.sql?raw";
 import migrationSql0004 from "../drizzle/0004_content_iam_guards.sql?raw";
+import migrationSql0005 from "../drizzle/0005_remove_legacy_authz.sql?raw";
+import migrationSql0006 from "../drizzle/0006_content_resources_org_scope.sql?raw";
+import { BUILT_IN_CONTENT_ROLES, CONTENT_PERMISSIONS } from "@/domain/iam/content-permission";
 import { createApp } from "@/main";
 import { clearClientCredentialsTokenMemoryCache } from "@/infrastructure/identity/client-credentials-token-provider";
 
@@ -118,7 +121,15 @@ async function issueServiceAccountToken(options: {
 }
 
 async function seed() {
-  for (const migrationSql of [migrationSql0000, migrationSql0001, migrationSql0002, migrationSql0003, migrationSql0004]) {
+  for (const migrationSql of [
+    migrationSql0000,
+    migrationSql0001,
+    migrationSql0002,
+    migrationSql0003,
+    migrationSql0004,
+    migrationSql0005,
+    migrationSql0006,
+  ]) {
     for (const statement of migrationSql
       .split("--> statement-breakpoint")
       .map((statementText) => statementText.trim())
@@ -134,9 +145,11 @@ async function seed() {
       .bind("user-alice", "alice@example.com", "Alice User", "user"),
     env.DB.prepare("insert into users (id, email, full_name, role) values (?, ?, ?, ?)")
       .bind("user-bob", "bob@example.com", "Bob User", "user"),
-    env.DB.prepare("insert into media (id, alt, owner, url, thumbnail_url, filename, mime_type, filesize, width, height, original_key, variant_keys_json, status, visibility, version) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json(?), ?, ?, ?)")
+    ...contentIamCatalogStatements(),
+    env.DB.prepare("insert into media (id, org_id, alt, owner, url, thumbnail_url, filename, mime_type, filesize, width, height, original_key, variant_keys_json, status, visibility, version) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json(?), ?, ?, ?)")
       .bind(
         "media-alice",
+        "org-main",
         "Alice image",
         "user-alice",
         "media/media-alice/v1/variants/medium.webp",
@@ -156,22 +169,24 @@ async function seed() {
         "private",
         1,
       ),
-    env.DB.prepare("insert into categories (id, name, slug, description, image, created_by) values (?, ?, ?, ?, ?, ?)")
-      .bind("cat-alice", "Alice Category", "alice-category", "Owned by Alice", "media-alice", "user-alice"),
-    env.DB.prepare("insert into posts (id, title, slug, excerpt, content_json, author, category, status, published_at) values (?, ?, ?, ?, json(?), ?, ?, ?, ?)")
-      .bind("post-draft", "Draft Post", "draft-post", "Draft excerpt", '{"content":{"blocks":[]},"tags":["draft"]}', "user-alice", "cat-alice", "draft", null),
-    env.DB.prepare("insert into posts (id, title, slug, excerpt, content_json, author, category, status, published_at) values (?, ?, ?, ?, json(?), ?, ?, ?, ?)")
-      .bind("post-published", "Published Post", "published-post", "Published excerpt", '{"content":{"blocks":[]},"tags":["public"]}', "user-alice", "cat-alice", "published", 1715900000000),
-    env.DB.prepare("insert into relationships (id, subject_type, subject_id, relation, object_type, object_id) values (?, ?, ?, ?, ?, ?)")
-      .bind("rel-media-owner", "user", "user-alice", "owner", "media", "media-alice"),
-    env.DB.prepare("insert into relationships (id, subject_type, subject_id, relation, object_type, object_id) values (?, ?, ?, ?, ?, ?)")
-      .bind("rel-cat-owner", "user", "user-alice", "owner", "category", "cat-alice"),
-    env.DB.prepare("insert into relationships (id, subject_type, subject_id, relation, object_type, object_id) values (?, ?, ?, ?, ?, ?)")
-      .bind("rel-post-draft-author", "user", "user-alice", "author", "post", "post-draft"),
-    env.DB.prepare("insert into relationships (id, subject_type, subject_id, relation, object_type, object_id) values (?, ?, ?, ?, ?, ?)")
-      .bind("rel-post-published-author", "user", "user-alice", "author", "post", "post-published"),
+    env.DB.prepare("insert into categories (id, org_id, name, slug, description, image, created_by) values (?, ?, ?, ?, ?, ?, ?)")
+      .bind("cat-alice", "org-main", "Alice Category", "alice-category", "Owned by Alice", "media-alice", "user-alice"),
+    env.DB.prepare("insert into posts (id, org_id, title, slug, excerpt, content_json, author, category, status, published_at) values (?, ?, ?, ?, ?, json(?), ?, ?, ?, ?)")
+      .bind("post-draft", "org-main", "Draft Post", "draft-post", "Draft excerpt", '{"content":{"blocks":[]},"tags":["draft"]}', "user-alice", "cat-alice", "draft", null),
+    env.DB.prepare("insert into posts (id, org_id, title, slug, excerpt, content_json, author, category, status, published_at) values (?, ?, ?, ?, ?, json(?), ?, ?, ?, ?)")
+      .bind("post-published", "org-main", "Published Post", "published-post", "Published excerpt", '{"content":{"blocks":[]},"tags":["public"]}', "user-alice", "cat-alice", "published", 1715900000000),
     env.DB.prepare("insert into books (id, org_id, title, created_by_user_id, visibility, status) values (?, ?, ?, ?, ?, ?)")
       .bind("book-main", "org-main", "Shared Book", "user-alice", "private", "draft"),
+    env.DB.prepare("insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind("binding-org-author-alice", "org-main", "user", "user-alice", "system:org.author", "org", "org-main", "user", "user-admin"),
+    env.DB.prepare("insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind("binding-post-draft-owner", "org-main", "user", "user-alice", "system:post.owner", "post", "post-draft", "user", "user-alice"),
+    env.DB.prepare("insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind("binding-post-published-owner", "org-main", "user", "user-alice", "system:post.owner", "post", "post-published", "user", "user-alice"),
+    env.DB.prepare("insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind("binding-category-owner", "org-main", "user", "user-alice", "system:category.owner", "category", "cat-alice", "user", "user-alice"),
+    env.DB.prepare("insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .bind("binding-media-owner", "org-main", "user", "user-alice", "system:media.owner", "media", "media-alice", "user", "user-alice"),
   ]);
 
   await env.MEDIA_R2.put("media/media-alice/v1/variants/thumb.webp", "thumb-image", {
@@ -229,6 +244,26 @@ async function countRows(sql: string, ...bindings: unknown[]) {
     .first<{ count: number | string }>();
 
   return Number(row?.count ?? 0);
+}
+
+function contentIamCatalogStatements() {
+  const now = Date.now();
+  const statements = CONTENT_PERMISSIONS.map((permission) => env.DB.prepare(
+      "insert into content_permissions (key, description, delegation_class, enabled, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+    ).bind(permission.key, permission.description, permission.delegationClass, 1, now, now));
+  for (const role of BUILT_IN_CONTENT_ROLES) {
+    statements.push(
+      env.DB.prepare(
+        "insert into content_roles (id, namespace_id, key, name, assignable_resource_type, built_in, enabled, version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(role.id, "system", role.key, role.name, role.assignableResourceType, 1, 1, 1, now, now),
+    );
+    for (const permission of role.permissions) {
+      statements.push(env.DB.prepare(
+        "insert into content_role_permissions (role_id, permission_key, created_at) values (?, ?, ?)",
+      ).bind(role.id, permission, now));
+    }
+  }
+  return statements;
 }
 
 async function issueWorkspaceShareToken(subject = "user-alice") {
@@ -329,7 +364,7 @@ it("enforces route-level read and write OAuth scopes", async () => {
   });
   expect(writeDenied.status).toBe(403);
 
-  const writeOnly = await issueToken("user-alice", { scope: "content:write" });
+  const writeOnly = await issueToken("user-alice", { orgId: "org-main", scope: "content:write" });
   const createRes = await request("/media", {
     method: "POST",
     token: writeOnly,
@@ -373,9 +408,6 @@ it("serves an OpenAPI document for the registered API routes", async () => {
       "/books",
       "/books/{id}",
       "/organizations/{orgId}/books",
-      "/grant-mirror",
-      "/deferred-grants",
-      "/relationships",
       "/books/{bookId}/policy-bindings",
       "/books/{bookId}/policy-denials",
       "/books/{bookId}/ownership-transfer",
@@ -383,6 +415,9 @@ it("serves an OpenAPI document for the registered API routes", async () => {
       "/organizations/{orgId}/content-admins",
     ]),
   );
+  expect(body.paths).not.toHaveProperty("/grant-mirror");
+  expect(body.paths).not.toHaveProperty("/deferred-grants");
+  expect(body.paths).not.toHaveProperty("/relationships");
   expect(body.components?.securitySchemes).toHaveProperty("Bearer");
   const postsCreate = body.paths["/posts"] as { post?: { parameters?: Array<{ name?: string; in?: string }> } };
   expect(postsCreate.post?.parameters).toEqual(
@@ -606,13 +641,13 @@ it("returns 403 when a non-owner updates a protected category", async () => {
 });
 
 it("returns 404 for missing resources", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const res = await request("/posts/missing-post", { token });
   expect(res.status).toBe(404);
 });
 
 it("reads users with field-level visibility for self", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const res = await request("/users/user-alice", { token });
   expect(res.status).toBe(200);
   await expect(res.json()).resolves.toMatchObject({
@@ -654,7 +689,7 @@ it("does not erase existing local identity fields when a content token omits pro
 });
 
 it("publishes a draft post for its author", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const res = await request("/posts/post-draft/publish", {
     method: "POST",
     token,
@@ -679,21 +714,21 @@ it("allows anonymous reads of published posts", async () => {
   });
 });
 
-it("lists only published posts publicly and all posts for admins", async () => {
+it("lists only published posts publicly and private drafts through Content IAM", async () => {
   const publicRes = await request("/posts");
   expect(publicRes.status).toBe(200);
   const publicBody = await publicRes.json() as { data: Array<{ id: string }> };
   expect(publicBody.data.map((post) => post.id)).toEqual(["post-published"]);
 
-  const adminToken = await issueToken("user-admin");
-  const adminRes = await request("/posts", { token: adminToken });
-  expect(adminRes.status).toBe(200);
-  const adminBody = await adminRes.json() as { data: Array<{ id: string }> };
-  expect(adminBody.data.map((post) => post.id)).toEqual(["post-published", "post-draft"]);
+  const ownerToken = await issueToken("user-alice", { scope: "content:read" });
+  const ownerRes = await request("/posts", { token: ownerToken });
+  expect(ownerRes.status).toBe(200);
+  const ownerBody = await ownerRes.json() as { data: Array<{ id: string }> };
+  expect(ownerBody.data.map((post) => post.id)).toEqual(["post-published", "post-draft"]);
 });
 
 it("allows the owner to publish media and anonymous users to read it after publish", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const publishRes = await request("/media/media-alice/publish", {
     method: "POST",
     token,
@@ -714,7 +749,7 @@ it("allows the owner to publish media and anonymous users to read it after publi
 });
 
 it("creates pending media upload rows and returns presigned upload instructions", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const res = await request("/media", {
     method: "POST",
     token,
@@ -747,7 +782,7 @@ it("creates pending media upload rows and returns presigned upload instructions"
 });
 
 it("does not allow pending media to be published", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const createRes = await request("/media", {
     method: "POST",
     token,
@@ -768,7 +803,7 @@ it("does not allow pending media to be published", async () => {
 });
 
 it("does not allow anonymous reads of pending media", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const createRes = await request("/media", {
     method: "POST",
     token,
@@ -786,7 +821,7 @@ it("does not allow anonymous reads of pending media", async () => {
 });
 
 it("streams a stored media variant through the API worker", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const publishRes = await request("/media/media-alice/publish", {
     method: "POST",
     token,
@@ -801,89 +836,38 @@ it("streams a stored media variant through the API worker", async () => {
   expect(new TextDecoder().decode(variantBody)).toBe("medium-image");
 });
 
-it("allows admin users to manage grant mirror and relationship rows", async () => {
+it("does not expose legacy grant mirror, deferred grant, or relationship routes", async () => {
   const token = await issueToken("user-admin");
 
-  const mirrorRes = await request("/grant-mirror", {
-    method: "POST",
-    token,
-    body: JSON.stringify({
-      autherTupleId: "tuple-1",
-      payloadUserId: "user-alice",
-      entityType: "book",
-      entityId: "book-1",
-      relation: "viewer",
-      sourceSubjectType: "user",
-      requiresLiveCheck: false,
-      syncStatus: "active",
-      syncedAt: new Date().toISOString(),
-    }),
-  });
-  expect(mirrorRes.status).toBe(201);
-
-  const relationshipRes = await request("/relationships", {
-    method: "POST",
-    token,
-    body: JSON.stringify({
-      subjectType: "user",
-      subjectId: "user-bob",
-      relation: "viewer",
-      objectType: "post",
-      objectId: "post-published",
-    }),
-  });
-  expect(relationshipRes.status).toBe(201);
+  for (const path of ["/grant-mirror", "/deferred-grants", "/relationships"]) {
+    const getRes = await request(path, { token });
+    expect(getRes.status).toBe(404);
+    const postRes = await request(path, {
+      method: "POST",
+      token,
+      body: JSON.stringify({}),
+    });
+    expect(postRes.status).toBe(404);
+  }
 });
 
-it("requires read/write OAuth scopes on retained authorization compatibility routes", async () => {
-  const readToken = await issueToken("user-admin", { scope: "content:read" });
-  const writeToken = await issueToken("user-admin", { scope: "content:write" });
-  expect((await request("/relationships", { token: readToken })).status).toBe(200);
-  expect((await request("/relationships", { token: writeToken })).status).toBe(403);
+it("uses Content IAM bindings instead of legacy relationships for posts, categories, and media", async () => {
+  const alice = await issueToken("user-alice");
+  const bob = await issueToken("user-bob");
 
-  const relationshipWrite = await request("/relationships", {
-    method: "POST",
-    token: readToken,
+  expect((await request("/posts/post-draft", { token: alice })).status).toBe(200);
+  expect((await request("/posts/post-draft", { token: bob })).status).toBe(403);
+  expect((await request("/media/media-alice", { token: alice })).status).toBe(200);
+  expect((await request("/media/media-alice", { token: bob })).status).toBe(403);
+
+  const categoryWrite = await request("/categories/cat-alice", {
+    method: "PATCH",
+    token: bob,
     body: JSON.stringify({
-      subjectType: "user",
-      subjectId: "user-bob",
-      relation: "viewer",
-      objectType: "post",
-      objectId: "post-published",
+      description: "Bob should not be able to update Alice category",
     }),
   });
-  expect(relationshipWrite.status).toBe(403);
-
-  const mirrorWrite = await request("/grant-mirror", {
-    method: "POST",
-    token: readToken,
-    body: JSON.stringify({
-      autherTupleId: "scope-denied",
-      payloadUserId: "user-alice",
-      entityType: "book",
-      entityId: "book-1",
-      relation: "viewer",
-      sourceSubjectType: "user",
-      requiresLiveCheck: false,
-      syncStatus: "active",
-      syncedAt: new Date().toISOString(),
-    }),
-  });
-  expect(mirrorWrite.status).toBe(403);
-
-  const deferredWrite = await request("/deferred-grants", {
-    method: "POST",
-    token: readToken,
-    body: JSON.stringify({
-      betterAuthUserId: "user-bob",
-      tupleId: "scope-denied",
-      entityType: "book",
-      entityId: "book-1",
-      relation: "viewer",
-      sourceSubjectType: "user",
-    }),
-  });
-  expect(deferredWrite.status).toBe(403);
+  expect(categoryWrite.status).toBe(403);
 });
 
 it("bootstraps Content IAM, grants a book reader, records denials, and lists audit events", async () => {
@@ -1768,7 +1752,7 @@ it("bounds denied Content IAM audit storage and prunes expired denied events", a
     "user-alice",
     "org-main",
   )).toBe(5);
-});
+}, 10_000);
 
 it("can recreate expired Content IAM bindings after cleanup", async () => {
   const token = await bootstrapContentIamAdmin();
@@ -1808,7 +1792,7 @@ it("can recreate expired Content IAM bindings after cleanup", async () => {
 });
 
 it("replays post creation safely with the same idempotency key and rejects body mismatches", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const key = crypto.randomUUID();
   const body = {
     title: "Retry-safe post",
@@ -1845,12 +1829,11 @@ it("replays post creation safely with the same idempotency key and rejects body 
   expect(mismatch.status).toBe(409);
 
   expect(await countRows("select count(*) as count from posts where title = ?", body.title)).toBe(1);
-  expect(await countRows("select count(*) as count from relationships where object_id = ?", firstBody.data.id)).toBe(1);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(1);
 });
 
 it("replays media creation safely with the same idempotency key and rejects body mismatches", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const key = crypto.randomUUID();
   const body = {
     alt: "Retry-safe media",
@@ -1886,12 +1869,11 @@ it("replays media creation safely with the same idempotency key and rejects body
   expect(mismatch.status).toBe(409);
 
   expect(await countRows("select count(*) as count from media where filename = ?", body.filename)).toBe(1);
-  expect(await countRows("select count(*) as count from relationships where object_id = ?", firstBody.data.media.id)).toBe(1);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(1);
 });
 
 it("replays category creation safely with the same idempotency key and rejects body mismatches", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const key = crypto.randomUUID();
   const body = {
     name: "Retry-safe category",
@@ -1926,7 +1908,6 @@ it("replays category creation safely with the same idempotency key and rejects b
   expect(mismatch.status).toBe(409);
 
   expect(await countRows("select count(*) as count from categories where name = ?", body.name)).toBe(1);
-  expect(await countRows("select count(*) as count from relationships where object_id = ?", firstBody.data.id)).toBe(1);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(1);
 });
 
@@ -1973,8 +1954,13 @@ it("replays user creation safely with the same idempotency key and rejects body 
 });
 
 it("scopes idempotency keys by actor and route", async () => {
-  const aliceToken = await issueToken("user-alice");
-  const bobToken = await issueToken("user-bob");
+  await env.DB.prepare(
+    "insert into content_policy_bindings (id, org_id, principal_type, principal_id, role_id, resource_type, resource_id, created_by_type, created_by_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind("binding-org-author-bob-scoped-key", "org-main", "user", "user-bob", "system:org.author", "org", "org-main", "user", "user-admin")
+    .run();
+  const aliceToken = await issueWorkspaceShareToken("user-alice");
+  const bobToken = await issueWorkspaceShareToken("user-bob");
   const key = crypto.randomUUID();
 
   const alicePost = await request("/posts", {
@@ -2018,7 +2004,7 @@ it("scopes idempotency keys by actor and route", async () => {
 });
 
 it("allows a scoped idempotency key to be reused after expiry", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const key = crypto.randomUUID();
   const now = Date.now();
   await env.DB.prepare(
@@ -2056,9 +2042,8 @@ it("allows a scoped idempotency key to be reused after expiry", async () => {
 });
 
 it("rolls back the idempotency row and business rows when a batched post create fails", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const key = crypto.randomUUID();
-  const beforeRelationships = await countRows("select count(*) as count from relationships");
 
   const res = await request("/posts", {
     method: "POST",
@@ -2076,11 +2061,10 @@ it("rolls back the idempotency row and business rows when a batched post create 
 
   expect(await countRows("select count(*) as count from posts where title = ?", "Atomic failure post")).toBe(0);
   expect(await countRows("select count(*) as count from idempotency_keys where key = ?", key)).toBe(0);
-  expect(await countRows("select count(*) as count from relationships")).toBe(beforeRelationships);
 });
 
 it("validates idempotency headers as UUIDs", async () => {
-  const token = await issueToken("user-alice");
+  const token = await issueWorkspaceShareToken("user-alice");
   const res = await request("/posts", {
     method: "POST",
     token,

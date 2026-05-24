@@ -1,18 +1,26 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import type { Actor } from "@/domain/auth/actor";
+import { actorWithReadScope } from "@/domain/auth/scopes";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
-import { CategoryPolicy } from "@/domain/categories/category.policy";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import { categoryResource } from "@/domain/iam/resource-loader";
 
 export class ListCategoriesUseCase {
   constructor(
     private readonly categories: CategoryRepository,
-    private readonly categoryPolicy: CategoryPolicy,
+    private readonly contentPolicy: ContentPolicy,
   ) {}
 
   async execute(params: { actor: Actor | null; limit: number; cursor?: string }) {
-    if (params.actor) requireContentScope(params.actor, "content:read");
-    await assertAllowed(this.categoryPolicy.canRead(params.actor), "Authentication required");
-    return this.categories.findMany({ limit: params.limit, cursor: params.cursor });
+    const actor = actorWithReadScope(params.actor);
+    const result = await this.categories.findMany({ limit: params.limit, cursor: params.cursor });
+    const decisions = await this.contentPolicy.canMany({
+      actor,
+      permission: "category.read",
+      resources: result.data.map(categoryResource),
+    });
+    return {
+      data: result.data.filter((category) => decisions.get(category.id) === true),
+      page: result.page,
+    };
   }
 }

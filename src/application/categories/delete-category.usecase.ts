@@ -1,14 +1,15 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import { assertAllowed } from "@/domain/auth/assert-can";
+import type { Actor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
 import type { CategoryRepository } from "@/domain/categories/category.repository";
-import { CategoryPolicy } from "@/domain/categories/category.policy";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import { categoryResource } from "@/domain/iam/resource-loader";
 import { NotFoundError } from "@/shared/errors";
 
 export class DeleteCategoryUseCase {
   constructor(
     private readonly categories: CategoryRepository,
-    private readonly categoryPolicy: CategoryPolicy,
+    private readonly contentPolicy: ContentPolicy,
   ) {}
 
   async execute(params: { actor: Actor; categoryId: string }) {
@@ -19,7 +20,7 @@ export class DeleteCategoryUseCase {
     }
 
     await assertAllowed(
-      this.categoryPolicy.canDelete(params.actor, params.categoryId),
+      this.contentPolicy.can({ actor: params.actor, permission: "category.delete", resource: categoryResource(category) }),
       "You cannot delete this category",
     );
 

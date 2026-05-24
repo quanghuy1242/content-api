@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentAdministrationPolicy } from "@/domain/iam/content-administration.policy";
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";

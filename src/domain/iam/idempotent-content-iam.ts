@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { IdempotencyRecord, IdempotencyRepository, IdempotencyRoute } from "@/domain/idempotency/idempotency.repository";
 import { ConflictError, IdempotencyReservationConflictError, ValidationError } from "@/shared/errors";
 import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS } from "@/shared/constants";

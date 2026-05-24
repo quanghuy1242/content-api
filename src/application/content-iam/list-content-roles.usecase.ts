@@ -1,5 +1,5 @@
-import type { Actor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import type { Actor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import type { ContentPermissionKey } from "@/domain/iam/content-permission";
 import type { ContentRole } from "@/domain/iam/content-role.entity";

@@ -25,6 +25,6 @@ export type SystemActor = {
 
 export type Actor = UserActor | ServiceAccountActor | SystemActor;
 
-export function isAdminActor(actor: Actor | null): actor is UserActor {
+export function isAdminActor(actor: Actor | null): boolean {
   return actor?.type === "user" && actor.role === "admin";
 }

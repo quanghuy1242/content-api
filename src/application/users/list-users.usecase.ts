@@ -1,6 +1,6 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import { assertAllowed } from "@/domain/auth/assert-can";
+import type { Actor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
 import type { UserRepository } from "@/domain/users/user.repository";
 import { UserPolicy } from "@/domain/users/user.policy";
 

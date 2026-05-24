@@ -1,4 +1,4 @@
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-directory";

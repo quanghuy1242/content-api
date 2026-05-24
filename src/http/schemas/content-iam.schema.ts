@@ -42,7 +42,7 @@ export const transferBookOwnershipSchema = z.object({
 export const createContentRoleSchema = z.object({
   key: z.string().min(1).max(MAX_SLUG_LENGTH),
   name: z.string().min(1).max(MAX_NAME_LENGTH),
-  assignableResourceType: z.enum(["book", "chapter", "section", "block", "media", "comment"]),
+  assignableResourceType: z.enum(["book", "post", "category", "chapter", "section", "block", "media", "comment"]),
   permissions: z.array(z.string().min(1)).min(1),
   reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });

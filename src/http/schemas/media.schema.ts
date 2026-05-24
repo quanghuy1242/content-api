@@ -22,6 +22,7 @@ export const mediaVariantNameSchema = z.enum(MEDIA_VARIANT_NAMES);
 
 export const mediaResponseSchema = z.object({
   id: idSchema,
+  orgId: idSchema,
   alt: z.string(),
   lowResUrl: z.string().nullable(),
   optimizedUrl: z.string().nullable(),

@@ -1,15 +1,16 @@
-import type { Actor } from "@/domain/authz/actor";
-import { actorWithReadScope } from "@/domain/authz/scopes";
+import type { Actor } from "@/domain/auth/actor";
+import { actorWithReadScope } from "@/domain/auth/scopes";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import { mediaResource } from "@/domain/iam/resource-loader";
 import type { ObjectStorage } from "@/domain/media/object-storage";
 import type { MediaRepository } from "@/domain/media/media.repository";
-import { MediaPolicy } from "@/domain/media/media.policy";
 import { MEDIA_VARIANT_NAMES, type MediaVariantName } from "@/shared/constants";
 import { NotFoundError } from "@/shared/errors";
 
 export class ServeMediaVariantUseCase {
   constructor(
     private readonly mediaRepository: MediaRepository,
-    private readonly mediaPolicy: MediaPolicy,
+    private readonly contentPolicy: ContentPolicy,
     private readonly storage: ObjectStorage,
   ) {}
 
@@ -25,7 +26,10 @@ export class ServeMediaVariantUseCase {
     if (media.version !== params.version || media.status !== "ready") {
       throw new NotFoundError("Media variant not found");
     }
-    if (!(await this.mediaPolicy.canRead(actorWithReadScope(params.actor), media))) {
+    const readable = media.visibility === "public" && media.status === "ready"
+      ? true
+      : await this.contentPolicy.can({ actor: actorWithReadScope(params.actor), permission: "media.read", resource: mediaResource(media) });
+    if (!readable) {
       throw new NotFoundError("Media variant not found");
     }
 

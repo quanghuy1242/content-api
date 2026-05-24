@@ -2,6 +2,7 @@ import { slugify } from "@/shared/validation/fields";
 
 export type CategoryProps = {
   id: string;
+  orgId: string;
   name: string;
   slug: string;
   description: string;
@@ -36,6 +37,7 @@ export class Category {
   }
 
   get id() { return this.props.id; }
+  get orgId() { return this.props.orgId; }
   get name() { return this.props.name; }
   get slug() { return this.props.slug; }
   get description() { return this.props.description; }

@@ -1,42 +1,59 @@
-import { assertAllowed } from "@/domain/authz/assert-can";
-import type { Actor, UserActor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
-import { createUserSubjectRelationship } from "@/domain/authz/relationship-policy";
-import { Relationship } from "@/domain/authz/relationship.entity";
-import type { RelationshipRepository } from "@/domain/authz/relationship.repository";
+import type { Actor, UserActor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
+import {
+  createDirectOwnerBinding,
+  createOwnerAssignedEvent,
+  requireOwnedContentCreateContext,
+} from "@/application/content-ownership";
 import type { IdempotencyRecord, IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import type { ContentPolicy } from "@/domain/iam/content-policy";
+import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { Post, type CreatePostProps, type PostProps } from "@/domain/posts/post.entity";
 import type { PostCreateWorkflow } from "@/domain/posts/post-create.workflow";
-import { PostPolicy } from "@/domain/posts/post.policy";
 import type { PostRepository } from "@/domain/posts/post.repository";
 import { identityProjectionFromActor } from "@/domain/users/user-projection";
 import type { UserRepository } from "@/domain/users/user.repository";
-import { ConflictError, IdempotencyReservationConflictError, NotFoundError } from "@/shared/errors";
+import { ConflictError, IdempotencyReservationConflictError } from "@/shared/errors";
 import { HTTP_STATUS_CREATED, IDEMPOTENCY_TTL_MS, POSTS_CREATE_ROUTE } from "@/shared/constants";
 import { sha256Hex } from "@/shared/idempotency";
 
 export class CreatePostUseCase {
   constructor(
     private readonly posts: PostRepository,
-    private readonly relationships: RelationshipRepository,
     private readonly users: UserRepository,
+    private readonly roles: ContentRoleRepository,
     private readonly idempotency: IdempotencyRepository,
     private readonly postCreateWorkflow: PostCreateWorkflow,
-    private readonly postPolicy: PostPolicy,
+    private readonly contentPolicy: ContentPolicy,
   ) {}
 
   async execute(params: {
     actor: Actor;
     idempotencyKey?: string;
-    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "orgId" | "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>;
   }) {
-    const authorId = await this.requireAuthorId(params.actor);
-    const post = this.buildPost(authorId, params.input);
-    const authorRelationship = this.buildAuthorRelationship(authorId, post.id);
+    const { actor, orgId } = await this.requireCreateContext(params.actor);
+    const authorId = actor.id;
+    const post = this.buildPost(orgId, authorId, params.input);
+    const ownerBinding = createDirectOwnerBinding({
+      orgId,
+      userId: authorId,
+      roleId: "system:post.owner",
+      resourceType: "post",
+      resourceId: post.id,
+    });
+    const event = createOwnerAssignedEvent({
+      orgId,
+      userId: authorId,
+      resourceType: "post",
+      resourceId: post.id,
+      snapshotJson: JSON.stringify({ post: post.toSnapshot(), ownerBinding: ownerBinding.toSnapshot() }),
+    });
 
     if (!params.idempotencyKey) {
-      return this.executeWithoutIdempotency(post, authorRelationship);
+      await this.postCreateWorkflow.createWithOwner({ post, ownerBinding, event });
+      return post;
     }
 
     return this.executeWithIdempotency({
@@ -44,19 +61,21 @@ export class CreatePostUseCase {
       actorId: authorId,
       input: params.input,
       post,
-      authorRelationship,
+      ownerBinding,
+      event,
     });
   }
 
-  private async requireAuthorId(actor: Actor) {
+  private async requireCreateContext(actor: Actor) {
     requireContentScope(actor, "content:write");
-    await assertAllowed(this.postPolicy.canCreate(actor), "Authentication required");
-    if (actor.type !== "user" || !actor.id) {
-      throw new NotFoundError("Linked local user not found");
-    }
-
-    await this.ensureAuthorProjection(actor);
-    return actor.id;
+    await this.roles.ensureSystemCatalog();
+    const context = await requireOwnedContentCreateContext({
+      actor,
+      contentPolicy: this.contentPolicy,
+      orgCreatePermission: "org.create_post",
+    });
+    await this.ensureAuthorProjection(context.actor);
+    return context;
   }
 
   private async ensureAuthorProjection(actor: UserActor) {
@@ -64,11 +83,13 @@ export class CreatePostUseCase {
   }
 
   private buildPost(
+    orgId: string,
     authorId: string,
-    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "orgId" | "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>,
   ) {
     return Post.create({
+      orgId,
       title: input.title,
       excerpt: input.excerpt ?? null,
       content: input.content,
@@ -79,28 +100,14 @@ export class CreatePostUseCase {
     });
   }
 
-  private buildAuthorRelationship(authorId: string, postId: string) {
-    return createUserSubjectRelationship({
-      subjectId: authorId,
-      relation: "author",
-      objectType: "post",
-      objectId: postId,
-    });
-  }
-
-  private async executeWithoutIdempotency(post: Post, authorRelationship: Relationship) {
-    await this.posts.create(post);
-    await this.relationships.create(authorRelationship);
-    return post;
-  }
-
   private async executeWithIdempotency(params: {
     key: string;
     actorId: string;
-    input: Omit<CreatePostProps, "author" | "excerpt" | "coverImage" | "tags"> &
+    input: Omit<CreatePostProps, "orgId" | "author" | "excerpt" | "coverImage" | "tags"> &
       Partial<Pick<CreatePostProps, "excerpt" | "coverImage" | "tags">>;
     post: Post;
-    authorRelationship: Relationship;
+    ownerBinding: Parameters<PostCreateWorkflow["createWithOwner"]>[0]["ownerBinding"];
+    event: Parameters<PostCreateWorkflow["createWithOwner"]>[0]["event"];
   }) {
     const requestHash = await sha256Hex(params.input);
     const replay = await this.idempotency.findActive({
@@ -121,7 +128,8 @@ export class CreatePostUseCase {
     try {
       await this.postCreateWorkflow.createWithIdempotency({
         post: params.post,
-        authorRelationship: params.authorRelationship,
+        ownerBinding: params.ownerBinding,
+        event: params.event,
         idempotency: {
           key: params.key,
           actorId: params.actorId,

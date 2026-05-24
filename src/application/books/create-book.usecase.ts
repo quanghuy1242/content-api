@@ -1,5 +1,5 @@
-import type { Actor, ServiceAccountActor, UserActor } from "@/domain/authz/actor";
-import { requireContentScope } from "@/domain/authz/scopes";
+import type { Actor, ServiceAccountActor, UserActor } from "@/domain/auth/actor";
+import { requireContentScope } from "@/domain/auth/scopes";
 import type { BookCreateWorkflow } from "@/domain/books/book-create.workflow";
 import { deserializeBookCreation, serializeBookCreation } from "@/domain/books/book-create.snapshot";
 import { Book } from "@/domain/books/book.entity";

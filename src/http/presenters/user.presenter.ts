@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { Actor } from "@/domain/authz/actor";
+import type { Actor } from "@/domain/auth/actor";
 import type { User } from "@/domain/users/user.entity";
 import type { userResponseSchema } from "@/http/schemas/users.schema";
 

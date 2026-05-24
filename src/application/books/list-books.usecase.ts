@@ -1,5 +1,5 @@
-import type { Actor } from "@/domain/authz/actor";
-import { actorWithReadScope } from "@/domain/authz/scopes";
+import type { Actor } from "@/domain/auth/actor";
+import { actorWithReadScope } from "@/domain/auth/scopes";
 import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentPolicy } from "@/domain/iam/content-policy";

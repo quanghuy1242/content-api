@@ -118,9 +118,12 @@ function serviceAccountActor(): Actor {
 function bindingRepository(params: { allowed: boolean }): PolicyBindingRepository {
   return {
     findMany: async () => ({ data: [], page: {} }),
+    findManyForResources: async () => ({ data: [], page: {} }),
     findById: async () => null,
     findActiveBookOwner: async () => null,
+    hasActiveDirectUserRoleBinding: async () => false,
     countActiveRoleBindings: async () => 0,
+    countActiveBindingsForRole: async () => 0,
     create: async (binding) => binding,
     delete: async () => false,
     hasAllowedPermission: async () => params.allowed,

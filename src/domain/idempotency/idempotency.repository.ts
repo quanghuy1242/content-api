@@ -3,6 +3,7 @@ export type IdempotencyRoute =
   | "POST /media"
   | "POST /categories"
   | "POST /users"
+  | "POST /organizations/{orgId}/books"
   | "POST /books/{bookId}/policy-bindings"
   | "POST /books/{bookId}/policy-denials"
   | "POST /books/{bookId}/ownership-transfer"
@@ -11,7 +12,7 @@ export type IdempotencyRoute =
   | "POST /organizations/{orgId}/content-roles"
   | "PUT /organizations/{orgId}/content-roles/{roleId}/permissions"
   | "POST /organizations/{orgId}/content-iam/bootstrap"
-  | "POST /organizations/{orgId}/content-iam/admins";
+  | "POST /organizations/{orgId}/content-admins";
 
 export type IdempotencyRecord = {
   key: string;

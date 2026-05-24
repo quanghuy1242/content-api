@@ -52,11 +52,12 @@ export class DrizzleUserRepository implements UserRepository {
       return existing;
     }
 
+    const fallbackEmail = `${input.id}@id.local.invalid`;
     const projected = User.create({
       id: input.id,
-      email: input.email,
-      fullName: input.fullName,
-      avatar: input.avatar,
+      email: input.email ?? fallbackEmail,
+      fullName: input.fullName ?? input.email ?? fallbackEmail,
+      avatar: input.avatar ?? null,
       bio: null,
       role: "user",
     });

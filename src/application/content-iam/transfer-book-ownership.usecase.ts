@@ -7,6 +7,7 @@ import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-d
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { BOOK_OWNERSHIP_TRANSFER_ROUTE } from "@/shared/constants";
 import { ConflictError, NotFoundError } from "@/shared/errors";
 import {
@@ -53,12 +54,24 @@ export class TransferBookOwnershipUseCase {
       throw new ConflictError("Book owner changed before ownership transfer");
     }
 
-    await this.administrationPolicy.authorizeOwnershipTransfer({
-      actor: params.actor,
-      book: resource,
-      currentOwnerUserId: currentOwner.principalId,
-      nextOwnerUserId: params.input.nextOwnerUserId,
-    });
+    try {
+      await this.administrationPolicy.authorizeOwnershipTransfer({
+        actor: params.actor,
+        book: resource,
+        currentOwnerUserId: currentOwner.principalId,
+        nextOwnerUserId: params.input.nextOwnerUserId,
+      });
+    } catch (error) {
+      await recordDeniedPolicyMutation({
+        workflow: this.workflow,
+        actor: params.actor,
+        resource,
+        operation: "ownership.transfer",
+        reason: error instanceof Error ? error.message : "Book ownership transfer denied",
+        requestId: params.requestId,
+      });
+      throw error;
+    }
     await this.principalDirectory.validateUserInOrganization({
       userId: params.input.nextOwnerUserId,
       orgId: resource.orgId,

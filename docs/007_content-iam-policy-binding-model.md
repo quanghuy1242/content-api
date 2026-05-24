@@ -1,6 +1,6 @@
 # Content IAM Policy Binding Model
 
-> Status: implemented
+> Status: IAM substrate and book product root implemented; descendant resource hierarchy remains in progress in `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
 >
 > Date: 2026-05-23
 >
@@ -49,8 +49,14 @@
 > - Permission keys and protected built-in roles are code-owned and seeded through `ContentRoleRepository.ensureSystemCatalog()` during IAM management workflows.
 > - Book and organization binding/denial routes, organization role-management routes, org-admin bootstrap/delegation, and book ownership transfer are resource-scoped; no global/wildcard endpoint exists.
 > - The generated `0003_content_iam_policy` migration adds Content IAM persistence, books, and the `users.id = id.sub` identity cleanup. `0002_media_upload_flow` metadata is now represented in Drizzle's journal before `0003`.
+> - `0004_content_iam_guards` enforces one bootstrap reservation per organization, stale role-update conflicts, disabled-role/binding lifecycle consistency, final-admin protection, and per-actor/resource denied-event rate limiting; rejected-event recording also removes rows beyond the retention window.
+> - The public bootstrap operation is single-use per organization after that reservation is committed; a future operational recovery mechanism must remain separately controlled and audited.
+> - Protected sharing-manager assignment/revocation requires direct owner or direct organization content-admin authority; tenant-defined roles cannot cross organization namespaces.
+> - The book binding list route implements `view=direct|effective`, and organization administrator delegation/revocation uses `/organizations/{orgId}/content-admins[/{bindingId}]`.
 > - Legacy Auther mirror/deferred-grant routes remain only as first-batch compatibility surfaces; new content authorization state is Content IAM.
-> - Tests cover `id` token shapes, denial precedence, direct-share restrictions, principal-validation failures, ownership transfer, and ordinary-only custom roles.
+> - Compatibility authz routes now enforce explicit OAuth read/write scopes while they remain in use by legacy post/media/category authorization.
+> - Tests cover `id` token shapes, projection non-destruction, denial precedence, direct-share restrictions, protected delegation, principal validation, tenant isolation, effective binding explanations, mutation idempotency, and concurrent write invariants.
+> - Book product routes now create private drafts under `org.create_book`, atomically seed a direct owner binding, support qualified service-account imports with an explicit user owner, and enforce local policy on private reads and updates; descendant product resources remain pending.
 
 ## Table Of Contents
 
@@ -1310,7 +1316,7 @@ Organization administration routes:
 
 | Method | Path | Coarse scope | Local/administrative authorization | Purpose |
 |---|---|---|---|---|
-| `POST` | `/organizations/{orgId}/content-iam/bootstrap` | `content:share` | Direct user passes live `id` organization-owner/admin verification; allowed only when no active local org admin exists or through explicitly audited recovery | Create/recover the first direct-user `org.content_admin` binding. |
+| `POST` | `/organizations/{orgId}/content-iam/bootstrap` | `content:share` | Direct user passes live `id` organization-owner/admin verification; allowed only before this organization's bootstrap reservation is committed | Create the first direct-user `org.content_admin` binding. |
 | `GET` | `/organizations/{orgId}/policy-bindings?view=direct` | `content:share` | direct `org.manage_bindings` | List organization-scoped policy rows. |
 | `POST` | `/organizations/{orgId}/policy-bindings` | `content:share` | direct `org.manage_bindings` | Assign an ordinary organization-scoped content role such as `org.author`; admin role uses the dedicated endpoint. |
 | `DELETE` | `/organizations/{orgId}/policy-bindings/{bindingId}` | `content:share` | direct `org.manage_bindings` | Revoke an ordinary organization-scoped content role. |
@@ -1506,7 +1512,7 @@ Rules:
 - a team target must exist in `id` and have `organizationId` equal to the resource `org_id`;
 - a service-account target must be an eligible client for that organization and the public OAuth `resource`/JWT audience of the Content API; `content-api` does not pass an internal `id.resourceServerId`;
 - `id` resolves that public resource audience to its internal resource-server row and verifies the enabled client/organization/resource grant;
-- the bootstrap/recovery workflow calls `validateOrganizationAdministrator` for a live generic Better Auth organization-owner/admin fact only to establish or recover the first local `org.content_admin`; normal policy decisions do not depend on the `id` organization role;
+- the bootstrap workflow calls `validateOrganizationAdministrator` for a live generic Better Auth organization-owner/admin fact only to establish the first local `org.content_admin`; any later recovery workflow is separately controlled and not exposed by the current API; normal policy decisions do not depend on the `id` organization role;
 - role lookup and assignability stay local to `content-api`;
 - validation is performed when creating/delegating durable policy state, not inside normal `ContentPolicy.can(...)` evaluation;
 - a local projection may be introduced for bulk administration only after its refresh/revocation SLA is designed.

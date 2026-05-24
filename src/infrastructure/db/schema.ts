@@ -216,6 +216,11 @@ export const contentPolicyEvents = sqliteTable("content_policy_events", {
   index("content_policy_events_actor_idx").on(table.orgId, table.actorType, table.actorId, table.createdAt),
 ]);
 
+export const contentIamBootstrapOrganizations = sqliteTable("content_iam_bootstrap_organizations", {
+  orgId: text("org_id").primaryKey(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
+});
+
 export const grantMirror = sqliteTable(
   "grant_mirror",
   {

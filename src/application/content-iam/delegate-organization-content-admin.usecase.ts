@@ -6,6 +6,7 @@ import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-d
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { ORG_CONTENT_ADMIN_DELEGATE_ROUTE } from "@/shared/constants";
 import { ForbiddenError } from "@/shared/errors";
 import { deserializeBindingMutation, serializeBindingMutation } from "@/domain/iam/content-iam-snapshot";
@@ -37,12 +38,24 @@ export class DelegateOrganizationContentAdminUseCase {
     requestId?: string;
   }) {
     const resource = organizationResource(params.orgId);
-    if (params.actor.type !== "user" || params.actor.organizationId !== params.orgId || !params.actor.scopes.includes("content:share")) {
-      throw new ForbiddenError("Organization Content IAM admin delegation requires matching workspace context");
-    }
     await this.roles.ensureSystemCatalog();
-    const allowed = await this.contentPolicy.can({ actor: params.actor, permission: "org.manage_bindings", resource });
-    if (!allowed) throw new ForbiddenError("Not authorized to delegate organization Content IAM administration");
+    try {
+      if (params.actor.type !== "user" || params.actor.organizationId !== params.orgId || !params.actor.scopes.includes("content:share")) {
+        throw new ForbiddenError("Organization Content IAM admin delegation requires matching workspace context");
+      }
+      const allowed = await this.contentPolicy.can({ actor: params.actor, permission: "org.manage_bindings", resource });
+      if (!allowed) throw new ForbiddenError("Not authorized to delegate organization Content IAM administration");
+    } catch (error) {
+      await recordDeniedPolicyMutation({
+        workflow: this.workflow,
+        actor: params.actor,
+        resource,
+        operation: "org_admin.delegate",
+        reason: error instanceof Error ? error.message : "Organization Content IAM admin delegation denied",
+        requestId: params.requestId,
+      });
+      throw error;
+    }
     await this.principalDirectory.validateUserInOrganization({ userId: params.input.userId, orgId: params.orgId });
 
     const binding = PolicyBinding.create({

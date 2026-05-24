@@ -14,6 +14,12 @@ export interface ContentIamMutationWorkflow {
     idempotency?: ContentIamIdempotencyRecord;
   }): Promise<void>;
 
+  bootstrapOrganizationAdmin(params: {
+    binding: PolicyBinding;
+    event: PolicyEvent;
+    idempotency: ContentIamIdempotencyRecord;
+  }): Promise<void>;
+
   revokeBinding(params: {
     binding: PolicyBinding;
     event: PolicyEvent;
@@ -56,5 +62,5 @@ export interface ContentIamMutationWorkflow {
     event: PolicyEvent;
   }): Promise<void>;
 
-  recordEvent(event: PolicyEvent): Promise<void>;
+  recordDeniedEvent(event: PolicyEvent): Promise<void>;
 }

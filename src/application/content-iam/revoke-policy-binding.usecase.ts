@@ -4,6 +4,7 @@ import type { ContentAdministrationPolicy } from "@/domain/iam/content-administr
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
 
@@ -15,28 +16,49 @@ export class RevokePolicyBindingUseCase {
     private readonly administrationPolicy: ContentAdministrationPolicy,
   ) {}
 
-  async execute(params: { actor: Actor; resource: ContentResourceInput; bindingId: string; requestId?: string }) {
+  async execute(params: {
+    actor: Actor;
+    resource: ContentResourceInput;
+    bindingId: string;
+    adminRevocation?: boolean;
+    requestId?: string;
+  }) {
     const resource = await loadContentResource(this.books, params.resource);
     const binding = await this.bindings.findById(params.bindingId);
     if (!binding || binding.resourceType !== resource.type || binding.resourceId !== resource.id) {
       throw new NotFoundError("Policy binding not found");
     }
-    await this.administrationPolicy.authorizeBindingRevoke({
-      actor: params.actor,
-      resource,
-      existingBinding: binding,
-    });
-    if (binding.roleId === "system:org.content_admin") {
-      const activeAdmins = await this.bindings.countActiveRoleBindings({
-        orgId: resource.orgId,
-        resourceType: "org",
-        resourceId: resource.orgId,
-        roleId: "system:org.content_admin",
-        now: new Date(),
-      });
-      if (activeAdmins <= 1) {
-        throw new ValidationError("Cannot revoke the last organization Content IAM administrator");
+    try {
+      if (binding.roleId === "system:org.content_admin" && !params.adminRevocation) {
+        throw new ValidationError("Organization administrators must be revoked through the dedicated admin route");
       }
+      await this.administrationPolicy.authorizeBindingRevoke({
+        actor: params.actor,
+        resource,
+        existingBinding: binding,
+      });
+      if (binding.roleId === "system:org.content_admin") {
+        const activeAdmins = await this.bindings.countActiveRoleBindings({
+          orgId: resource.orgId,
+          resourceType: "org",
+          resourceId: resource.orgId,
+          roleId: "system:org.content_admin",
+          now: new Date(),
+        });
+        if (activeAdmins <= 1) {
+          throw new ValidationError("Cannot revoke the last organization Content IAM administrator");
+        }
+      }
+    } catch (error) {
+      await recordDeniedPolicyMutation({
+        workflow: this.workflow,
+        actor: params.actor,
+        resource,
+        operation: "binding.revoke",
+        reason: error instanceof Error ? error.message : "Content IAM binding revoke denied",
+        requestId: params.requestId,
+      });
+      throw error;
     }
     const event = PolicyEvent.create({
       orgId: resource.orgId,

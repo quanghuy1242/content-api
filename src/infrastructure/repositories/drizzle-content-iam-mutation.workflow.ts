@@ -7,12 +7,13 @@ import {
   contentPolicyBindings,
   contentPolicyDenials,
   contentPolicyEvents,
+  contentIamBootstrapOrganizations,
   contentRolePermissions,
   contentRoles,
   idempotencyKeys,
 } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
-import { isSqliteUniqueConstraintError } from "@/infrastructure/persistence/sqlite-errors";
+import { isSqliteTriggerAbortError, isSqliteUniqueConstraintError } from "@/infrastructure/persistence/sqlite-errors";
 import { idempotencyToInsertRow } from "@/infrastructure/repositories/mappers/idempotency.mapper";
 import {
   contentRoleToInsertRow,
@@ -20,7 +21,8 @@ import {
   policyDenialToInsertRow,
   policyEventToInsertRow,
 } from "@/infrastructure/repositories/mappers/content-iam.mapper";
-import { ConflictError, IdempotencyReservationConflictError } from "@/shared/errors";
+import { DENIED_POLICY_EVENT_RETENTION_MS } from "@/shared/constants";
+import { ConflictError, IdempotencyReservationConflictError, ValidationError } from "@/shared/errors";
 
 type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
@@ -36,6 +38,18 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
     await this.runBatch([
       ...this.idempotencyStatement(params.idempotency),
       ...this.deleteExpiredBindingStatements(params.binding),
+      this.crud.buildInsert(contentPolicyBindings, policyBindingToInsertRow(params.binding)),
+      this.crud.buildInsert(contentPolicyEvents, policyEventToInsertRow(params.event)),
+    ]);
+  }
+
+  async bootstrapOrganizationAdmin(params: Parameters<ContentIamMutationWorkflow["bootstrapOrganizationAdmin"]>[0]) {
+    await this.runBatch([
+      this.crud.buildInsert(idempotencyKeys, idempotencyToInsertRow(params.idempotency)),
+      this.crud.buildInsert(contentIamBootstrapOrganizations, {
+        orgId: params.binding.orgId,
+        createdAt: new Date(),
+      }),
       this.crud.buildInsert(contentPolicyBindings, policyBindingToInsertRow(params.binding)),
       this.crud.buildInsert(contentPolicyEvents, policyEventToInsertRow(params.event)),
     ]);
@@ -99,8 +113,19 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
     ]);
   }
 
-  async recordEvent(event: Parameters<ContentIamMutationWorkflow["recordEvent"]>[0]) {
-    await this.crud.insertRow(contentPolicyEvents, policyEventToInsertRow(event));
+  async recordDeniedEvent(event: Parameters<ContentIamMutationWorkflow["recordDeniedEvent"]>[0]) {
+    await this.crud.deleteRows(contentPolicyEvents, and(
+      eq(contentPolicyEvents.action, "policy.mutation_denied"),
+      lte(contentPolicyEvents.createdAt, new Date(Date.now() - DENIED_POLICY_EVENT_RETENTION_MS)),
+    )!);
+    try {
+      await this.crud.insertRow(contentPolicyEvents, policyEventToInsertRow(event));
+    } catch (error) {
+      if (isSqliteTriggerAbortError(error, "content_iam_denied_event_rate_limited")) {
+        return;
+      }
+      throw error;
+    }
   }
 
   private idempotencyStatement(idempotency: Parameters<ContentIamMutationWorkflow["createBinding"]>[0]["idempotency"]) {
@@ -153,6 +178,18 @@ export class DrizzleContentIamMutationWorkflow implements ContentIamMutationWork
     } catch (error) {
       if (isSqliteUniqueConstraintError(error, "idempotency_keys.key")) {
         throw new IdempotencyReservationConflictError();
+      }
+      if (isSqliteTriggerAbortError(error, "content_iam_role_version_conflict")) {
+        throw new ConflictError("Content role changed concurrently");
+      }
+      if (isSqliteTriggerAbortError(error, "content_iam_last_admin")) {
+        throw new ConflictError("Organization Content IAM administrator changed concurrently");
+      }
+      if (isSqliteTriggerAbortError(error, "content_iam_disabled_role_binding")) {
+        throw new ValidationError("Disabled Content IAM roles cannot be assigned");
+      }
+      if (isSqliteTriggerAbortError(error, "content_iam_role_has_active_bindings")) {
+        throw new ValidationError("Content role must have no active bindings before it can be disabled");
       }
       if (isSqliteUniqueConstraintError(error)) {
         throw new ConflictError("Content IAM state already exists or changed concurrently");

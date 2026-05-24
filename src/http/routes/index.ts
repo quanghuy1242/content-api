@@ -2,6 +2,7 @@ import { createRoute, type OpenAPIHono } from "@hono/zod-openapi";
 import type { AppEnv } from "@/http/app-env";
 import { healthResponseSchema, jsonContent } from "@/http/openapi";
 import { registerAuthzRoutes } from "@/http/routes/authz.routes";
+import { registerBookRoutes } from "@/http/routes/books.routes";
 import { registerCategoryRoutes } from "@/http/routes/categories.routes";
 import { registerContentIamRoutes } from "@/http/routes/content-iam.routes";
 import { registerMediaRoutes } from "@/http/routes/media.routes";
@@ -30,6 +31,7 @@ export function registerRoutes(app: OpenAPIHono<AppEnv>) {
   registerCategoryRoutes(app);
   registerPostRoutes(app);
   registerMediaRoutes(app);
+  registerBookRoutes(app);
   registerContentIamRoutes(app);
   registerAuthzRoutes(app);
 }

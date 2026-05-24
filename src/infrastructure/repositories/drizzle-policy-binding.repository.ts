@@ -35,6 +35,22 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
     return { data: page.data.map(policyBindingRowToEntity), page: page.page };
   }
 
+  async findManyForResources(params: { orgId: string; resources: readonly ResourceBindingRef[]; limit: number; cursor?: string }) {
+    const page = await this.crud.listRows<typeof contentPolicyBindings.$inferSelect>({
+      table: contentPolicyBindings,
+      idColumn: contentPolicyBindings.id,
+      cursorColumn: contentPolicyBindings.createdAt,
+      getCursor: (row) => ({ createdAt: row.createdAt, id: row.id }),
+      limit: params.limit,
+      cursor: params.cursor,
+      where: [
+        eq(contentPolicyBindings.orgId, params.orgId),
+        or(...resourceConditions(params.resources))!,
+      ],
+    });
+    return { data: page.data.map(policyBindingRowToEntity), page: page.page };
+  }
+
   async findById(id: string) {
     const row = await this.crud.findRowById<typeof contentPolicyBindings.$inferSelect>(
       contentPolicyBindings,
@@ -64,6 +80,29 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
     return row ? policyBindingRowToEntity(row) : null;
   }
 
+  async hasActiveDirectUserRoleBinding(params: {
+    orgId: string;
+    userId: string;
+    roleId: string;
+    resourceType: string;
+    resourceId: string;
+    now: Date;
+  }) {
+    const row = await this.crud.findFirstRow<typeof contentPolicyBindings.$inferSelect>(
+      contentPolicyBindings,
+      and(
+        eq(contentPolicyBindings.orgId, params.orgId),
+        eq(contentPolicyBindings.principalType, "user"),
+        eq(contentPolicyBindings.principalId, params.userId),
+        eq(contentPolicyBindings.roleId, params.roleId),
+        eq(contentPolicyBindings.resourceType, params.resourceType),
+        eq(contentPolicyBindings.resourceId, params.resourceId),
+        or(isNull(contentPolicyBindings.expiresAt), gt(contentPolicyBindings.expiresAt, params.now)),
+      )!,
+    );
+    return row !== null;
+  }
+
   async countActiveRoleBindings(params: {
     orgId: string;
     resourceType: string;
@@ -79,6 +118,18 @@ export class DrizzlePolicyBindingRepository implements PolicyBindingRepository {
         eq(contentPolicyBindings.roleId, params.roleId),
         eq(contentPolicyBindings.resourceType, params.resourceType),
         eq(contentPolicyBindings.resourceId, params.resourceId),
+        or(isNull(contentPolicyBindings.expiresAt), gt(contentPolicyBindings.expiresAt, params.now)),
+      ));
+    return rows.length;
+  }
+
+  async countActiveBindingsForRole(params: { orgId: string; roleId: string; now: Date }) {
+    const rows = await this.db
+      .select({ id: contentPolicyBindings.id })
+      .from(contentPolicyBindings)
+      .where(and(
+        eq(contentPolicyBindings.orgId, params.orgId),
+        eq(contentPolicyBindings.roleId, params.roleId),
         or(isNull(contentPolicyBindings.expiresAt), gt(contentPolicyBindings.expiresAt, params.now)),
       ));
     return rows.length;

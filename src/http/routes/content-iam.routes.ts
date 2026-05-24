@@ -19,6 +19,7 @@ import {
   bindingIdParamSchema,
   bookIdParamSchema,
   bootstrapOrganizationContentAdminSchema,
+  contentIamBindingListQuerySchema,
   contentIamListQuerySchema,
   contentRoleResponseSchema,
   createContentRoleSchema,
@@ -44,9 +45,9 @@ const listBookBindingsRoute = createRoute({
   method: "get",
   path: "/books/{bookId}/policy-bindings",
   tags: ["content-iam"],
-  description: "List direct Content IAM policy bindings on a book.",
+  description: "List direct or effective Content IAM policy bindings on a book.",
   security: bearerSecurity,
-  request: { params: bookIdParamSchema, query: contentIamListQuerySchema },
+  request: { params: bookIdParamSchema, query: contentIamBindingListQuerySchema },
   responses: {
     200: jsonContent(listResponseSchema(policyBindingResponseSchema), "Book policy bindings"),
     ...commonErrorResponses,
@@ -259,7 +260,7 @@ const bootstrapOrgAdminRoute = createRoute({
   method: "post",
   path: "/organizations/{orgId}/content-iam/bootstrap",
   tags: ["content-iam"],
-  description: "Bootstrap or recover the first local organization Content IAM administrator.",
+  description: "Bootstrap the first local organization Content IAM administrator.",
   security: bearerSecurity,
   request: {
     params: orgIdParamSchema,
@@ -274,7 +275,7 @@ const bootstrapOrgAdminRoute = createRoute({
 
 const delegateOrgAdminRoute = createRoute({
   method: "post",
-  path: "/organizations/{orgId}/content-iam/admins",
+  path: "/organizations/{orgId}/content-admins",
   tags: ["content-iam"],
   description: "Delegate organization Content IAM administrator authority to a direct user.",
   security: bearerSecurity,
@@ -285,6 +286,19 @@ const delegateOrgAdminRoute = createRoute({
   },
   responses: {
     201: jsonContent(policyMutationResponseSchema(policyBindingResponseSchema), "Delegated organization Content IAM admin"),
+    ...commonErrorResponses,
+  },
+});
+
+const revokeOrgAdminRoute = createRoute({
+  method: "delete",
+  path: "/organizations/{orgId}/content-admins/{bindingId}",
+  tags: ["content-iam"],
+  description: "Revoke an organization Content IAM administrator while preserving the last-admin invariant.",
+  security: bearerSecurity,
+  request: { params: orgBindingIdParamSchema },
+  responses: {
+    204: { description: "Organization Content IAM administrator revoked" },
     ...commonErrorResponses,
   },
 });
@@ -357,6 +371,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
     const result = await c.get("container").contentIam.listBindings.execute({
       actor,
       resource: { type: "book", id: params.bookId },
+      view: query.view,
       limit: query.limit,
       cursor: query.cursor,
     });
@@ -584,6 +599,19 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       requestId: c.get("requestId"),
     });
     return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
+  });
+
+  app.openapi(revokeOrgAdminRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    await c.get("container").contentIam.revokeBinding.execute({
+      actor,
+      resource: { type: "org", id: params.orgId },
+      bindingId: params.bindingId,
+      adminRevocation: true,
+      requestId: c.get("requestId"),
+    });
+    return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
 
   app.openapi(listOrgRolesRoute, async (c) => {

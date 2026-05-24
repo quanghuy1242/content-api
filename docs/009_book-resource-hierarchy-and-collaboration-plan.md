@@ -1,6 +1,6 @@
 # Book Resource Hierarchy And Collaboration Plan
 
-> Status: planned
+> Status: implementation in progress; BKH-A book product routes verified, descendant hierarchy pending
 >
 > Date: 2026-05-24
 >
@@ -21,6 +21,10 @@
 >
 > - `docs/003_entity-classes-and-oxlint-arch-linting.md`
 > - `docs/008_review-last-commit-006-007.md`
+>
+> Verification:
+>
+> - BKH-A: `corepack pnpm check` passed with 75 Vitest tests; `corepack pnpm advise` passed with documented suppressions only; `git diff --check` passed.
 
 ## Table Of Contents
 
@@ -44,13 +48,13 @@
 
 Implement the full book collaboration resource system as a separate batch on top of the Content IAM substrate from `docs/007_content-iam-policy-binding-model.md`.
 
-This plan exists because the current implementation intentionally stops at:
+This plan began because the IAM implementation intentionally stopped at:
 
 - `books` as the first persisted IAM resource boundary;
 - organization/book policy bindings, denials, role composition, ownership transfer, and audit events;
 - local policy evaluation over the existing `org -> book` ancestry.
 
-The next batch must add the concrete product resources and their inheritance chain without changing the already implemented identity, scope, and Content IAM contracts.
+The current batch now implements the book product root described in BKH-A. The remaining work must add concrete descendant resources and their inheritance chain without changing the already implemented identity, scope, and Content IAM contracts.
 
 ## 2. Current State
 
@@ -58,13 +62,17 @@ Implemented today:
 
 - `src/domain/books/book.entity.ts`
 - `src/domain/books/book.repository.ts`
+- `src/domain/books/book-create.workflow.ts`
+- `src/application/books/*.usecase.ts`
+- `src/http/routes/books.routes.ts`
+- `src/infrastructure/repositories/drizzle-book-create.workflow.ts`
 - `src/infrastructure/repositories/drizzle-book.repository.ts`
 - `src/domain/iam/content-resource.ts`
 - `src/domain/iam/content-policy.ts`
 - `src/application/content-iam/*.usecase.ts`
 - `src/http/routes/content-iam.routes.ts`
 
-The current hierarchy is only:
+The currently implemented product hierarchy is:
 
 ```text
 org -> book
@@ -154,11 +162,11 @@ Tests:
 
 Implementation tasks:
 
-- [ ] Add book create use case requiring `content:write`, matching workspace `org_id`, and local `org.create_book`.
-- [ ] Add book read/update/list use cases using `ContentPolicy.can(...)` and `ContentPolicy.canMany(...)`.
+- [x] Add book create use case requiring `content:write`, matching workspace `org_id`, and local `org.create_book`.
+- [x] Add book read/update/list use cases using `ContentPolicy.can(...)` and `ContentPolicy.canMany(...)`.
 - [ ] Add chapter/section/block mutations using inherited book or direct descendant permissions.
 - [ ] Ensure direct-share actors cannot create organization-root books but can perform ordinary work inside a shared subtree when local policy allows it.
-- [ ] Keep Content IAM mutation routes separate from product resource routes.
+- [x] Keep Content IAM mutation routes separate from product resource routes.
 
 Tests:
 
@@ -212,9 +220,9 @@ Tests:
 
 Tasks:
 
-- [ ] Add `src/application/books/create-book.usecase.ts`.
-- [ ] Add book list/read/update routes.
-- [ ] Seed owner binding atomically with book create.
+- [x] Add `src/application/books/create-book.usecase.ts`.
+- [x] Add book list/read/update routes.
+- [x] Seed owner binding atomically with book create.
 
 Acceptance criteria:
 
@@ -288,4 +296,4 @@ Add API tests for:
 
 ## 11. Final Model
 
-The current batch delivers the Content IAM substrate. This document is the handoff for the next batch that turns that substrate into the full collaborative book system without weakening the `id` boundary or introducing platform-global policy shortcuts.
+The current batch delivers the Content IAM substrate and the BKH-A book product root. The remaining work turns that root into the full collaborative hierarchy without weakening the `id` boundary or introducing platform-global policy shortcuts.

@@ -1,49 +1,19 @@
-import { Book } from "@/domain/books/book.entity";
 import { ContentRole } from "@/domain/iam/content-role.entity";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyDenial } from "@/domain/iam/policy-denial.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { ContentPermissionKey, ContentResourceType, PrincipalType } from "@/domain/iam/content-permission";
 import {
-  books,
   contentPolicyBindings,
   contentPolicyDenials,
   contentPolicyEvents,
   contentRoles,
 } from "@/infrastructure/db/schema";
 
-type BookRow = typeof books.$inferSelect;
 type RoleRow = typeof contentRoles.$inferSelect;
 type BindingRow = typeof contentPolicyBindings.$inferSelect;
 type DenialRow = typeof contentPolicyDenials.$inferSelect;
 type EventRow = typeof contentPolicyEvents.$inferSelect;
-
-export function bookRowToEntity(row: BookRow): Book {
-  return Book.reconstitute({
-    id: row.id,
-    orgId: row.orgId,
-    title: row.title,
-    createdByUserId: row.createdByUserId,
-    visibility: row.visibility as "private" | "public",
-    status: row.status as "draft" | "published" | "archived",
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  });
-}
-
-export function bookToInsertRow(book: Book) {
-  const snap = book.toSnapshot();
-  return {
-    id: snap.id,
-    orgId: snap.orgId,
-    title: snap.title,
-    createdByUserId: snap.createdByUserId,
-    visibility: snap.visibility,
-    status: snap.status,
-    createdAt: snap.createdAt,
-    updatedAt: snap.updatedAt,
-  };
-}
 
 export function contentRoleRowToEntity(row: RoleRow): ContentRole {
   return ContentRole.reconstitute({

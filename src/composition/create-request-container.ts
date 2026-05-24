@@ -1,5 +1,9 @@
 import { parseEnv, type AppBindings } from "@/config/env";
 import { AuthenticateBearerTokenUseCase } from "@/application/auth/authenticate-bearer-token.usecase";
+import { CreateBookUseCase } from "@/application/books/create-book.usecase";
+import { GetBookUseCase } from "@/application/books/get-book.usecase";
+import { ListBooksUseCase } from "@/application/books/list-books.usecase";
+import { UpdateBookUseCase } from "@/application/books/update-book.usecase";
 import { CreateCategoryUseCase } from "@/application/categories/create-category.usecase";
 import { DeleteCategoryUseCase } from "@/application/categories/delete-category.usecase";
 import { GetCategoryUseCase } from "@/application/categories/get-category.usecase";
@@ -66,6 +70,7 @@ import { IdContentPrincipalDirectory } from "@/infrastructure/identity/id-conten
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
 import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
 import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
+import { DrizzleBookCreateWorkflow } from "@/infrastructure/repositories/drizzle-book-create.workflow";
 import { DrizzleContentIamMutationWorkflow } from "@/infrastructure/repositories/drizzle-content-iam-mutation.workflow";
 import { DrizzleContentRoleRepository } from "@/infrastructure/repositories/drizzle-content-role.repository";
 import { DrizzleDeferredGrantRepository } from "@/infrastructure/repositories/drizzle-deferred-grant.repository";
@@ -97,6 +102,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const db = createDb(env);
   const userRepository = new DrizzleUserRepository(db);
   const bookRepository = new DrizzleBookRepository(db);
+  const bookCreateWorkflow = new DrizzleBookCreateWorkflow(db);
   const categoryRepository = new DrizzleCategoryRepository(db);
   const mediaRepository = new DrizzleMediaRepository(db);
   const grantMirrorRepository = new DrizzleGrantMirrorRepository(db);
@@ -112,6 +118,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const contentPolicy = new LocalContentPolicy(policyBindingRepository, policyDenialRepository);
   const contentAdministrationPolicy = new ContentAdministrationPolicy(
     contentPolicy,
+    policyBindingRepository,
     (roleId) => contentRoleRepository.findPermissionKeys(roleId),
   );
   const principalValidationTokenProvider = new ClientCredentialsTokenProvider({
@@ -214,6 +221,19 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       delete: new DeleteMediaUseCase(mediaRepository, mediaPolicy),
       serveVariant: new ServeMediaVariantUseCase(mediaRepository, mediaPolicy, mediaStorage),
     },
+    books: {
+      list: new ListBooksUseCase(bookRepository, contentPolicy),
+      get: new GetBookUseCase(bookRepository, contentPolicy),
+      create: new CreateBookUseCase(
+        userRepository,
+        contentRoleRepository,
+        idempotencyRepository,
+        bookCreateWorkflow,
+        principalDirectory,
+        contentPolicy,
+      ),
+      update: new UpdateBookUseCase(bookRepository, contentPolicy),
+    },
     contentIam: {
       bootstrapOrganizationAdmin: new BootstrapOrganizationContentAdminUseCase(
         contentRoleRepository,
@@ -284,6 +304,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
       ),
       disableRole: new DisableContentRoleUseCase(
         contentRoleRepository,
+        policyBindingRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
       ),

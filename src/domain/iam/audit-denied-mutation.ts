@@ -11,7 +11,7 @@ export async function recordDeniedPolicyMutation(params: {
   reason: string;
   requestId?: string;
 }) {
-  await params.workflow.recordEvent(PolicyEvent.create({
+  await params.workflow.recordDeniedEvent(PolicyEvent.create({
     orgId: params.resource.orgId,
     targetType: params.resource.type,
     targetId: params.resource.id,

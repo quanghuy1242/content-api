@@ -37,6 +37,7 @@
 > - Implemented in `content-api` with a local `jose` verifier so tests can inject fixture JWKS fetches.
 > - Worker env now targets `https://id.quanghuy.dev/api/auth` and the public Content API audience.
 > - Local user identity uses `users.id = id.sub`; `better_auth_user_id` is removed by the generated `0003_content_iam_policy` migration.
+> - Local projection synchronization treats absent optional `email`, `name`, and `picture` claims as not supplied, so narrow content tokens do not erase existing profile fields.
 > - Vitest fixtures now issue `id`-shaped user, direct-share, and M2M tokens.
 
 ## Table Of Contents

@@ -16,6 +16,7 @@ export const MAX_PAGE_LIMIT = 100;
 /** Validation field length limits. */
 export const MAX_NAME_LENGTH = 255;
 export const MAX_SLUG_LENGTH = 120;
+export const MAX_AUDIT_REASON_LENGTH = 1000;
 export const SLUG_BASE_MAX_LENGTH = 111;
 export const SLUG_SUFFIX_LENGTH = 8;
 
@@ -23,11 +24,17 @@ export const SLUG_SUFFIX_LENGTH = 8;
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 export const MILLISECONDS_PER_SECOND = 1000;
 
+/** Bounded storage policy for denied Content IAM security mutation audit events. */
+export const DENIED_POLICY_EVENT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+export const DENIED_POLICY_EVENT_RATE_WINDOW_MS = 60 * 1000;
+export const DENIED_POLICY_EVENT_RATE_LIMIT = 5;
+
 /** Idempotency route identifiers scoped per resource. */
 export const CATEGORIES_CREATE_ROUTE = "POST /categories" as const;
 export const POSTS_CREATE_ROUTE = "POST /posts" as const;
 export const MEDIA_CREATE_ROUTE = "POST /media" as const;
 export const USERS_CREATE_ROUTE = "POST /users" as const;
+export const BOOKS_CREATE_ROUTE = "POST /organizations/{orgId}/books" as const;
 export const BOOK_POLICY_BINDINGS_CREATE_ROUTE = "POST /books/{bookId}/policy-bindings" as const;
 export const BOOK_POLICY_DENIALS_CREATE_ROUTE = "POST /books/{bookId}/policy-denials" as const;
 export const BOOK_OWNERSHIP_TRANSFER_ROUTE = "POST /books/{bookId}/ownership-transfer" as const;
@@ -37,7 +44,7 @@ export const ORG_CONTENT_ROLE_CREATE_ROUTE = "POST /organizations/{orgId}/conten
 export const ORG_CONTENT_ROLE_PERMISSIONS_REPLACE_ROUTE =
   "PUT /organizations/{orgId}/content-roles/{roleId}/permissions" as const;
 export const ORG_CONTENT_ADMIN_BOOTSTRAP_ROUTE = "POST /organizations/{orgId}/content-iam/bootstrap" as const;
-export const ORG_CONTENT_ADMIN_DELEGATE_ROUTE = "POST /organizations/{orgId}/content-iam/admins" as const;
+export const ORG_CONTENT_ADMIN_DELEGATE_ROUTE = "POST /organizations/{orgId}/content-admins" as const;
 
 /**
  * Shared media upload and derivative constants. Routes, use cases, workers, and

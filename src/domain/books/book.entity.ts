@@ -14,6 +14,9 @@ export type BookProps = {
 
 export type CreateBookProps = Omit<BookProps, "id" | "visibility" | "status" | "createdAt" | "updatedAt">;
 
+export type UpdateBookProps = Partial<Pick<BookProps, "title" | "visibility" | "status">>;
+
+/** Root collaborative content resource whose owner is represented by Content IAM. */
 export class Book {
   private constructor(private props: BookProps) {}
 
@@ -41,6 +44,13 @@ export class Book {
   get status() { return this.props.status; }
   get createdAt() { return this.props.createdAt; }
   get updatedAt() { return this.props.updatedAt; }
+
+  update(input: UpdateBookProps) {
+    if (input.title !== undefined) this.props.title = input.title;
+    if (input.visibility !== undefined) this.props.visibility = input.visibility;
+    if (input.status !== undefined) this.props.status = input.status;
+    this.props.updatedAt = new Date();
+  }
 
   toSnapshot(): BookProps {
     return { ...this.props };

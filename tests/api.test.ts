@@ -6,6 +6,7 @@ import migrationSql0000 from "../drizzle/0000_dapper_korvac.sql?raw";
 import migrationSql0001 from "../drizzle/0001_unique_starhawk.sql?raw";
 import migrationSql0002 from "../drizzle/0002_media_upload_flow.sql?raw";
 import migrationSql0003 from "../drizzle/0003_content_iam_policy.sql?raw";
+import migrationSql0004 from "../drizzle/0004_content_iam_guards.sql?raw";
 import { createApp } from "@/main";
 import { clearClientCredentialsTokenMemoryCache } from "@/infrastructure/identity/client-credentials-token-provider";
 
@@ -77,10 +78,13 @@ async function issueToken(subject: string, options: {
   scope?: string;
   orgId?: string;
   teamIds?: string[];
+  includeProfile?: boolean;
 } = {}) {
   return new SignJWT({
-    email: `${subject}@example.com`,
-    name: `${subject} name`,
+    ...(options.includeProfile === false ? {} : {
+      email: `${subject}@example.com`,
+      name: `${subject} name`,
+    }),
     scope: options.scope ?? "content:read content:write",
     ...(options.orgId ? { org_id: options.orgId, team_ids: options.teamIds ?? [] } : { team_ids: [] }),
   })
@@ -114,7 +118,7 @@ async function issueServiceAccountToken(options: {
 }
 
 async function seed() {
-  for (const migrationSql of [migrationSql0000, migrationSql0001, migrationSql0002, migrationSql0003]) {
+  for (const migrationSql of [migrationSql0000, migrationSql0001, migrationSql0002, migrationSql0003, migrationSql0004]) {
     for (const statement of migrationSql
       .split("--> statement-breakpoint")
       .map((statementText) => statementText.trim())
@@ -366,6 +370,9 @@ it("serves an OpenAPI document for the registered API routes", async () => {
       "/posts",
       "/posts/{id}/publish",
       "/media",
+      "/books",
+      "/books/{id}",
+      "/organizations/{orgId}/books",
       "/grant-mirror",
       "/deferred-grants",
       "/relationships",
@@ -373,6 +380,7 @@ it("serves an OpenAPI document for the registered API routes", async () => {
       "/books/{bookId}/policy-denials",
       "/books/{bookId}/ownership-transfer",
       "/organizations/{orgId}/content-roles",
+      "/organizations/{orgId}/content-admins",
     ]),
   );
   expect(body.components?.securitySchemes).toHaveProperty("Bearer");
@@ -380,6 +388,211 @@ it("serves an OpenAPI document for the registered API routes", async () => {
   expect(postsCreate.post?.parameters).toEqual(
     expect.arrayContaining([expect.objectContaining({ name: "idempotency-key", in: "header" })]),
   );
+});
+
+it("creates a book with its owner binding atomically and replays the result idempotently", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const key = crypto.randomUUID();
+  const first = await request("/organizations/org-main/books", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify({ title: "Atomic Book" }),
+  });
+  expect(first.status).toBe(201);
+  const firstBody = await first.json() as { data: { id: string; createdByUserId: string } };
+  expect(firstBody.data.createdByUserId).toBe("user-alice");
+
+  const replay = await request("/organizations/org-main/books", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify({ title: "Atomic Book" }),
+  });
+  expect(replay.status).toBe(201);
+  await expect(replay.json()).resolves.toMatchObject({ data: { id: firstBody.data.id } });
+  expect(await countRows("select count(*) as count from books where id = ?", firstBody.data.id)).toBe(1);
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where role_id = ? and resource_id = ? and principal_id = ?",
+    "system:book.owner",
+    firstBody.data.id,
+    "user-alice",
+  )).toBe(1);
+  expect(await countRows(
+    "select count(*) as count from content_policy_events where action = ? and target_id = ?",
+    "binding.created",
+    firstBody.data.id,
+  )).toBe(1);
+
+  const mismatch = await request("/organizations/org-main/books", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify({ title: "Changed Input" }),
+  });
+  expect(mismatch.status).toBe(409);
+});
+
+it("allows an organization author to create a privately owned draft book", async () => {
+  const adminToken = await bootstrapContentIamAdmin();
+  const authorGrant = await request("/organizations/org-main/policy-bindings", {
+    method: "POST",
+    token: adminToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:org.author",
+    }),
+  });
+  expect(authorGrant.status).toBe(201);
+  const authorToken = await issueWorkspaceShareToken("user-bob");
+  const created = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: authorToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Authored Book" }),
+  });
+  expect(created.status).toBe(201);
+  await expect(created.json()).resolves.toMatchObject({
+    data: {
+      createdByUserId: "user-bob",
+      visibility: "private",
+      status: "draft",
+    },
+  });
+});
+
+it("commits only one owned book for concurrent identical idempotent creates", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const key = crypto.randomUUID();
+  const responses = await Promise.all([
+    request("/organizations/org-main/books", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": key },
+      body: JSON.stringify({ title: "Concurrent Book" }),
+    }),
+    request("/organizations/org-main/books", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": key },
+      body: JSON.stringify({ title: "Concurrent Book" }),
+    }),
+  ]);
+  expect(responses.every((response) => response.status === 201)).toBe(true);
+  const bodies = await Promise.all(responses.map((response) => response.json() as Promise<{ data: { id: string } }>));
+  expect(bodies[0].data.id).toBe(bodies[1].data.id);
+  expect(await countRows("select count(*) as count from books where title = ?", "Concurrent Book")).toBe(1);
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where role_id = ? and resource_id = ?",
+    "system:book.owner",
+    bodies[0].data.id,
+  )).toBe(1);
+});
+
+it("rejects direct-share creation of an organization-root book", async () => {
+  const directShare = await issueToken("user-alice", { scope: "content:write" });
+  const directShareCreate = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: directShare,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Outside Workspace" }),
+  });
+  expect(directShareCreate.status).toBe(403);
+});
+
+it("requires an explicit direct owner for authorized service-account book creation", async () => {
+  const adminToken = await bootstrapContentIamAdmin();
+  const grantImporter = await request("/organizations/org-main/policy-bindings", {
+    method: "POST",
+    token: adminToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "service_account", id: "client-content-bot" },
+      roleId: "system:org.author",
+    }),
+  });
+  expect(grantImporter.status).toBe(201);
+
+  const importer = await issueServiceAccountToken({ scope: "content:write" });
+  const missingOwner = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: importer,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Ownerless Import" }),
+  });
+  expect(missingOwner.status).toBe(400);
+  const created = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: importer,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Imported Book", ownerUserId: "user-bob" }),
+  });
+  expect(created.status).toBe(201);
+  const body = await created.json() as { data: { id: string; createdByUserId: string } };
+  expect(body.data.createdByUserId).toBe("user-bob");
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where role_id = ? and resource_id = ? and principal_id = ?",
+    "system:book.owner",
+    body.data.id,
+    "user-bob",
+  )).toBe(1);
+});
+
+it("uses Content IAM for private book reads and updates", async () => {
+  const ownerToken = await bootstrapContentIamAdmin();
+  const create = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: ownerToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Collaborative Book" }),
+  });
+  const book = await create.json() as { data: { id: string } };
+
+  const privateAnonymous = await request(`/books/${book.data.id}`);
+  expect(privateAnonymous.status).toBe(403);
+  const grantReader = await request(`/books/${book.data.id}/policy-bindings`, {
+    method: "POST",
+    token: ownerToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(grantReader.status).toBe(201);
+  const reader = await issueToken("user-bob", { scope: "content:read" });
+  const privateReader = await request(`/books/${book.data.id}`, { token: reader });
+  expect(privateReader.status).toBe(200);
+  const readerUpdate = await request(`/books/${book.data.id}`, {
+    method: "PATCH",
+    token: await issueToken("user-bob", { scope: "content:write" }),
+    body: JSON.stringify({ title: "Forbidden Rename" }),
+  });
+  expect(readerUpdate.status).toBe(403);
+});
+
+it("allows public published book reads after an authorized update", async () => {
+  const ownerToken = await bootstrapContentIamAdmin();
+  const create = await request("/organizations/org-main/books", {
+    method: "POST",
+    token: ownerToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ title: "Published Book" }),
+  });
+  const book = await create.json() as { data: { id: string } };
+  const publish = await request(`/books/${book.data.id}`, {
+    method: "PATCH",
+    token: ownerToken,
+    body: JSON.stringify({ visibility: "public", status: "published" }),
+  });
+  expect(publish.status).toBe(200);
+  const publicRead = await request(`/books/${book.data.id}`);
+  expect(publicRead.status).toBe(200);
+  const publicList = await request("/books");
+  expect(publicList.status).toBe(200);
+  const listBody = await publicList.json() as { data: Array<{ id: string }> };
+  expect(listBody.data.map((candidate) => candidate.id)).toContain(book.data.id);
 });
 
 it("returns 403 when a non-owner updates a protected category", async () => {
@@ -425,6 +638,19 @@ it("fills a missing local user projection from the id subject instead of creatin
   });
 
   expect(await countRows("select count(*) as count from users where id = ?", "user-new")).toBe(1);
+});
+
+it("does not erase existing local identity fields when a content token omits profile claims", async () => {
+  const token = await issueToken("user-alice", { scope: "content:read", includeProfile: false });
+  const res = await request("/users/user-alice", { token });
+  expect(res.status).toBe(200);
+  await expect(res.json()).resolves.toMatchObject({
+    data: {
+      id: "user-alice",
+      email: "alice@example.com",
+      fullName: "Alice User",
+    },
+  });
 });
 
 it("publishes a draft post for its author", async () => {
@@ -609,6 +835,57 @@ it("allows admin users to manage grant mirror and relationship rows", async () =
   expect(relationshipRes.status).toBe(201);
 });
 
+it("requires read/write OAuth scopes on retained authorization compatibility routes", async () => {
+  const readToken = await issueToken("user-admin", { scope: "content:read" });
+  const writeToken = await issueToken("user-admin", { scope: "content:write" });
+  expect((await request("/relationships", { token: readToken })).status).toBe(200);
+  expect((await request("/relationships", { token: writeToken })).status).toBe(403);
+
+  const relationshipWrite = await request("/relationships", {
+    method: "POST",
+    token: readToken,
+    body: JSON.stringify({
+      subjectType: "user",
+      subjectId: "user-bob",
+      relation: "viewer",
+      objectType: "post",
+      objectId: "post-published",
+    }),
+  });
+  expect(relationshipWrite.status).toBe(403);
+
+  const mirrorWrite = await request("/grant-mirror", {
+    method: "POST",
+    token: readToken,
+    body: JSON.stringify({
+      autherTupleId: "scope-denied",
+      payloadUserId: "user-alice",
+      entityType: "book",
+      entityId: "book-1",
+      relation: "viewer",
+      sourceSubjectType: "user",
+      requiresLiveCheck: false,
+      syncStatus: "active",
+      syncedAt: new Date().toISOString(),
+    }),
+  });
+  expect(mirrorWrite.status).toBe(403);
+
+  const deferredWrite = await request("/deferred-grants", {
+    method: "POST",
+    token: readToken,
+    body: JSON.stringify({
+      betterAuthUserId: "user-bob",
+      tupleId: "scope-denied",
+      entityType: "book",
+      entityId: "book-1",
+      relation: "viewer",
+      sourceSubjectType: "user",
+    }),
+  });
+  expect(deferredWrite.status).toBe(403);
+});
+
 it("bootstraps Content IAM, grants a book reader, records denials, and lists audit events", async () => {
   const token = await bootstrapContentIamAdmin();
   await seedBookOwner();
@@ -692,6 +969,44 @@ it("prevents direct-share tokens and sensitive target principals from mutating C
   expect(ownerGrantRes.status).toBe(400);
 });
 
+it("audits workspace self-escalation without creating authority and rejects M2M sensitive targets", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const unauthorizedToken = await issueWorkspaceShareToken("user-bob");
+  const selfGrantRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token: unauthorizedToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.sharing_manager",
+    }),
+  });
+  expect(selfGrantRes.status).toBe(403);
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where principal_id = ? and role_id = ? and resource_id = ?",
+    "user-bob",
+    "system:book.sharing_manager",
+    "book-main",
+  )).toBe(0);
+  expect(await countRows(
+    "select count(*) as count from content_policy_events where action = ? and actor_id = ? and target_id = ?",
+    "policy.mutation_denied",
+    "user-bob",
+    "book-main",
+  )).toBe(1);
+
+  const serviceManagementRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "service_account", id: "client-content-bot" },
+      roleId: "system:book.sharing_manager",
+    }),
+  });
+  expect(serviceManagementRes.status).toBe(400);
+});
+
 it("allows organization authors to be delegated through ordinary org bindings", async () => {
   const token = await bootstrapContentIamAdmin();
   const res = await request("/organizations/org-main/policy-bindings", {
@@ -712,6 +1027,64 @@ it("allows organization authors to be delegated through ordinary org bindings", 
       resource: { type: "org", id: "org-main" },
     },
   });
+});
+
+it("permits validated ordinary external and service-account book bindings but rejects workspace mismatch", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const externalRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "external-reader" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(externalRes.status).toBe(201);
+
+  const serviceRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "service_account", id: "client-content-bot" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(serviceRes.status).toBe(201);
+
+  const mismatchedToken = await issueToken("user-alice", {
+    orgId: "org-other",
+    scope: "content:read content:write content:share",
+  });
+  const mismatchRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token: mismatchedToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(mismatchRes.status).toBe(403);
+});
+
+it("shows inherited organization bindings only in the effective book binding view", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const directRes = await request("/books/book-main/policy-bindings?view=direct", { token });
+  expect(directRes.status).toBe(200);
+  const directBody = await directRes.json() as { data: Array<{ roleId: string }> };
+  expect(directBody.data).toEqual([]);
+
+  const effectiveRes = await request("/books/book-main/policy-bindings?view=effective", { token });
+  expect(effectiveRes.status).toBe(200);
+  const effectiveBody = await effectiveRes.json() as { data: Array<{ roleId: string; resource: { type: string; id: string } }> };
+  expect(effectiveBody.data).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      roleId: "system:org.content_admin",
+      resource: { type: "org", id: "org-main" },
+    }),
+  ]));
 });
 
 it("transfers book ownership atomically and rejects stale ownership transfers", async () => {
@@ -747,6 +1120,41 @@ it("transfers book ownership atomically and rejects stale ownership transfers", 
   });
   expect(staleRes.status).toBe(409);
 
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where resource_type = ? and resource_id = ? and role_id = ?",
+    "book",
+    "book-main",
+    "system:book.owner",
+  )).toBe(1);
+});
+
+it("allows only one competing book ownership transfer to commit", async () => {
+  const token = await bootstrapContentIamAdmin();
+  await seedBookOwner();
+
+  const transfers = await Promise.all([
+    request("/books/book-main/ownership-transfer", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        expectedCurrentOwnerUserId: "user-alice",
+        nextOwnerUserId: "user-bob",
+      }),
+    }),
+    request("/books/book-main/ownership-transfer", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        expectedCurrentOwnerUserId: "user-alice",
+        nextOwnerUserId: "user-admin",
+      }),
+    }),
+  ]);
+
+  expect(transfers.filter((result) => result.status === 201)).toHaveLength(1);
+  expect(transfers.filter((result) => result.status === 409)).toHaveLength(1);
   expect(await countRows(
     "select count(*) as count from content_policy_bindings where resource_type = ? and resource_id = ? and role_id = ?",
     "book",
@@ -800,6 +1208,72 @@ it("manages ordinary organization-defined roles and rejects sensitive custom rol
   expect(eventsRes.status).toBe(200);
   const events = await eventsRes.json() as { data: Array<{ action: string }> };
   expect(events.data.map((event) => event.action)).toContain("policy.mutation_denied");
+});
+
+it("rejects disabling roles with active bindings", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const createRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "lifecycle-reader",
+      name: "Lifecycle Reader",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  const created = await createRes.json() as { data: { id: string } };
+  const bindRoleRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: created.data.id,
+    }),
+  });
+  expect(bindRoleRes.status).toBe(201);
+  const boundRole = await bindRoleRes.json() as { data: { id: string } };
+
+  const activeDisableRes = await request(`/organizations/org-main/content-roles/${created.data.id}`, {
+    method: "DELETE",
+    token,
+  });
+  expect(activeDisableRes.status).toBe(400);
+  expect(boundRole.data.id).toBeTruthy();
+});
+
+it("rejects assigning disabled roles", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const createRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "disabled-reader",
+      name: "Disabled Reader",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  const created = await createRes.json() as { data: { id: string } };
+  const disableRes = await request(`/organizations/org-main/content-roles/${created.data.id}`, {
+    method: "DELETE",
+    token,
+  });
+  expect(disableRes.status).toBe(204);
+
+  const disabledBindRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: created.data.id,
+    }),
+  });
+  expect(disabledBindRes.status).toBe(400);
 });
 
 it("returns 400 when Content IAM principal validation fails for durable writes", async () => {
@@ -909,6 +1383,67 @@ it("does not replay Content IAM idempotency across different resource path param
   expect(second.status).toBe(409);
 });
 
+it("replays identical Content IAM mutations once and rejects mismatched idempotency reuse", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const key = crypto.randomUUID();
+  const body = {
+    principal: { type: "user", id: "external-idempotent-reader" },
+    roleId: "system:book.reader",
+  };
+  const first = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify(body),
+  });
+  const second = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify(body),
+  });
+  expect(first.status).toBe(201);
+  expect(second.status).toBe(201);
+  await expect(second.json()).resolves.toEqual(await first.json());
+  expect(await countRows(
+    "select count(*) as count from content_policy_bindings where principal_id = ? and resource_id = ?",
+    "external-idempotent-reader",
+    "book-main",
+  )).toBe(1);
+
+  const mismatch = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": key },
+    body: JSON.stringify({ ...body, roleId: "system:book.reviewer" }),
+  });
+  expect(mismatch.status).toBe(409);
+});
+
+it("allows exactly one concurrent duplicate binding create to commit", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const body = JSON.stringify({
+    principal: { type: "user", id: "external-race-reader" },
+    roleId: "system:book.reader",
+  });
+  const creates = await Promise.all([
+    request("/books/book-main/policy-bindings", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body,
+    }),
+    request("/books/book-main/policy-bindings", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body,
+    }),
+  ]);
+  expect(creates.filter((result) => result.status === 201)).toHaveLength(1);
+  expect(creates.filter((result) => result.status === 409)).toHaveLength(1);
+});
+
 it("requires organization membership for sensitive direct-user Content IAM targets", async () => {
   const token = await bootstrapContentIamAdmin();
 
@@ -936,7 +1471,111 @@ it("requires organization membership for sensitive direct-user Content IAM targe
   expect(ownershipRes.status).toBe(400);
 });
 
-it("prevents revoking the last organization Content IAM admin", async () => {
+it("does not allow book denial rules to remove owner or organization-admin recovery authority", async () => {
+  const token = await bootstrapContentIamAdmin();
+  await seedBookOwner();
+  const ownerDenial = await request("/books/book-main/policy-denials", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-alice" },
+      permission: "book.read",
+      appliesToDescendants: true,
+      reason: "not allowed",
+    }),
+  });
+  expect(ownerDenial.status).toBe(400);
+});
+
+it("prevents sharing managers from delegating or revoking protected sharing-manager authority", async () => {
+  const adminToken = await bootstrapContentIamAdmin();
+  const createManager = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token: adminToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.sharing_manager",
+    }),
+  });
+  expect(createManager.status).toBe(201);
+  const manager = await createManager.json() as { data: { id: string } };
+  const managerToken = await issueWorkspaceShareToken("user-bob");
+
+  const ordinaryGrant = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token: managerToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-admin" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(ordinaryGrant.status).toBe(201);
+
+  const protectedGrant = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token: managerToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-admin" },
+      roleId: "system:book.sharing_manager",
+    }),
+  });
+  expect(protectedGrant.status).toBe(403);
+
+  const protectedRevoke = await request(`/books/book-main/policy-bindings/${manager.data.id}`, {
+    method: "DELETE",
+    token: managerToken,
+  });
+  expect(protectedRevoke.status).toBe(403);
+});
+
+it("rejects cross-organization use of tenant-owned content roles", async () => {
+  const orgMainToken = await bootstrapContentIamAdmin();
+  const createRole = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token: orgMainToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "tenant-reader",
+      name: "Tenant Reader",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  expect(createRole.status).toBe(201);
+  const role = await createRole.json() as { data: { id: string } };
+
+  await env.DB.prepare("insert into books (id, org_id, title, created_by_user_id, visibility, status) values (?, ?, ?, ?, ?, ?)")
+    .bind("book-other-org", "org-other", "Other Organization Book", "user-bob", "private", "draft")
+    .run();
+  const otherToken = await issueToken("user-bob", {
+    orgId: "org-other",
+    scope: "content:read content:write content:share",
+  });
+  const bootstrapOther = await request("/organizations/org-other/content-iam/bootstrap", {
+    method: "POST",
+    token: otherToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ userId: "user-bob" }),
+  });
+  expect(bootstrapOther.status).toBe(201);
+
+  const bindForeignRole = await request("/books/book-other-org/policy-bindings", {
+    method: "POST",
+    token: otherToken,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: role.data.id,
+    }),
+  });
+  expect(bindForeignRole.status).toBe(404);
+});
+
+it("requires the dedicated route and preserves the final organization Content IAM administrator", async () => {
   const token = await bootstrapContentIamAdmin();
   const row = await env.DB.prepare(
     "select id from content_policy_bindings where role_id = ? and resource_type = ? and resource_id = ?",
@@ -950,6 +1589,185 @@ it("prevents revoking the last organization Content IAM admin", async () => {
     token,
   });
   expect(res.status).toBe(400);
+
+  const dedicatedRes = await request(`/organizations/org-main/content-admins/${row!.id}`, {
+    method: "DELETE",
+    token,
+  });
+  expect(dedicatedRes.status).toBe(400);
+});
+
+it("enforces organization bootstrap and final-admin invariants under competing requests", async () => {
+  const token = await issueWorkspaceShareToken("user-alice");
+  const bootstrapResults = await Promise.all([
+    request("/organizations/org-main/content-iam/bootstrap", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ userId: "user-alice" }),
+    }),
+    request("/organizations/org-main/content-iam/bootstrap", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ userId: "user-alice" }),
+    }),
+  ]);
+  expect(bootstrapResults.filter((result) => result.status === 201)).toHaveLength(1);
+  expect([403, 409]).toContain(bootstrapResults.find((result) => result.status !== 201)?.status);
+  expect(await countRows("select count(*) as count from content_iam_bootstrap_organizations where org_id = ?", "org-main")).toBe(1);
+  expect(await countRows("select count(*) as count from content_policy_bindings where role_id = ? and resource_id = ?", "system:org.content_admin", "org-main")).toBe(1);
+
+  const delegate = await request("/organizations/org-main/content-admins", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ userId: "user-bob" }),
+  });
+  expect(delegate.status).toBe(201);
+  const delegateBody = await delegate.json() as { data: { id: string } };
+  const aliceBinding = await env.DB.prepare(
+    "select id from content_policy_bindings where role_id = ? and resource_id = ? and principal_id = ?",
+  )
+    .bind("system:org.content_admin", "org-main", "user-alice")
+    .first<{ id: string }>();
+  expect(aliceBinding?.id).toBeTruthy();
+
+  const revokes = await Promise.all([
+    request(`/organizations/org-main/content-admins/${aliceBinding!.id}`, { method: "DELETE", token }),
+    request(`/organizations/org-main/content-admins/${delegateBody.data.id}`, { method: "DELETE", token }),
+  ]);
+  expect(revokes.filter((result) => result.status === 204)).toHaveLength(1);
+  expect(await countRows("select count(*) as count from content_policy_bindings where role_id = ? and resource_id = ?", "system:org.content_admin", "org-main")).toBe(1);
+});
+
+it("rejects stale concurrent role replacements at the write boundary", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const createRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "racing-reader",
+      name: "Racing Reader",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  const created = await createRes.json() as { data: { id: string; version: number } };
+  const replacements = await Promise.all([
+    request(`/organizations/org-main/content-roles/${created.data.id}/permissions`, {
+      method: "PUT",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ expectedVersion: created.data.version, permissions: ["book.read", "comment.create"] }),
+    }),
+    request(`/organizations/org-main/content-roles/${created.data.id}/permissions`, {
+      method: "PUT",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ expectedVersion: created.data.version, permissions: ["book.read", "inline_comment.create"] }),
+    }),
+  ]);
+  expect(replacements.filter((result) => result.status === 201)).toHaveLength(1);
+  expect(replacements.filter((result) => result.status === 409)).toHaveLength(1);
+});
+
+it("preserves role lifecycle consistency during competing bind and disable requests", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const createRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "racing-disable",
+      name: "Racing Disable",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  expect(createRes.status).toBe(201);
+  const role = await createRes.json() as { data: { id: string } };
+
+  const [bindResult, disableResult] = await Promise.all([
+    request("/books/book-main/policy-bindings", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        principal: { type: "user", id: "user-bob" },
+        roleId: role.data.id,
+      }),
+    }),
+    request(`/organizations/org-main/content-roles/${role.data.id}`, {
+      method: "DELETE",
+      token,
+    }),
+  ]);
+
+  expect([bindResult, disableResult].filter((result) => result.status >= 200 && result.status < 300)).toHaveLength(1);
+  expect([bindResult, disableResult].filter((result) => result.status === 400)).toHaveLength(1);
+  const bindings = await countRows("select count(*) as count from content_policy_bindings where role_id = ?", role.data.id);
+  const disabled = await countRows("select count(*) as count from content_roles where id = ? and enabled = 0", role.data.id);
+  expect(bindings + disabled).toBe(1);
+});
+
+it("rejects a sensitive upgrade to an already-defined ordinary custom role", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const createRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "ordinary-bound-role",
+      name: "Ordinary Bound Role",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  const role = await createRes.json() as { data: { id: string; version: number } };
+  const upgrade = await request(`/organizations/org-main/content-roles/${role.data.id}/permissions`, {
+    method: "PUT",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      expectedVersion: role.data.version,
+      permissions: ["book.read", "book.manage_bindings"],
+    }),
+  });
+  expect(upgrade.status).toBe(400);
+});
+
+it("bounds denied Content IAM audit storage and prunes expired denied events", async () => {
+  const token = await bootstrapContentIamAdmin();
+  await env.DB.prepare(
+    "insert into content_policy_events (id, org_id, target_type, target_id, action, actor_type, actor_id, reason, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind("old-denial-event", "org-main", "org", "org-main", "policy.mutation_denied", "user", "user-alice", "old", Date.now() - (91 * 24 * 60 * 60 * 1000))
+    .run();
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const response = await request("/organizations/org-main/content-roles", {
+      method: "POST",
+      token,
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        key: `blocked-${attempt}`,
+        name: "Blocked Sensitive Role",
+        assignableResourceType: "book",
+        permissions: ["book.manage_bindings"],
+      }),
+    });
+    expect(response.status).toBe(400);
+  }
+
+  expect(await countRows("select count(*) as count from content_policy_events where id = ?", "old-denial-event")).toBe(0);
+  expect(await countRows(
+    "select count(*) as count from content_policy_events where action = ? and actor_id = ? and target_id = ?",
+    "policy.mutation_denied",
+    "user-alice",
+    "org-main",
+  )).toBe(5);
 });
 
 it("can recreate expired Content IAM bindings after cleanup", async () => {

@@ -8,11 +8,13 @@ import {
 } from "@/domain/iam/content-permission";
 import type { ContentResourceRef } from "@/domain/iam/content-resource";
 import type { PolicyBinding } from "@/domain/iam/policy-binding.entity";
+import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { ForbiddenError, ValidationError } from "@/shared/errors";
 
 export class ContentAdministrationPolicy {
   constructor(
     private readonly contentPolicy: ContentPolicy,
+    private readonly bindings: PolicyBindingRepository,
     private readonly rolePermissions: (roleId: string) => Promise<readonly ContentPermissionKey[]>,
   ) {}
 
@@ -26,6 +28,9 @@ export class ContentAdministrationPolicy {
     if (params.proposedRole.id === "system:book.owner") {
       throw new ValidationError("Book ownership must be changed through ownership transfer");
     }
+    if (!params.proposedRole.enabled) {
+      throw new ValidationError("Disabled Content IAM roles cannot be assigned");
+    }
     if (params.proposedRole.assignableResourceType !== params.resource.type) {
       throw new ValidationError("Role cannot be assigned to this resource type");
     }
@@ -37,6 +42,10 @@ export class ContentAdministrationPolicy {
     }
     if (delegationClass === "ownership_transfer" || delegationClass === "organization_admin") {
       throw new ValidationError("Sensitive Content IAM role requires a dedicated workflow");
+    }
+    if (delegationClass === "policy_management") {
+      await this.requireProtectedBookManagementAuthority(params.actor, params.resource);
+      return;
     }
 
     const requiredPermission = params.resource.type === "org" ? "org.manage_bindings" : "book.manage_bindings";
@@ -51,6 +60,14 @@ export class ContentAdministrationPolicy {
     this.requireWorkspaceShareActor(params.actor, params.resource);
     if (params.existingBinding.roleId === "system:book.owner") {
       throw new ValidationError("Book ownership must be changed through ownership transfer");
+    }
+    const permissions = await this.rolePermissions(params.existingBinding.roleId);
+    if (
+      params.existingBinding.roleId === "system:book.sharing_manager"
+      || deriveDelegationClass(permissions) === "policy_management"
+    ) {
+      await this.requireProtectedBookManagementAuthority(params.actor, params.resource);
+      return;
     }
     const requiredPermission = params.resource.type === "org" ? "org.manage_bindings" : "book.manage_bindings";
     await this.requireLocalPermission(params.actor, requiredPermission, params.resource);
@@ -122,5 +139,33 @@ export class ContentAdministrationPolicy {
   private async requireLocalPermission(actor: Actor, permission: ContentPermissionKey, resource: ContentResourceRef) {
     const allowed = await this.contentPolicy.can({ actor, permission, resource });
     if (!allowed) throw new ForbiddenError("Content IAM mutation is not authorized by local policy");
+  }
+
+  private async requireProtectedBookManagementAuthority(actor: UserActor, resource: ContentResourceRef) {
+    if (resource.type !== "book") {
+      throw new ValidationError("Protected book management authority may be assigned only on books");
+    }
+    const now = new Date();
+    const [directOwner, directOrganizationAdmin] = await Promise.all([
+      this.bindings.hasActiveDirectUserRoleBinding({
+        orgId: resource.orgId,
+        userId: actor.subject,
+        roleId: "system:book.owner",
+        resourceType: "book",
+        resourceId: resource.id,
+        now,
+      }),
+      this.bindings.hasActiveDirectUserRoleBinding({
+        orgId: resource.orgId,
+        userId: actor.subject,
+        roleId: "system:org.content_admin",
+        resourceType: "org",
+        resourceId: resource.orgId,
+        now,
+      }),
+    ]);
+    if (!directOwner && !directOrganizationAdmin) {
+      throw new ForbiddenError("Protected sharing management requires a direct owner or organization content admin");
+    }
   }
 }

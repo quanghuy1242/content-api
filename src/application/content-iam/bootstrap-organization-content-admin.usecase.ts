@@ -6,6 +6,7 @@ import type { ContentRoleRepository } from "@/domain/iam/content-role.repository
 import type { PolicyBindingRepository } from "@/domain/iam/policy-binding.repository";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { ForbiddenError } from "@/shared/errors";
 import { ORG_CONTENT_ADMIN_BOOTSTRAP_ROUTE } from "@/shared/constants";
 import { deserializeBindingMutation, serializeBindingMutation } from "@/domain/iam/content-iam-snapshot";
@@ -83,9 +84,17 @@ export class BootstrapOrganizationContentAdminUseCase {
           now: new Date(),
         });
         if (activeAdmins > 0) {
+          await recordDeniedPolicyMutation({
+            workflow: this.workflow,
+            actor: params.actor,
+            resource,
+            operation: "org_admin.bootstrap",
+            reason: "Organization Content IAM bootstrap is only allowed before a local admin exists",
+            requestId: params.requestId,
+          });
           throw new ForbiddenError("Organization Content IAM bootstrap is only allowed before a local admin exists");
         }
-        await this.workflow.createBinding({ binding, event, idempotency });
+        await this.workflow.bootstrapOrganizationAdmin({ binding, event, idempotency });
         return { binding, event };
       },
     });

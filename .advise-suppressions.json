@@ -183,6 +183,12 @@
     },
     {
       "tool": "aislop",
+      "file": "src/http/routes/content-iam.routes.ts",
+      "rule": "code-quality/duplicate-block",
+      "reason": "Route handler pattern — each Content IAM operation validates, calls one use case, and presents; extracting adds indirection"
+    },
+    {
+      "tool": "aislop",
       "file": "src/domain/iam/content-permission.ts",
       "rule": "code-quality/duplicate-block",
       "reason": "Permission matrices for built-in Content IAM roles are explicit product policy; extracting shared fragments obscures role differences"
@@ -201,6 +207,16 @@
       "tool": "fallow",
       "files": "src/domain/deferred-grants/deferred-grant.entity.ts|src/domain/iam/policy-denial.entity.ts",
       "reason": "Entity lifecycle and snapshot pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/books/book.entity.ts|src/domain/categories/category.entity.ts",
+      "reason": "Entity getter, update, and snapshot pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/books/book.entity.ts|src/domain/categories/category.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter and snapshot pattern — mandated consistency across entity classes"
     }
   ]
 }

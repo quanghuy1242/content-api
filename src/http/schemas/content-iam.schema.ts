@@ -1,5 +1,5 @@
 import { z } from "@hono/zod-openapi";
-import { MAX_NAME_LENGTH, MAX_SLUG_LENGTH } from "@/shared/constants";
+import { MAX_AUDIT_REASON_LENGTH, MAX_NAME_LENGTH, MAX_SLUG_LENGTH } from "@/shared/constants";
 import { listQuerySchema } from "@/shared/pagination/cursor";
 import { idSchema } from "@/shared/validation/fields";
 
@@ -12,7 +12,7 @@ export const createPolicyBindingSchema = z.object({
   principal: contentPrincipalSchema,
   roleId: z.string().min(1),
   expiresAt: z.string().datetime().optional().nullable(),
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const createPolicyDenialSchema = z.object({
@@ -20,23 +20,23 @@ export const createPolicyDenialSchema = z.object({
   permission: z.string().min(1),
   appliesToDescendants: z.boolean(),
   expiresAt: z.string().datetime().optional().nullable(),
-  reason: z.string().min(1),
+  reason: z.string().min(1).max(MAX_AUDIT_REASON_LENGTH),
 });
 
 export const bootstrapOrganizationContentAdminSchema = z.object({
   userId: idSchema,
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const delegateOrganizationContentAdminSchema = z.object({
   userId: idSchema,
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const transferBookOwnershipSchema = z.object({
   expectedCurrentOwnerUserId: idSchema,
   nextOwnerUserId: idSchema,
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const createContentRoleSchema = z.object({
@@ -44,16 +44,19 @@ export const createContentRoleSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_LENGTH),
   assignableResourceType: z.enum(["book", "chapter", "section", "block", "media", "comment"]),
   permissions: z.array(z.string().min(1)).min(1),
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const replaceContentRolePermissionsSchema = z.object({
   expectedVersion: z.number().int().positive(),
   permissions: z.array(z.string().min(1)).min(1),
-  reason: z.string().optional().nullable(),
+  reason: z.string().max(MAX_AUDIT_REASON_LENGTH).optional().nullable(),
 });
 
 export const contentIamListQuerySchema = listQuerySchema;
+export const contentIamBindingListQuerySchema = listQuerySchema.extend({
+  view: z.enum(["direct", "effective"]).default("direct"),
+});
 
 export const bookIdParamSchema = z.object({ bookId: idSchema });
 export const orgIdParamSchema = z.object({ orgId: idSchema });

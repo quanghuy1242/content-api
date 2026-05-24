@@ -9,7 +9,7 @@ import type { ContentRole } from "@/domain/iam/content-role.entity";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
-import { NotFoundError } from "@/shared/errors";
+import { NotFoundError, ValidationError } from "@/shared/errors";
 import {
   BOOK_POLICY_BINDINGS_CREATE_ROUTE,
   ORG_POLICY_BINDINGS_CREATE_ROUTE,
@@ -56,6 +56,9 @@ export class CreatePolicyBindingUseCase {
     if (!role) throw new NotFoundError("Content role not found");
 
     try {
+      if (role.namespaceId !== "system" && role.namespaceId !== resource.orgId) {
+        throw new NotFoundError("Content role not found");
+      }
       await this.administrationPolicy.authorizeBindingCreate({
         actor: params.actor,
         resource,
@@ -75,6 +78,10 @@ export class CreatePolicyBindingUseCase {
     }
     await this.validatePrincipal(params.input.principal, resource.orgId, resource.type, role);
 
+    const expiresAt = params.input.expiresAt ? new Date(params.input.expiresAt) : null;
+    if (expiresAt && expiresAt <= new Date()) {
+      throw new ValidationError("Policy binding expiration must be in the future");
+    }
     const binding = PolicyBinding.create({
       orgId: resource.orgId,
       principalType: params.input.principal.type,
@@ -82,7 +89,7 @@ export class CreatePolicyBindingUseCase {
       roleId: role.id,
       resourceType: resource.type,
       resourceId: resource.id,
-      expiresAt: params.input.expiresAt ? new Date(params.input.expiresAt) : null,
+      expiresAt,
       createdByType: "user",
       createdById: params.actor.type === "user" ? params.actor.subject : "service_account",
     });

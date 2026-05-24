@@ -5,8 +5,17 @@ import type { CursorPage } from "@/shared/pagination/cursor";
 
 export interface PolicyBindingRepository {
   findMany(params: { orgId: string; resourceType: string; resourceId: string; limit: number; cursor?: string }): Promise<CursorPage<PolicyBinding>>;
+  findManyForResources(params: { orgId: string; resources: readonly ResourceBindingRef[]; limit: number; cursor?: string }): Promise<CursorPage<PolicyBinding>>;
   findById(id: string): Promise<PolicyBinding | null>;
   findActiveBookOwner(params: { orgId: string; bookId: string; now: Date }): Promise<PolicyBinding | null>;
+  hasActiveDirectUserRoleBinding(params: {
+    orgId: string;
+    userId: string;
+    roleId: string;
+    resourceType: string;
+    resourceId: string;
+    now: Date;
+  }): Promise<boolean>;
   countActiveRoleBindings(params: {
     orgId: string;
     resourceType: string;
@@ -14,6 +23,7 @@ export interface PolicyBindingRepository {
     roleId: string;
     now: Date;
   }): Promise<number>;
+  countActiveBindingsForRole(params: { orgId: string; roleId: string; now: Date }): Promise<number>;
   create(binding: PolicyBinding): Promise<PolicyBinding>;
   delete(id: string): Promise<boolean>;
   hasAllowedPermission(params: {

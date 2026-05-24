@@ -55,11 +55,12 @@ export class CreateUserUseCase {
 
   private buildProjectionInput(actor: UserActor, input: CreateLocalUserProjectionInput): CreateUserProps {
     const projection = identityProjectionFromActor(actor);
+    const fallbackEmail = `${actor.subject}@id.local.invalid`;
     return {
       id: actor.subject,
-      email: projection.email,
-      fullName: projection.fullName,
-      avatar: projection.avatar,
+      email: projection.email ?? fallbackEmail,
+      fullName: projection.fullName ?? projection.email ?? fallbackEmail,
+      avatar: projection.avatar ?? null,
       bio: input.bio,
       role: "user",
     };

@@ -1,5 +1,6 @@
 import { assertAllowed } from "@/domain/authz/assert-can";
 import type { Actor } from "@/domain/authz/actor";
+import { requireContentScope } from "@/domain/authz/scopes";
 import type { DeferredGrantRepository } from "@/domain/deferred-grants/deferred-grant.repository";
 import { DeferredGrantPolicy } from "@/domain/deferred-grants/deferred-grant.policy";
 import { NotFoundError } from "@/shared/errors";
@@ -11,6 +12,7 @@ export class DeleteDeferredGrantUseCase {
   ) {}
 
   async execute(params: { actor: Actor; deferredGrantId: string }) {
+    requireContentScope(params.actor, "content:write");
     await assertAllowed(this.deferredGrantPolicy.canManage(params.actor), "Admin access required");
 
     const deleted = await this.deferredGrants.delete(params.deferredGrantId);
@@ -19,4 +21,3 @@ export class DeleteDeferredGrantUseCase {
     }
   }
 }
-

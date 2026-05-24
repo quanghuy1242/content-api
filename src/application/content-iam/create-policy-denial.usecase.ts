@@ -7,6 +7,7 @@ import { assertContentPermissionKey, type PrincipalRef } from "@/domain/iam/cont
 import { PolicyDenial } from "@/domain/iam/policy-denial.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import { ValidationError } from "@/shared/errors";
 import { BOOK_POLICY_DENIALS_CREATE_ROUTE, ORG_POLICY_DENIALS_CREATE_ROUTE } from "@/shared/constants";
 import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { deserializeDenialMutation, serializeDenialMutation } from "@/domain/iam/content-iam-snapshot";
@@ -62,6 +63,10 @@ export class CreatePolicyDenialUseCase {
       throw error;
     }
     await this.validatePrincipal(params.input.principal, resource.orgId, resource.type);
+    const expiresAt = params.input.expiresAt ? new Date(params.input.expiresAt) : null;
+    if (expiresAt && expiresAt <= new Date()) {
+      throw new ValidationError("Policy denial expiration must be in the future");
+    }
     const denial = PolicyDenial.create({
       orgId: resource.orgId,
       principalType: params.input.principal.type,
@@ -70,7 +75,7 @@ export class CreatePolicyDenialUseCase {
       resourceType: resource.type,
       resourceId: resource.id,
       appliesToDescendants: params.input.appliesToDescendants,
-      expiresAt: params.input.expiresAt ? new Date(params.input.expiresAt) : null,
+      expiresAt,
       reason: params.input.reason,
       createdByType: "user",
       createdById: params.actor.type === "user" ? params.actor.subject : "service_account",

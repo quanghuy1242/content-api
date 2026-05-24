@@ -46,6 +46,7 @@ export class ContentRole {
 
   disable() {
     this.props.enabled = false;
+    this.props.version += 1;
     this.touch();
   }
 

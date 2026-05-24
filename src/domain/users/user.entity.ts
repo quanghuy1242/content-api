@@ -13,7 +13,12 @@ export type UserProps = {
 
 export type CreateUserProps = Omit<UserProps, "createdAt" | "updatedAt">;
 
-export type IdentityProjectionUserProps = Pick<UserProps, "id" | "email" | "fullName" | "avatar">;
+export type IdentityProjectionUserProps = {
+  id: string;
+  email?: string;
+  fullName?: string;
+  avatar?: string | null;
+};
 
 export type UpdateUserProps = Partial<Omit<UserProps, "id" | "createdAt" | "updatedAt">>;
 
@@ -54,15 +59,15 @@ export class User {
 
   syncIdentityProjection(input: IdentityProjectionUserProps): boolean {
     let changed = false;
-    if (this.props.email !== input.email) {
+    if (input.email !== undefined && this.props.email !== input.email) {
       this.props.email = input.email;
       changed = true;
     }
-    if (this.props.fullName !== input.fullName) {
+    if (input.fullName !== undefined && this.props.fullName !== input.fullName) {
       this.props.fullName = input.fullName;
       changed = true;
     }
-    if (this.props.avatar !== input.avatar) {
+    if (input.avatar !== undefined && this.props.avatar !== input.avatar) {
       this.props.avatar = input.avatar;
       changed = true;
     }

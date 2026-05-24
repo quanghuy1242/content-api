@@ -1,3 +1,4 @@
+import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentResourceRef } from "@/domain/iam/content-resource";
 import { NotFoundError } from "@/shared/errors";
@@ -17,6 +18,10 @@ export async function loadContentResource(
 export async function loadBookResource(books: BookRepository, bookId: string): Promise<ContentResourceRef> {
   const book = await books.findById(bookId);
   if (!book) throw new NotFoundError("Book not found");
+  return bookResource(book);
+}
+
+export function bookResource(book: Book): ContentResourceRef {
   return {
     type: "book",
     id: book.id,

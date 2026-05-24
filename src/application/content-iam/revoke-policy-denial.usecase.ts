@@ -3,6 +3,7 @@ import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentAdministrationPolicy } from "@/domain/iam/content-administration.policy";
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { PolicyDenialRepository } from "@/domain/iam/policy-denial.repository";
+import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { NotFoundError } from "@/shared/errors";
 import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
@@ -21,12 +22,24 @@ export class RevokePolicyDenialUseCase {
     if (!denial || denial.resourceType !== resource.type || denial.resourceId !== resource.id) {
       throw new NotFoundError("Policy denial not found");
     }
-    await this.administrationPolicy.authorizeDenialMutation({
-      actor: params.actor,
-      resource,
-      permission: denial.permissionKey,
-      principal: { type: denial.principalType, id: denial.principalId },
-    });
+    try {
+      await this.administrationPolicy.authorizeDenialMutation({
+        actor: params.actor,
+        resource,
+        permission: denial.permissionKey,
+        principal: { type: denial.principalType, id: denial.principalId },
+      });
+    } catch (error) {
+      await recordDeniedPolicyMutation({
+        workflow: this.workflow,
+        actor: params.actor,
+        resource,
+        operation: "denial.revoke",
+        reason: error instanceof Error ? error.message : "Content IAM denial revoke denied",
+        requestId: params.requestId,
+      });
+      throw error;
+    }
     const event = PolicyEvent.create({
       orgId: resource.orgId,
       targetType: resource.type,

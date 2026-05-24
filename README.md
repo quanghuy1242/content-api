@@ -6,7 +6,7 @@ Cloudflare Workers content API built with Hono, D1, and Drizzle. This repo imple
 - `categories`
 - `posts`
 - `media` direct-to-R2 uploads, processor-generated variants, and API-served variant streaming
-- `books` as the first Content IAM resource boundary
+- `books` as the first collaborative product and Content IAM resource boundary
 - Content IAM permission/role/binding/denial/audit administration
 - legacy `grant-mirror`, `deferred-grants`, and `relationships` endpoints retained for first-batch compatibility; new content authorization uses Content IAM
 
@@ -27,9 +27,10 @@ Architecture planning documents and implementation status:
 - [docs/004_code-duplication-and-abstraction-linting.md](docs/004_code-duplication-and-abstraction-linting.md) — implemented
 - [docs/005_publish-lifecycle-adapter.md](docs/005_publish-lifecycle-adapter.md) — proposal
 - [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
-- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — implemented IAM substrate; full book hierarchy deferred
+- [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — IAM substrate and book product root implemented; descendant hierarchy in progress
 - [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
-- [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — planned
+- [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — in progress; BKH-A book product routes verified, descendant hierarchy pending
+- [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
 
 Auth is implemented as an OAuth2 resource server:
 
@@ -37,10 +38,12 @@ Auth is implemented as an OAuth2 resource server:
 - `iss` must match `AUTH_ISSUER`
 - `aud` must match `AUTH_AUDIENCE`
 - `scope` must include at least one accepted Content API scope from `AUTH_REQUIRED_SCOPE`; use cases enforce route-level `content:read`, `content:write`, or `content:share`
-- user actors use `sub` directly as `users.id`; content-api fills missing local profile/authorship projections from `id` token facts and does not create identity users, teams, or organizations
+- user actors use `sub` directly as `users.id`; content-api fills new local profile/authorship projections from available `id` token facts without erasing stored fields when optional profile claims are absent
 - direct-share user tokens have no `org_id`, no team authority, and cannot carry `content:share`
 - M2M tokens authenticate as service-account actors through `azp`/`client_id`, without implicit admin authority
 - Content IAM durable policy writes validate target users, teams, and service accounts through `id` principal-validation endpoints using an auto-refreshed client-credentials M2M token; hot-path object checks stay local
+- Content IAM protects sensitive delegation, custom-role tenant isolation, optimistic role updates, disabled-role binding lifecycle, first-admin bootstrap, last-admin revocation, and bounded denied-mutation audit storage through policy and D1 write guards
+- Book product routes require local `org.create_book`, atomically create one direct owner binding, support explicit-owner service-account imports, and gate private reads/updates through Content IAM
 
 ## Stack
 
@@ -172,7 +175,8 @@ Current automated coverage includes:
 - media upload lifecycle, idempotent create replay, and queue ack/retry behavior
 - happy paths across posts, media, users, and authz-admin resources
 - `id`-shaped user, direct-share, and service-account token fixtures
-- Content IAM bootstrap boundaries, binding, denial, ownership transfer, custom role, M2M principal-validation fetch/cache, last-admin invariant, expired binding recreation, path-scoped idempotency, and denial-precedence coverage
+- Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M principal-validation fetch/cache, and denial-precedence coverage
+- Book root creation, atomic owner binding, idempotent create replay/concurrency, direct-share root rejection, M2M explicit-owner import, private reads/updates, and public published reads
 
 ## Deployment
 

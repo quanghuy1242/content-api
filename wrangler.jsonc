@@ -23,6 +23,8 @@
 		"AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
 		"AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
 		"ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
+		"ID_PRINCIPAL_VALIDATION_CLIENT_ID": "content-api-principal-validation",  // TODO
+    	"ID_PRINCIPAL_VALIDATION_CLIENT_SECRET": "principal-validation-secret",  // TODO
 		"ID_PRINCIPAL_VALIDATION_AUDIENCE": "https://id.quanghuy.dev/principal-validation",
 		"ID_PRINCIPAL_VALIDATION_SCOPE": "identity:principals:validate",
 		"R2_BUCKET_NAME": "content-api-media",

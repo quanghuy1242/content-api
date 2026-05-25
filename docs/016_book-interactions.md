@@ -1,6 +1,6 @@
 # Book Interactions — Comments, Inline Comments, Bookmarks, Reading Progress
 
-> Status: implementation-grade proposal — ready for handoff (depends on docs/015)
+> Status: implementation-grade proposal — review amendments applied (depends on docs/015)
 >
 > Date: 2026-05-25
 >
@@ -28,6 +28,7 @@
 > - `docs/014_audit-service-stub.md` — moderation triggers come from here
 > - `docs/015_book-content-model.md`
 > - `docs/017_epub-import.md`
+> - `docs/018_review-batch-015-017.md` — review findings and amendment rationale
 > - `docs/009_book-resource-hierarchy-and-collaboration-plan.md` — **ABANDONED**; this document supersedes its comments/inline-comments/bookmarks/reading-progress sections
 >
 > Assumptions:
@@ -37,6 +38,7 @@
 > - Comments are first-party content authored by end users (readers + reviewers). Moderation is admin-facing through a separate API surface.
 > - Bookmarks and reading progress are user-private. They are deliberately **not** IAM-tracked resources; they are subject-scoped data stored in D1 and accessed only through hardcoded `actor.subject === row.userId` checks. `ContentPolicy.can(...)` is not on their hot path.
 > - "Public comments" still requires an authenticated actor. Anonymous commenting is out of scope for the first release.
+> - Moderation is a content action available only to workspace actors for the resource organization. It is not IAM policy administration, and direct-share actors may not moderate.
 > - Rate limiting for comments uses D1-counted windows for the first release. A KV/Durable-Object backed limiter is a future refinement.
 > - All mutation routes require `Idempotency-Key`. Soft-delete is the default for comments; reading progress and bookmarks are hard-deleted.
 
@@ -118,7 +120,7 @@ Non-goals:
 - Notifications, mentions, reactions.
 - Threaded conversations more than one level deep.
 - Cross-book bookmarks or progress aggregation analytics.
-- General audit logging (see docs/014 stub).
+- General audit logging (see docs/014 stub). Moderation actions are candidate general-audit triggers and do not write IAM `content_policy_events`.
 
 ## 2. System Summary
 
@@ -153,7 +155,8 @@ Bookmark write flow:
 ```text
 client -> POST /bookmarks { targetType: "chapter"|"book", targetId }
   -> require content:read
-  -> resolve target, ensure ContentPolicy.can(actor, "<target>.read", ref)
+  -> resolve target, ensure target is readable under docs/015
+     (published-public path or Content IAM path)
   -> hard upsert: (actor.subject, targetType, targetId) is unique
 ```
 
@@ -162,7 +165,7 @@ Reading progress write flow:
 ```text
 client -> PUT /chapters/{id}/reading-progress { progress: 0..100 }
   -> require content:read
-  -> resolve chapter, ensure ContentPolicy.can(actor, "chapter.read", chapterRef)
+  -> resolve chapter, ensure chapter is readable under docs/015
   -> upsert by (actor.subject, bookId, chapterId)
   -> if progress >= 100 and completedAt is null, set completedAt = now
 ```
@@ -300,9 +303,10 @@ new comment --> | pending| ----------------------> | approved |
 
 Rules:
 
+- All moderation transitions require an authenticated workspace user whose `organizationId` matches the chapter organization, plus the relevant `*.moderate` content permission. A direct-share actor cannot moderate even if it has reader/collaborator bindings.
 - `pending → approved`: requires `comment.moderate`. Sets `moderatedAt = now`, `moderatedByUserId = actor.subject`.
 - `pending → rejected` or `approved → rejected`: same permission. Optional `rejectionReason`.
-- `rejected → pending`: requires `comment.moderate` and the actor must be a direct organization content administrator. This path exists for false-positive recovery and is explicitly audited.
+- `rejected → pending`: requires `comment.moderate` and the actor must be a direct organization content administrator. This path exists for false-positive recovery and is a candidate general-audit trigger under docs/014.
 - `* → soft-deleted` (sets `deletedAt`): the author can soft-delete their own row within the edit window; a moderator can soft-delete any row.
 - `soft-deleted → undeleted`: not supported. If recovery is needed, an operator restores the row by direct D1 manipulation, and that operation should later be audited (docs/014).
 
@@ -380,7 +384,8 @@ Access:
 
 - All routes require an authenticated `user` actor (workspace or direct-share). M2M service accounts cannot read or write bookmarks. System actors cannot — these tables are user-owned by definition.
 - Authorization is hardcoded `actor.subject === row.userId`. `ContentPolicy.can(...)` is not used. This is the entire point of §5.3.
-- Before creating a bookmark, the use case must resolve the target and verify `ContentPolicy.can(actor, "<targetType>.read", ref)` so a user cannot bookmark a chapter they cannot read. This **is** an IAM call, but on the bookmarked content, not on the bookmark itself.
+- Before creating a bookmark, the use case resolves the target and applies docs/015's read decision: eligible published-public content is readable without a binding; private/draft/restricted content uses `ContentPolicy.can(actor, "<targetType>.read", ref)`. A user cannot bookmark a target they cannot read.
+- If the user later loses access to the target, the private bookmark row is retained. List/read responses omit or redact inaccessible target metadata until access returns; revocation does not silently delete the user's private history.
 
 Soft-delete vs hard-delete: bookmarks are **hard-deleted**. Users delete and re-create freely.
 
@@ -409,11 +414,12 @@ export const readingProgress = sqliteTable("reading_progress", {
 Access:
 
 - Same rules as bookmarks: user-only, hardcoded `actor.subject === row.userId`, no IAM evaluation on the row itself.
-- Before upsert, verify `ContentPolicy.can(actor, "chapter.read", chapterRef)` on the target chapter.
+- Before upsert, apply docs/015's read decision on the target chapter: published-public chapters pass the public path; restricted content must satisfy `ContentPolicy.can(actor, "chapter.read", chapterRef)`.
+- Existing progress rows remain private to their subject after target read access is revoked. List/read responses omit or redact inaccessible book/chapter metadata until access returns; new upserts continue to require current read access.
 
 Upsert semantics:
 
-- `PUT /chapters/{chapterId}/reading-progress { progress }` upserts a single row keyed on (`userId`, `chapterId`). `progress` is monotonic: an upsert with a smaller value than the stored value is silently ignored (returns the stored value). Forcing progress backwards is a `POST /chapters/{chapterId}/reading-progress/reset` action that is admin-only via `comment.moderate` (no separate `reading_progress.moderate`).
+- `PUT /chapters/{chapterId}/reading-progress { progress }` upserts a single row keyed on (`userId`, `chapterId`). `progress` is monotonic: an upsert with a smaller value than the stored value is silently ignored (returns the stored value). The subject may reset their own progress through `POST /chapters/{chapterId}/reading-progress/reset`; there is no administrator reset in the first release.
 - When `progress >= 100`, `completedAt` is set on the upsert; lowering progress later does not clear `completedAt` (a completion is sticky).
 - `lastReadAt` is set on every upsert regardless of progress change.
 
@@ -432,10 +438,10 @@ Permission catalog state in [src/domain/iam/content-permission.ts](../src/domain
 | Key | Current delegation class | This doc's required class | Description |
 |---|---|---|---|
 | `comment.create` | `ordinary` | `ordinary` (unchanged) | Post a comment on a chapter. |
-| `comment.moderate` | `ordinary` | **`policy_management` — change required** | Approve, reject, reset-to-pending, soft-delete other comments. |
+| `comment.moderate` | `ordinary` | `ordinary` (unchanged) | Approve, reject, reset-to-pending, soft-delete other comments; route/use-case additionally requires workspace actor context. |
 | `inline_comment.create` | `ordinary` | `ordinary` (unchanged) | Drop or reply to inline comments; resolve open inline comments. |
 
-The `comment.moderate` delegation class is upgraded by this doc's migration from `ordinary` to `policy_management`. Rationale: moderation actions are policy-class — they affect content visibility for other users — and direct-share tokens (which cannot hold `content:share`) must not be able to hold them. The migration script must also re-derive any tenant role whose `derived_delegation_class` includes `comment.moderate`; the existing `deriveDelegationClass` helper (`src/domain/iam/content-permission.ts:295`) already computes the highest class on read, so persisted role rows are not affected — only newly created roles will pick up the higher class on save.
+Moderation affects visible content, but it is not a binding/denial/role-administration operation. Upgrading it to `policy_management` would prohibit useful ordinary moderator roles and would not itself enforce workspace actor context at the use case. This plan keeps moderation ordinary and explicitly adds the workspace-only guard described in §4.2.
 
 **Net-new permissions to add**:
 
@@ -447,13 +453,13 @@ The `comment.moderate` delegation class is upgraded by this doc's migration from
 | `inline_comment.read` | `ordinary` | Read inline comments on a chapter. |
 | `inline_comment.update` | `ordinary` | Edit own inline comment within the window. |
 | `inline_comment.delete` | `ordinary` | Soft-delete own inline comment within the window. |
-| `inline_comment.moderate` | `policy_management` | Reject inline comments. |
+| `inline_comment.moderate` | `ordinary` | Reject inline comments; route/use-case additionally requires workspace actor context. |
 
 **Vestigial key to leave alone**: `block.comment`. The catalog row exists from earlier scope (per-block IAM, rejected by docs/015 §5.2). Not used; do not remove as part of this PR.
 
 Notes:
 
-- `comment.moderate` and `inline_comment.moderate` are `policy_management` — not platform admin, but elevated enough that direct-share tokens cannot hold them (direct-share tokens lack `content:share` scope which is required for `policy_management` actions; the policy evaluator already rejects this combination).
+- `comment.moderate` and `inline_comment.moderate` remain ordinary content permissions. A dedicated moderation guard rejects actors without matching workspace organization context, so direct-share collaborators cannot use moderation even if mistakenly assigned a role containing a moderation key.
 - `*.read` is generally redundant for collaborators (the inherited `chapter.read` already permits comment reads in our model — see §5.2), but is included so a tenant can build a "read-only commenter" role that can leave comments but cannot read other private content.
 
 Built-in role audit:
@@ -463,7 +469,8 @@ Built-in role audit:
 - `system:book.editor` — **already carries** `comment.create`, `inline_comment.create`. Same additions as `system:book.author`.
 - `system:book.reviewer` — **already carries** `comment.create`, `inline_comment.create`. Add `comment.read`, `inline_comment.read`. Do **not** add update/delete (reviewers cannot edit their own comments after the window; same default as the rest, but reviewers do not need the `*.update`/`*.delete` capabilities for collaboration since they are commenters, not authors of comments-as-work-product).
 - `system:book.reader` — **already carries** `book.read`, `chapter.read`, `media.read`. Add `comment.read`, `inline_comment.read`. The reader role does not gain create perms; tenants who want a "reader-plus-comment" role can create one.
-- `system:org.content_admin` — add all net-new keys plus the `*.moderate` ones (`comment.moderate` is already on it via the earlier 007 design? — verify; if missing, add). Confirm with the implementer that org admin holds moderation.
+- `system:org.content_admin` — add all net-new keys plus the `*.moderate` ones (`comment.moderate` is already on it via the earlier 007 design? — verify; if missing, add).
+- An organization may assign an ordinary workspace moderator role containing only `comment.moderate`, `inline_comment.moderate` and required read permissions. That role grants no IAM management ability.
 
 A new built-in role `system:book.commenter` is **not** introduced; tenants can compose one from the existing primitives.
 
@@ -513,7 +520,7 @@ Reading progress:
 - `GET /chapters/{chapterId}/reading-progress` — read actor's progress on this chapter (or 404 if never read).
 - `GET /books/{bookId}/reading-progress` — list actor's progress across all readable chapters of the book.
 - `GET /users/me/reading-progress?limit=...&cursor=...` — list across all books.
-- `POST /chapters/{chapterId}/reading-progress/reset` — admin-only force-reset (requires `comment.moderate` as a stand-in for "elevated user-data action" until a dedicated permission is needed).
+- `POST /chapters/{chapterId}/reading-progress/reset` — reset the authenticated subject's own progress; no cross-user administrative reset in v1.
 
 All mutation routes require `Idempotency-Key`. All routes are OpenAPI-registered.
 
@@ -527,7 +534,7 @@ The shared author/edit-window/soft-delete behavior lives in shared use-case help
 
 ### 5.2 Two Policy Surfaces — Public And Moderation
 
-Comments are first-class user-generated content. The public API (`POST /chapters/{id}/comments`) is gated by the chapter's content read/write permissions plus comment-specific permissions. The moderation API is gated by `comment.moderate`. These two surfaces are deliberately **separate routes**, not flags on the same route, because:
+Comments are first-class user-generated content. The public API (`POST /chapters/{id}/comments`) is gated by the chapter's content read/write permissions plus comment-specific permissions. The moderation API is gated by `comment.moderate` plus a matching-workspace actor check. These two surfaces are deliberately **separate routes**, not flags on the same route, because:
 
 - Auditing is clearer: a moderation action always lives at `/comments/{id}:<action>`, never inside `PATCH /comments/{id}`.
 - OpenAPI schemas for "public commenter" and "moderator" diverge in the fields they can write (e.g., the public route never accepts `status`).
@@ -545,7 +552,7 @@ Bookmarks and reading progress are subject-private. They are never shared, never
 
 Hardcoding `actor.subject === row.userId` in the use case is correct here. The cost is that the architecture lint rule "use cases must call ContentPolicy.can(...)" does not apply to these use cases; this is allowed because the rule's intent is satisfied by the harder ownership check.
 
-The use case still asks `ContentPolicy.can(actor, "chapter.read", chapterRef)` on the **chapter being progressed/bookmarked** — that is an IAM call on a different resource, and it stays.
+The use case still applies the chapter-readable rule from docs/015 on the **chapter being progressed/bookmarked**: Content IAM for restricted content and the published-public read path for eligible public chapters. That access decision is about the target, not about sharing the private row.
 
 ### 5.4 Soft-Delete Comments, Hard-Delete Read State
 
@@ -573,7 +580,7 @@ Putting rate limiting in middleware is rejected because:
 ### 5.7 Rejected Or Deferred Options
 
 - **Per-tenant configurable rate limits.** Deferred. First-release limits are constants.
-- **Per-tenant auto-approve toggle.** Deferred. First-release default is `status = "pending"` and the route requires explicit moderation. Tenants who want auto-approve can implement it by binding `comment.moderate` to a system service account that polls and approves; that is a workaround, not a clean solution, but it unblocks the use case without committing to the toggle.
+- **Per-tenant auto-approve toggle.** Deferred. First-release default is `status = "pending"` and the route requires explicit workspace moderation. A service-account moderation workaround is not adopted because moderation is intentionally workspace-actor-only in this release.
 - **Anonymous commenting.** Out of scope for the first release.
 - **Mentions, notifications, reactions.** Future, separate doc.
 - **Multi-level threading.** Deferred. The product can ship with one-level threading.
@@ -712,11 +719,12 @@ Implementation tasks:
 
 - [ ] `approve-comment.usecase.ts`, `reject-comment.usecase.ts`, `reset-comment-to-pending.usecase.ts`, `moderator-soft-delete-comment.usecase.ts`. All require `comment.moderate`. `reset-to-pending` additionally requires the actor be a direct organization content administrator (re-use the existing `ContentAdministrationPolicy` check used for protected delegation in IAM).
 - [ ] `reject-inline-comment.usecase.ts`.
-- [ ] Each use case writes a `content_policy_events` row tagged with the moderation action, snapshot containing `{ commentId, fromStatus, toStatus, reason? }`. This is the only audit signal until docs/014 is implemented.
+- [ ] Add a shared `requireWorkspaceModerator(actor, resourceOrgId)` guard used by all moderation use cases before evaluating the ordinary moderation content permission.
+- [ ] Do not write moderation actions to `content_policy_events`. If audit is promoted from docs/014 before launch, record them through `audit_events`; otherwise these remain documented candidate triggers.
 
 Tests:
 
-- `tests/comments.moderation.test.ts` covers each transition and the policy-events write.
+- `tests/comments.moderation.test.ts` covers each transition, workspace-only guard, direct-share denial and absence of IAM policy-event writes for moderation.
 
 ### 7.6 Bookmarks Schema And Use Cases
 
@@ -726,13 +734,13 @@ Implementation tasks:
 - [ ] `src/domain/reading/bookmark.entity.ts` (small entity; `static create(...)`, `toSnapshot()`).
 - [ ] `src/domain/reading/bookmark.repository.ts`: `findByUserAndTarget`, `listByUser({ userId, bookId?, targetType?, limit, cursor })`, `save`, `delete`.
 - [ ] Drizzle adapter, mapper.
-- [ ] `src/application/reading/create-bookmark.usecase.ts` — resolves target, asserts target read permission, inserts row. Re-creating an existing bookmark is treated as idempotent.
-- [ ] `src/application/reading/list-bookmarks.usecase.ts` — hardcoded `actor.subject` scope.
+- [ ] `src/application/reading/create-bookmark.usecase.ts` — resolves target, applies docs/015 target-readable behavior, inserts row. Re-creating an existing bookmark is treated as idempotent.
+- [ ] `src/application/reading/list-bookmarks.usecase.ts` — hardcoded `actor.subject` scope; redacts target presentation for rows whose targets are no longer readable.
 - [ ] `src/application/reading/delete-bookmark.usecase.ts` — hard-delete; requires `actor.subject === row.userId`.
 
 Tests:
 
-- `tests/bookmarks.test.ts` covers create/list/delete + permission rejection (cannot read target → cannot bookmark).
+- `tests/bookmarks.test.ts` covers create/list/delete, target-readable behavior for public chapters, permission rejection for restricted targets and revoked-access redaction.
 
 ### 7.7 Reading Progress Schema And Use Cases
 
@@ -742,23 +750,24 @@ Implementation tasks:
 - [ ] `src/domain/reading/reading-progress.entity.ts` with `upsert({ progress })` honoring the monotonic rule and `lastReadAt` update.
 - [ ] `src/domain/reading/reading-progress.repository.ts`.
 - [ ] `src/application/reading/upsert-reading-progress.usecase.ts` — hardcoded subject, monotonic.
-- [ ] `src/application/reading/get-reading-progress.usecase.ts`.
-- [ ] `src/application/reading/list-book-progress.usecase.ts` — actor's progress across a book.
-- [ ] `src/application/reading/list-user-progress.usecase.ts` — actor's progress across all books, cursor-paginated.
-- [ ] `src/application/reading/reset-reading-progress.usecase.ts` — admin-only via `comment.moderate` (stand-in until a dedicated permission is needed).
+- [ ] `src/application/reading/get-reading-progress.usecase.ts` — returns only the subject's row and redacts inaccessible target presentation.
+- [ ] `src/application/reading/list-book-progress.usecase.ts` — actor's progress across a book, redacting chapter presentation after revoked access.
+- [ ] `src/application/reading/list-user-progress.usecase.ts` — actor's progress across all books, cursor-paginated with inaccessible target redaction.
+- [ ] `src/application/reading/reset-reading-progress.usecase.ts` — authenticated subject resets only their own progress row; no moderator/admin reset path in v1.
 
 Tests:
 
-- `tests/reading-progress.test.ts` covers upsert monotonicity, completion sticky behavior, M2M rejection.
+- `tests/reading-progress.test.ts` covers upsert monotonicity, completion sticky behavior, subject-only reset, access-revocation redaction and M2M rejection.
 
 ### 7.8 IAM Permissions And Built-in Roles
 
 Implementation tasks:
 
-- [ ] Add new permission keys per §4.7.
+- [ ] Add new permission keys per §4.7, keeping moderation keys in the ordinary delegation class.
 - [ ] Update built-in role permission lists.
 - [ ] Implement `commentResource(...)` and `inlineCommentResource(...)` in `resource-loader.ts`.
 - [ ] Add the new IAM test fixtures covering inheritance from chapter to comment.
+- [ ] Implement/test the workspace-only moderation actor guard; do not attempt to enforce it by changing delegation class.
 
 Tests:
 
@@ -812,12 +821,13 @@ Documentation:
 | Chapter update removes a block with open inline comments | After the chapter update commits, the inline-comment repository marks those comments orphaned. If the orphan write fails, the chapter update is **not** rolled back; the orphan write is retried by a small bounded-retry helper in the use case (3 attempts, exponential backoff). Persistent failure is logged but does not surface to the chapter-update caller. |
 | Moderator attempts to moderate a comment on a chapter they cannot read | `403 Forbidden`. Moderation requires both `comment.moderate` and inherited `chapter.read`. |
 | User attempts to bookmark a chapter they cannot read | `403 Forbidden`. |
-| Direct-share user attempts to use `comment.moderate` | Rejected at the scope layer (direct-share tokens cannot hold `content:share`, which is required for `policy_management` permissions). |
+| Direct-share user attempts to use `comment.moderate` | `403 Forbidden` from the workspace-moderator guard; moderation is ordinary content authority restricted to matching workspace actors. |
 | Service account attempts to create a comment | `403 Forbidden`. Comments require a user actor. |
 | Service account attempts to bookmark or update progress | `403 Forbidden`. |
 | Anonymous request to any of these routes | `401 Unauthorized`. |
 | Two concurrent upserts of reading progress | The unique index makes one INSERT succeed and the other gets caught at the use-case level as an existence collision; the use case retries as an UPDATE. The monotonic rule means concurrent progresses settle on the maximum. |
-| User unread-reset attempt while not an admin | `403 Forbidden`. |
+| User resets their own reading progress | Accepted for their row; no admin/moderator authority is involved. |
+| User loses access after creating bookmark/progress rows | Private rows are retained, but list/read responses redact or omit inaccessible target metadata until access returns. |
 | Imported book (docs/015 §4.5) has chapters that are still being created when a reader tries to comment | Allowed iff the chapter is in `status = "published"`. Pending chapters are not readable, so comment creation fails at the read check. |
 
 ## 10. Implementation Backlog
@@ -907,12 +917,13 @@ Scope:
 Tasks:
 
 - [ ] Implement all use cases.
-- [ ] Each writes a `content_policy_events` row.
+- [ ] Each calls the matching-workspace moderator guard and never writes content actions to `content_policy_events`.
 - [ ] `reset-to-pending` requires direct organization content administrator.
 
 Acceptance criteria:
 
-- Moderation transitions emit policy events.
+- Moderation transitions are accepted only for workspace actors with moderation permission; direct-share actors are denied.
+- No moderation transition is persisted as an IAM policy event; general audit is supplied only if docs/014 is promoted.
 - `reset-to-pending` is rejected for a binding-derived `comment.moderate` holder who is not a direct org admin.
 
 Tests:
@@ -934,7 +945,8 @@ Tasks:
 
 - [ ] Implement domain + persistence.
 - [ ] Use cases enforce `actor.subject === row.userId` after-create.
-- [ ] Create rejects if `ContentPolicy.can(actor, "<targetType>.read", ref)` is false.
+- [ ] Create applies docs/015 target-readable behavior; restricted unreadable targets reject, while eligible public content does not require a binding.
+- [ ] List retains rows after access revocation but redacts inaccessible target presentation.
 
 Acceptance criteria:
 
@@ -960,12 +972,13 @@ Tasks:
 
 - [ ] Implement domain + persistence.
 - [ ] Upsert is monotonic and sticky on completion.
-- [ ] Reset requires `comment.moderate`.
+- [ ] Reset is subject-only; do not expose cross-user administrative reset in v1.
 
 Acceptance criteria:
 
 - Upsert with lower value than stored returns stored value.
 - Progress >= 100 sets `completedAt`; subsequent lower upsert keeps `completedAt`.
+- Revoked content access does not delete private progress; it redacts inaccessible target presentation.
 
 Tests:
 
@@ -977,21 +990,22 @@ Scope:
 
 - `src/domain/iam/content-permission.ts`
 - `src/domain/iam/resource-loader.ts`
-- migration that upgrades the persisted `delegation_class` of `comment.moderate`
+- moderation workspace-actor policy/guard
 
 Tasks:
 
 - [ ] Add **net-new** permission keys per §4.7: `comment.read`, `comment.update`, `comment.delete`, `inline_comment.read`, `inline_comment.update`, `inline_comment.delete`, `inline_comment.moderate`. (Already in `CONTENT_PERMISSIONS`: `comment.create`, `comment.moderate`, `inline_comment.create`. Do not redeclare.)
-- [ ] Upgrade `comment.moderate.delegationClass` from `"ordinary"` to `"policy_management"` in the code constant; ship a migration that updates the persisted `content_permissions.delegation_class` row.
+- [ ] Keep `comment.moderate` and add `inline_comment.moderate` as `"ordinary"` content permissions.
 - [ ] Append the seven net-new keys to `system:book.owner.permissions` and `system:book.author.permissions` / `system:book.editor.permissions` per §4.7.
 - [ ] Append `comment.read` and `inline_comment.read` to `system:book.reviewer` and `system:book.reader`.
 - [ ] Verify `system:org.content_admin` carries `comment.moderate` and `inline_comment.moderate`; add if missing.
 - [ ] Implement `commentResource` and `inlineCommentResource`.
+- [ ] Add `requireWorkspaceModerator` to moderation use cases so direct-share users cannot invoke these permissions.
 
 Acceptance criteria:
 
 - Existing IAM tests pass.
-- A direct-share token (no `content:share` scope) cannot be granted any role that carries `comment.moderate` (the policy evaluator rejects the combination because the upgraded delegation class is now `policy_management`).
+- A direct-share actor cannot execute a moderation transition even if an ordinary role assignment accidentally includes a moderation key.
 - New tests cover the chapter → comment inheritance path.
 
 Tests:
@@ -1054,6 +1068,7 @@ Tests:
 - **Book-level comments.** Add `target_type` column and accept `book` as a target.
 - **Lexical-bodied comments** with limited inline marks. Adds validation cost; punt until a product need.
 - **Cross-user reading lists / public bookmarks.** Out of scope.
+- **Administrative reading-progress reset.** Deferred until a support/privacy use case justifies a dedicated permission and general-audit behavior; it must not reuse comment moderation authority.
 - **Aggregate analytics** (e.g., "what percent of users finish this book"). Operator dashboard, separate doc.
 - **Audit log integration** for moderation actions and inline-comment orphan events. Owned by docs/014.
 
@@ -1080,16 +1095,16 @@ Coverage targets:
   - edit window;
   - cannot-read-target → cannot-comment;
   - moderator on un-readable chapter → 403;
-  - direct-share token cannot moderate;
+  - direct-share token cannot moderate through the workspace-moderator guard;
   - service account cannot comment or bookmark;
-  - reading progress monotonicity + completion stickiness;
+  - reading progress monotonicity, completion stickiness, subject-only reset and revoked-access redaction;
   - block orphan cascade after chapter edit.
 - HTTP integration tests cover the OpenAPI surface and `Idempotency-Key` replay.
 
 Manual smoke (against `wrangler dev`):
 
 - Sign in as a reader, comment, reply, edit, soft-delete.
-- Sign in as a moderator, list pending, approve, reject, reset-to-pending (verify org-admin requirement).
+- Sign in as a workspace moderator, list pending, approve, reject, reset-to-pending (verify org-admin requirement for reset-to-pending and direct-share denial for all moderation).
 - Sign in as a collaborator, drop an inline comment; edit chapter to remove the anchored block; verify the inline comment shows as orphaned in the moderation list.
 - Sign in as a reader, bookmark a chapter; read it; verify progress upsert and completion sticky.
 
@@ -1097,8 +1112,9 @@ Manual smoke (against `wrangler dev`):
 
 - All four tables exist; the migration applies to a fresh D1.
 - All public and moderation routes from §4.8 are reachable, OpenAPI-documented, and Vitest-integrated.
-- `comment.moderate` and `inline_comment.moderate` are policy-management class and are enforced at the route + use case level.
-- Bookmarks and reading progress are subject-scoped, never IAM-evaluated on the row, and rejected for M2M / system actors.
+- `comment.moderate` and `inline_comment.moderate` remain ordinary content permissions and are gated by matching-workspace actor checks at the moderation use-case boundary.
+- Bookmarks and reading progress are subject-scoped, never IAM-evaluated on the row, retained with inaccessible target redaction after revocation, and rejected for M2M / system actors.
+- No content moderation action is written to IAM-only `content_policy_events`.
 - Removing a block from a chapter atomically (logically; via the bounded retry helper) marks affected open inline comments as orphaned.
 - `corepack pnpm check` passes.
 - `corepack pnpm advise` is green or carries documented suppressions only.

@@ -1,6 +1,6 @@
 # Book Content Model
 
-> Status: implementation-grade proposal — ready for handoff
+> Status: implementation-grade proposal — review amendments applied; chapter-lock launch choice remains to be confirmed
 >
 > Date: 2026-05-25
 >
@@ -31,16 +31,19 @@
 > - `docs/014_audit-service-stub.md` — audit triggers from this doc
 > - `docs/016_book-interactions.md` — comments + reading state on top of this model
 > - `docs/017_epub-import.md` — import pipeline consumes this model
+> - `docs/018_review-batch-015-017.md` — review findings and amendment rationale
 > - `docs/009_book-resource-hierarchy-and-collaboration-plan.md` — **ABANDONED**; remaining work absorbed into this document plus 016 and 017
 >
 > Assumptions:
 >
-> - Content IAM (docs/007) is operational. Every chapter operation goes through `ContentPolicy.can(actor, permission, resource)` with the chapter resource's ancestors set to `[parent-chapter…, book, org]`.
+> - Content IAM (docs/007) is operational. Chapter mutations and non-public reads go through `ContentPolicy.can(actor, permission, resource)` with ancestors `[parent-chapter…, book, org]`; anonymous published-public reads use the explicit public path in §4.7.1.
 > - The Content Lifecycle Plugin (docs/012) is operational. Chapters and Books use the plugin's `draft → scheduled → published → archived` machine. This document does not redefine lifecycle vocabulary; it lists which permissions and adapters chapters add.
 > - Block content is validated by Zod at the API boundary and stored as a single JSON column on `chapters.content_json`. There is **no** `blocks` table.
 > - The configurable max chapter depth defaults to 4 (book is depth 0; root chapter is depth 1; deepest leaf chapter is depth 4). The config lives in an environment-validated constant, not in user data.
 > - `media` already exists with the upload-and-derivatives pipeline from docs/002 / architecture §14. This doc adds attachment tracking; it does not change media's own lifecycle.
 > - Chapter content edits do not block on media-processor finishing variant generation. The chapter references the `media.id`; the renderer is responsible for falling back to `lowResUrl` or a placeholder if variants are not ready.
+> - A published chapter in a public published book is anonymously readable without an `id` user, unless an optional listed-lock gate is explicitly selected in §4.7.1.
+> - Word-count and aggregate count metadata are derived asynchronously; canonical chapter saves and publication do not wait for metric recomputation.
 > - Comments, inline comments, bookmarks, and reading progress are **not** in this doc. See docs/016. Internal-link **resolution** is in docs/017; internal-link **node shape** is in this doc.
 
 ## Table Of Contents
@@ -53,13 +56,17 @@
   - [3.3 Current Problems](#33-current-problems)
 - [4. Target Model](#4-target-model)
   - [4.1 Resource Hierarchy](#41-resource-hierarchy)
+    - [4.1.1 Book Fields Introduced Or Affected By This Plan](#411-book-fields-introduced-or-affected-by-this-plan)
   - [4.2 Recursive Chapter Table](#42-recursive-chapter-table)
   - [4.3 Chapter Lexical Content Schema](#43-chapter-lexical-content-schema)
+    - [4.3.1 Additional Authoring Validation Contract](#431-additional-authoring-validation-contract)
   - [4.4 Book Cover And Media Attachments](#44-book-cover-and-media-attachments)
   - [4.5 Book Origin And Auto-Promotion](#45-book-origin-and-auto-promotion)
   - [4.6 Replace-Existing-Book Destructive Workflow](#46-replace-existing-book-destructive-workflow)
   - [4.7 Content IAM Wiring](#47-content-iam-wiring)
+    - [4.7.1 Public Reading And Optional Listed Locks](#471-public-reading-and-optional-listed-locks)
   - [4.8 HTTP API Surface](#48-http-api-surface)
+  - [4.9 Derived Count Metadata](#49-derived-count-metadata)
 - [5. Architecture Decisions](#5-architecture-decisions)
   - [5.1 Recursive Chapter, Not Section/Block Tables](#51-recursive-chapter-not-sectionblock-tables)
   - [5.2 Block IDs Live In Lexical JSON, Not As Rows](#52-block-ids-live-in-lexical-json-not-as-rows)
@@ -78,6 +85,7 @@
   - [7.6 Content IAM Permission And Role Updates](#76-content-iam-permission-and-role-updates)
   - [7.7 HTTP Routes And Presenters](#77-http-routes-and-presenters)
   - [7.8 Composition And Wiring](#78-composition-and-wiring)
+  - [7.9 Derived Count Processing](#79-derived-count-processing)
 - [8. Migration And Rollout](#8-migration-and-rollout)
 - [9. Edge Cases And Failure Modes](#9-edge-cases-and-failure-modes)
 - [10. Implementation Backlog](#10-implementation-backlog)
@@ -89,6 +97,7 @@
   - [BCM-F. Content IAM Permissions And Built-in Roles](#bcm-f-content-iam-permissions-and-built-in-roles)
   - [BCM-G. HTTP Routes And Presenters](#bcm-g-http-routes-and-presenters)
   - [BCM-H. Documentation And Cleanup](#bcm-h-documentation-and-cleanup)
+  - [BCM-I. Derived Count Metadata](#bcm-i-derived-count-metadata)
 - [11. Future Backlog](#11-future-backlog)
 - [12. Test And Verification Plan](#12-test-and-verification-plan)
 - [13. Definition Of Done](#13-definition-of-done)
@@ -104,14 +113,16 @@ After this work lands:
 - Chapter content is a typed Lexical JSON document with stable block IDs that comments and inline comments can anchor to.
 - Chapters can hold cross-chapter links (`chapter-link`) and unresolvable-link fallbacks (`broken-link`) — both are platform concepts; no raw EPUB href ever reaches D1.
 - Books can hold a cover and chapters can embed media; both reference `media.id` via tracked attachments and require `media.attach` on the target.
-- Books carry an `origin` that auto-flips from `imported` to `platform` on first content mutation; "replace existing book" is an explicit, audited destructive workflow, not a hook side-effect.
+- Books carry an `origin` that auto-flips from `imported` to `platform` on first content mutation after import completion; "replace existing book" is an explicit destructive workflow and candidate general-audit trigger, not a hook side-effect.
+- Public published chapters inherit anonymous readability from a public published book; IAM remains the path for private, draft and collaborator-only content.
+- Word count per chapter and aggregate chapter/word counts per book are asynchronously computed projections over canonical content.
 - Generic `PATCH /books/:id` and `PATCH /chapters/:id` cannot mutate lifecycle status (docs/012) and cannot mutate `origin` (this doc).
 
 Non-goals:
 
 - Comments, inline comments, bookmarks, and reading progress (see docs/016).
 - The EPUB import worker itself (see docs/017).
-- A general resource audit log (see docs/014). This doc lists audit triggers but does not implement the audit subsystem.
+- A general resource audit log (see docs/014). This doc lists candidate audit triggers but does not write content actions to the IAM-only `content_policy_events` stream.
 - Real-time collaborative editing of chapter content. Updates are last-writer-wins at the chapter row level; `updated_at` + an optimistic `version` column enables compare-and-set.
 - Block-level IAM bindings. Permissions go up to chapter granularity; finer-grained bindings are explicitly rejected (see §5.2).
 
@@ -147,13 +158,13 @@ Replace-existing-book flow:
 
 ```text
 client
-  -> POST /books/{bookId}:replace { newImportObjectKey, ... }
+  -> POST /books/{bookId}/replace { newImportObjectKey, ... }
        starts a destructive workflow:
          - archives book{bookId} (status -> archived, replaced_by_book_id set)
          - creates book{newId}   (origin = "imported")
          - transfers all policy bindings from old book to new book
          - kicks off an EPUB import targeting newId         (docs/017)
-       client polls book{newId} for import status
+       client polls the associated book_imports row for import status
 ```
 
 Chapter content lifecycle inside a request:
@@ -246,6 +257,23 @@ export function chapterResource(chapter: Chapter): ContentResourceRef {
 
 `ancestorChapterRefs()` is derived from the chapter row's materialized `ancestor_chapter_ids_json` column (§4.2). Walking parents one row at a time per request is rejected for read amplification reasons.
 
+#### 4.1.1 Book Fields Introduced Or Affected By This Plan
+
+This plan extends `Book` only where chapter authoring needs a stable book-level contract. It does not absorb lifecycle state from docs/012 or import execution state from docs/017.
+
+| Concern | Field or representation | Decision in this plan |
+|---|---|---|
+| Existing identity/title/owner | `id`, `orgId`, `title`, `createdByUserId` | Retain existing book contract. |
+| Public visibility | `visibility` | Retain; a `public` and `published` book can expose eligible published chapters anonymously (§4.7.1). |
+| Lifecycle | `status`, `scheduledAt`, `publishedAt`, `archivedAt` | Owned by docs/012; referenced, not redefined here. |
+| Bibliographic metadata | `description`, `language`, `subjectsJson`, `publisher`, `publicationDate`, `isbn` | Adopt as mutable book metadata with validation in §4.3.1. |
+| Cover | `coverMediaId` plus one tracked book attachment | Adopt; governed by §4.4. |
+| Origin/provenance | `origin`, `originSourceImportId`, `replacedByBookId` | Adopt; governed by §§4.5–4.6. These fields are provenance, not processing status. |
+| Derived counts | `chapterCount`, `totalWordCount` presented from `book_content_metrics` | Adopt as asynchronous projection metadata (§4.9), not lifecycle state. |
+| Slug/public URL key | `slug` | Deferred until public URL and rename/redirect behavior is selected. Do not add solely for Payload parity. |
+| Author credits/co-authors | separate attribution model | Deferred. `createdByUserId` and IAM bindings are not a public contributor-credit model. |
+| Import status/history/errors | `book_imports` rows | Explicitly excluded from `books`; owned by docs/017. |
+
 ### 4.2 Recursive Chapter Table
 
 Schema (Drizzle):
@@ -255,12 +283,13 @@ export const chapters = sqliteTable("chapters", {
   id: text("id").primaryKey(),
   orgId: text("org_id").notNull(),
   bookId: text("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
-  parentChapterId: text("parent_chapter_id"),
+  parentChapterId: text("parent_chapter_id")
+    .references((): AnySQLiteColumn => chapters.id, { onDelete: "restrict" }),
   // materialized ancestry, nearest-first, JSON array of chapter IDs;
   // empty array when parentChapterId is null
   ancestorChapterIdsJson: text("ancestor_chapter_ids_json", { mode: "json" }).notNull().default("[]"),
   depth: integer("depth").notNull(),                // 1..MAX_CHAPTER_DEPTH
-  orderIndex: integer("order_index").notNull(),     // dense unique per (bookId, parentChapterId)
+  orderIndex: integer("order_index").notNull(),     // unique per sibling set; workflows keep it dense
   title: text("title").notNull(),
   slug: text("slug").notNull(),                     // unique per (bookId, parentChapterId)
   contentJson: text("content_json", { mode: "json" }).notNull(),
@@ -276,7 +305,18 @@ export const chapters = sqliteTable("chapters", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [
   index("chapters_book_parent_order_idx").on(table.bookId, table.parentChapterId, table.orderIndex),
-  uniqueIndex("chapters_book_parent_slug_unique_idx").on(table.bookId, table.parentChapterId, table.slug),
+  uniqueIndex("chapters_root_slug_unique_idx")
+    .on(table.bookId, table.slug)
+    .where(sql`${table.parentChapterId} IS NULL`),
+  uniqueIndex("chapters_child_slug_unique_idx")
+    .on(table.bookId, table.parentChapterId, table.slug)
+    .where(sql`${table.parentChapterId} IS NOT NULL`),
+  uniqueIndex("chapters_root_order_unique_idx")
+    .on(table.bookId, table.orderIndex)
+    .where(sql`${table.parentChapterId} IS NULL`),
+  uniqueIndex("chapters_child_order_unique_idx")
+    .on(table.bookId, table.parentChapterId, table.orderIndex)
+    .where(sql`${table.parentChapterId} IS NOT NULL`),
   index("chapters_book_status_idx").on(table.bookId, table.status),
   index("chapters_parent_idx").on(table.parentChapterId),
   index("chapters_scheduled_idx")
@@ -297,10 +337,11 @@ Move semantics:
 - Moving a subtree atomically rewrites every descendant's `depth` and `ancestorChapterIdsJson`. This is done in the `move-chapter` workflow (see §7.1) and uses `db.batch(...)` in the infrastructure workflow port.
 - Cross-book moves are rejected. Cross-org moves are rejected (already covered by ancestor-org check in Content IAM).
 - Moving into a descendant of self is rejected as a cycle.
+- Sibling order indexes are unique by database constraint. Create, move and reorder workflows compact the affected sibling sets to keep their indexes dense; density is a workflow invariant rather than a single-row constraint.
 
 Delete semantics:
 
-- `DELETE /chapters/{id}` cascades to all descendants by foreign-key (`ON DELETE CASCADE` on `parent_chapter_id` is **not** used — see §5.2 explanation; cascade is performed by the workflow itself in a single `db.batch(...)`). This keeps media-attachment cleanup explicit.
+- `parent_chapter_id` is a restrictive self-FK. `DELETE /chapters/{id}` deletes descendants explicitly in leaf-first order inside one workflow `db.batch(...)`; `ON DELETE CASCADE` is not used because media-attachment cleanup must remain explicit.
 - Each cascade-deleted chapter contributes a removed-media-reference set; the workflow merges them and deletes the corresponding `media_attachments` rows.
 - The cascade must verify `ContentPolicy.can(actor, "chapter.delete", chapterRef)` on the top deletion target only. Descendants inherit the decision via ancestry.
 
@@ -329,7 +370,8 @@ Block union (`type` discriminator, all block nodes carry a stable `blockId`):
 | `quote` | `blockId`, `children: Inline[]` | Blockquote. |
 | `list` | `blockId`, `listType` ∈ `bullet`, `number`, `children: ListItem[]` | Lists. |
 | `listitem` | `blockId`, `children: (Inline \| Block)[]` | Allowed only inside `list`. |
-| `image` | `blockId`, `mediaId`, `alt`, `width?`, `height?`, `focalX?`, `focalY?` | Inline image referencing `media.id`. Tracked in `media_attachments`. |
+| `image` | `blockId`, `mediaId`, `alt`, `width?`, `height?`, `focalX?`, `focalY?` | Valid inline image referencing `media.id`. Tracked in `media_attachments`. |
+| `broken-image` | `blockId`, `alt`, `reason` ∈ `media-deleted`, `media-missing`, `unsupported-type` | Visible placeholder for an image reference that cannot be retained. Carries no `mediaId` and creates no attachment row. |
 | `horizontalrule` | `blockId` | Separator. |
 | `code` | `blockId`, `language?`, `code` (string) | Code block. Stored verbatim. |
 | `callout` | `blockId`, `tone` ∈ `info`, `warn`, `tip`, `children: Block[]` | Imported from EPUB callouts; platform-editable. |
@@ -352,7 +394,7 @@ Validation rules enforced by the boundary schema in [src/http/schemas/chapter-co
 - `chapter-link.chapterId` must reference an existing chapter row. Validation runs after Zod parsing as a cheap existence check by the use case (single SQL `IN` query batched across all `chapter-link` references in the new document).
 - `chapter-link` whose target chapter is in a different book or different org becomes `broken-link { reason: "cross-book" | "cross-org" }` at write time. The use case rewrites the node before save; it does not reject the request, because a draft edit may legitimately reference a chapter that has since moved.
 - `chapter-link.anchor`, when present, must be a `blockId` that exists in the target chapter's current content. If absent, the link still resolves; the renderer scrolls to the top of the target chapter.
-- `image.mediaId` must reference a `media` row in the same org. Validated as a batched existence check (same pattern as `chapter-link`). Failed references become a `broken-link` analogue: the image node is rewritten to `image { mediaId: null, alt, reason: "media-deleted" }`. Renderer falls back to a placeholder.
+- `image.mediaId` must reference a `media` row in the same org. Validated as a batched existence check (same pattern as `chapter-link`). Failed references become `broken-image { alt, reason: "media-deleted" }`. The renderer displays a placeholder and the node does not contribute a `media_attachments` row.
 - `code.code` is a plain string ≤ 64 KiB. Larger code blocks are rejected with `ValidationError`.
 - The entire serialized document is ≤ 1 MiB after JSON.stringify. Larger documents are rejected with `ValidationError`. This bound prevents an attacker from filling D1 with multi-megabyte chapter rows; legitimate large chapters should be split.
 
@@ -365,6 +407,27 @@ Diff for media attachments:
 
 - Before save, the use case computes the set of `mediaId` values referenced by all `image` (and any future media-referencing node) blocks in the new `contentJson`. It compares against the same set extracted from the previous `contentJson`.
 - `added` and `removed` sets are passed to the attachment workflow (§4.4) and persisted atomically with the chapter row.
+
+#### 4.3.1 Additional Authoring Validation Contract
+
+The node validation above remains authoritative for `contentJson`. These additional limits cover the book and chapter inputs this plan adds; importer-specific archive/parser ceilings are owned by docs/017.
+
+| Field or operation | Validation rule |
+|---|---|
+| `book.title` | Trimmed string, `1..200` characters. |
+| `book.description` | Nullable trimmed string, maximum `4,000` characters. |
+| `book.language` | Nullable BCP-47-shaped language tag, maximum `35` characters. |
+| `book.subjectsJson` | Array of at most `20` unique trimmed strings, each `1..80` characters. |
+| `book.publisher` | Nullable trimmed string, maximum `200` characters. |
+| `book.publicationDate` | Nullable ISO calendar date (`YYYY-MM-DD`); it is bibliographic metadata, not lifecycle scheduling. |
+| `book.isbn` | Nullable normalized ISBN-10 or ISBN-13 string; reject invalid checksum. |
+| `chapter.title` | Trimmed string, `1..200` characters. |
+| `chapter.slug` | Lowercase slug, `1..160` characters; uniqueness is enforced per sibling set in §4.2. |
+| Create/move/reorder | Parent must exist in the same book, resulting depth must be within the configured cap, and sibling ordering is compacted atomically. |
+| Chapter media references | Maximum `100` valid `image` nodes per chapter document; each media must be readable and attachable by the actor. |
+| Chapter external links | Maximum `500` link nodes per chapter document; protocols remain restricted by §4.3. |
+
+Every value above is a public API contract and should be represented by shared validation constants so routes, imports and tests do not drift.
 
 ### 4.4 Book Cover And Media Attachments
 
@@ -387,13 +450,15 @@ export const mediaAttachments = sqliteTable("media_attachments", {
   blockId: text("block_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [
-  uniqueIndex("media_attachments_unique_idx").on(
+  uniqueIndex("media_attachments_chapter_block_unique_idx").on(
     table.mediaId,
     table.targetType,
     table.targetId,
-    // blockId is part of the key; multiple blocks may reference the same media
     table.blockId,
-  ),
+  ).where(sql`${table.targetType} = 'chapter' AND ${table.blockId} IS NOT NULL`),
+  uniqueIndex("media_attachments_one_book_cover_idx")
+    .on(table.targetId)
+    .where(sql`${table.targetType} = 'book' AND ${table.blockId} IS NULL`),
   index("media_attachments_target_idx").on(table.targetType, table.targetId),
   index("media_attachments_media_idx").on(table.mediaId),
 ]);
@@ -404,6 +469,8 @@ Why this table exists:
 1. Reverse lookup. Deleting a media row should fail when something references it (`ON DELETE RESTRICT` on `media_id`). Without this table, the only way to ask "is anything using this media?" is to scan every chapter's content. That is unaffordable.
 2. Cascade decisions for media deletes. With the table, the operator/admin can see exactly which chapters/books hold a reference, and the API can return a structured `ConflictError` with details.
 3. Audit trail for media usage growth over time.
+
+The partial book-cover unique index is required because SQLite treats `NULL` values as distinct inside ordinary unique indexes. Without it, repeated cover updates could leave multiple attachment rows for one book.
 
 Permission: `media.attach`
 
@@ -436,7 +503,7 @@ Lifecycle:
 |---|---|
 | `POST /books { title }` (platform-authored) | `origin = "platform"`. |
 | Successful EPUB import (docs/017) creates the book | `origin = "imported"`, `originSourceImportId = book_imports.id`. |
-| First mutation of any chapter under an `imported` book by any actor other than the importer system actor | atomically flip `books.origin` to `"platform"` in the same `db.batch(...)` as the chapter save. `originSourceImportId` is preserved as provenance. |
+| First mutation of any chapter under a completed `imported` book by any actor other than the importer service-account workflow | atomically flip `books.origin` to `"platform"` in the same `db.batch(...)` as the chapter save. `originSourceImportId` is preserved as provenance. |
 | Direct `PATCH /books/{id}` of non-content metadata (title, description, cover, language, isbn, etc.) | Allowed on both `imported` and `platform`. **Does not** flip `origin`. |
 
 Why book-level, not per-chapter:
@@ -446,10 +513,11 @@ Why book-level, not per-chapter:
 
 Restrictions on `imported` books:
 
-- Content fields (`chapter.contentJson`, chapter tree shape, attachments) are read-only via the regular API. Use cases reject writes from non-system actors with `ConflictError("Imported book is read-only; promote it to platform-authored by replacing it with the chapter-replace endpoint or by an explicit promotion call")`.
+- While the corresponding `book_imports` row is non-terminal (`pending-upload`, parsing, processing or finalizing), normal chapter/tree content mutations reject with `409 Conflict("Import in progress")`; only the importer workflow may write the incomplete imported tree.
+- After the import is completed, regular chapter/tree content mutations are allowed. The first accepted human or ordinary collaborator content mutation atomically promotes `origin` to `"platform"` as selected above.
 - Metadata fields are editable (title, description, language, subjects, publisher, publicationDate, isbn, cover). Editing any of these does not promote.
-- Explicit "promote without editing" call: `POST /books/{bookId}/promote-to-platform`. Requires `book.update`. Sets `origin = "platform"` and writes a `content_policy_events` row tagged `book.promote_to_platform`. This is the path for "I want to keep editing, but I haven't touched a chapter yet".
-- The system actor running the EPUB import worker is exempt: it can write chapter content on an `imported` book until the import workflow marks itself completed.
+- Explicit "promote without editing" call: `POST /books/{bookId}/promote-to-platform`. Requires `book.update`. Sets `origin = "platform"`. It is a candidate general-audit trigger in docs/014; it does **not** write to the IAM-only `content_policy_events` stream.
+- The importer service-account workflow is exempt only for the active import it is executing: it can write chapter content while that import is incomplete without promoting the book.
 
 Promotion atomicity:
 
@@ -458,7 +526,7 @@ Promotion atomicity:
 
 ### 4.6 Replace-Existing-Book Destructive Workflow
 
-Endpoint: `POST /books/{bookId}:replace`
+Endpoint: `POST /books/{bookId}/replace`
 
 Request body:
 
@@ -466,11 +534,11 @@ Request body:
 {
   newImportObjectKey: string,    // R2 key where the new EPUB was uploaded
   expectedBookVersion: number,   // optimistic guard against concurrent replace
-  rationale?: string,            // free-form, recorded in policy event
+  rationale?: string,            // free-form, retained on the import request and future audit event
 }
 ```
 
-Authorization: `book.update` *and* `book.import` (the import permission introduced in docs/017). This is deliberately heavier than `book.update` so a contributor cannot wipe a book by accident.
+Authorization: `book.update`, `book.import`, and `book.archive` (the lifecycle permission owned by docs/012). This dedicated destructive operation invokes the archive transition itself; the client does not orchestrate a separate archive request.
 
 Workflow (single `db.batch(...)` in the workflow port, then queue dispatch):
 
@@ -478,9 +546,9 @@ Workflow (single `db.batch(...)` in the workflow port, then queue dispatch):
 2. Generate new `bookId`.
 3. Atomic batch:
    - INSERT new `books` row, same `orgId`, same metadata snapshot (title, description, language, isbn, …), `origin = "imported"`, `status = "draft"`, `cover_media_id = NULL` (the new import will set it).
-   - UPDATE old book: `status = "archived"`, `archived_at = now`, `replaced_by_book_id = newBookId`, increment `version`.
+   - Archive the old book through the docs/012 lifecycle boundary in the same workflow: `status = "archived"`, `archived_at = now`, `replaced_by_book_id = newBookId`, increment `version`.
    - COPY all `content_policy_bindings` rows whose `resource_type = "book" AND resource_id = oldId` to point at `newId`. Bindings on descendants (chapters) are not copied — the new book starts with no chapters until the import worker creates them, and a chapter binding on a no-longer-existing chapter would be orphaned.
-   - INSERT `content_policy_events` row: `action = "book.replace"`, snapshot containing `{ oldBookId, newBookId, rationale }`.
+   - Do not insert an IAM policy event. `book.replaced` is a candidate general `audit_events` action under docs/014; if general audit is required before replacement launches, promote that small prerequisite explicitly.
 4. Enqueue an EPUB import message targeting `newBookId` with `newImportObjectKey` (docs/017 §4 owns the worker side).
 5. Respond `202 Accepted` with `{ newBookId, importId }`.
 
@@ -490,7 +558,7 @@ Idempotency:
 
 Failure modes:
 
-- New import fails: the old book stays archived. Operator runbook: either retry the import on `newBookId` or unarchive the old book (manual D1 operation, audited).
+- New import fails: the old book stays archived. Operator runbook: either retry the import on `newBookId` or perform an explicitly controlled lifecycle recovery; any such recovery is a candidate general-audit trigger under docs/014.
 - Concurrent replace attempts: `expectedBookVersion` mismatch returns `409 Conflict`.
 
 What the replace workflow does **not** do:
@@ -541,6 +609,20 @@ Built-in role audit in `BUILT_IN_CONTENT_ROLES`:
 
 `assertContentPermissionKey` continues to throw on unknown keys; the lint suite already catches missing keys.
 
+#### 4.7.1 Public Reading And Optional Listed Locks
+
+Public reading is not an IAM binding. A `GET` for a chapter succeeds anonymously when the parent book is `visibility = "public"` and `status = "published"` and the chapter is `status = "published"`, unless an enabled audience gate denies the body. IAM remains required for draft/private reads and mutations.
+
+Chapter discoverability and body access must not be conflated:
+
+| Chapter situation | Anonymous public reader | IAM-authorized collaborator/reader |
+|---|---|---|
+| Published and public, no lock | Read TOC metadata and body. | Read body. |
+| Published, listed and locked, if the lock option is selected | See TOC metadata with `access = "locked"`; body requires a valid short-lived unlock proof. | Read body without entering the public secret. |
+| Unlisted, private or unpublished | No anonymous disclosure. | Read only when Content IAM permits it. |
+
+**Launch decision still required:** `015` originally rejected chapter passwords. Direct-share IAM cannot replace an anonymous/shared-secret gate because direct-share still requires an `id` user. If anonymous listed-but-locked chapters are not required, retain the no-password decision and omit the lock fields/endpoints. If they are required, add `accessMode = "public" | "locked"`, a versioned password-hash store and an unlock-proof endpoint; never store raw passwords or treat a password as an IAM binding.
+
 ### 4.8 HTTP API Surface
 
 Route style follows the existing convention in [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts) (e.g. `/books/{bookId}/ownership-transfer`): **path-segment action names, not colon-prefixed sub-resources**. Every mutation route gets a matching constant in [src/shared/constants.ts](../src/shared/constants.ts) (e.g. `BOOK_REPLACE_ROUTE = "POST /books/{bookId}/replace"`) so idempotency snapshot keys stay consistent.
@@ -554,20 +636,51 @@ Books:
 - `DELETE /books/{bookId}` — existing; cascades to chapters via FK + workflow.
 - `POST   /books/{bookId}/publish | unpublish | schedule | archive` — lifecycle plugin endpoints (docs/012).
 - `POST   /books/{bookId}/promote-to-platform` — explicit origin promotion. Requires `book.update`.
-- `POST   /books/{bookId}/replace` — destructive replace (§4.6). Requires `book.update` + `book.import`.
+- `POST   /books/{bookId}/replace` — destructive replace (§4.6). Requires `book.update` + `book.import` + `book.archive`.
 
 Chapters:
 
 - `POST   /books/{bookId}/chapters` — create a top-level chapter (depth 1). Body: `{ title, slug?, orderIndex?, parentChapterId?, contentJson? }`. When `parentChapterId` is provided, the chapter is created as a child of that chapter; the server validates that the parent belongs to the same book and computes `depth`/`ancestorChapterIdsJson`. Default `contentJson` is an empty root with one `paragraph` block. (A single create endpoint covers both top-level and nested creation; no separate `/chapters/{parentChapterId}/children` endpoint is introduced.)
 - `GET    /books/{bookId}/chapters?parentChapterId=<id-or-null>&recursive=false&limit=&cursor=` — list. When `parentChapterId` is omitted, lists top-level chapters (depth 1) of the book. When `recursive=true`, returns a flat list with `parentChapterId` for client-side tree building (capped at `MAX_CHAPTER_DEPTH` deep).
-- `GET    /chapters/{chapterId}` — read a chapter (metadata + content).
+- `GET    /chapters/{chapterId}` — read a chapter (metadata + content). Anonymous access is allowed through the published-public path in §4.7.1; locked body handling applies only if that option is selected.
 - `PATCH  /chapters/{chapterId}` — update metadata, content, parent, or order. Reject move-into-self-descendant and reject cross-book moves.
 - `DELETE /chapters/{chapterId}` — cascade-delete.
 - `POST   /chapters/{chapterId}/publish | unpublish | schedule | archive` — lifecycle (docs/012).
 
-Authorization is uniform: every route asserts the matching content permission against the chapter's `ContentResourceRef`. The book and org bindings inherit through ancestors automatically.
+Authorization for writes and non-public reads is uniform: routes assert the matching content permission against the chapter's `ContentResourceRef`, and book/org bindings inherit through ancestors. Public published chapter metadata/body reads use the anonymous-public path from §4.7.1 rather than requiring an invented anonymous IAM principal.
 
 OpenAPI registration follows the existing pattern in [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts).
+
+### 4.9 Derived Count Metadata
+
+The platform retains the useful Payload count surface without making a chapter save wait for content analysis:
+
+```ts
+export const chapterContentMetrics = sqliteTable("chapter_content_metrics", {
+  chapterId: text("chapter_id").primaryKey().references(() => chapters.id, { onDelete: "cascade" }),
+  sourceContentVersion: integer("source_content_version").notNull(),
+  wordCount: integer("word_count").notNull(),
+  computedAt: integer("computed_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const bookContentMetrics = sqliteTable("book_content_metrics", {
+  bookId: text("book_id").primaryKey().references(() => books.id, { onDelete: "cascade" }),
+  chapterCount: integer("chapter_count").notNull().default(0),
+  totalWordCount: integer("total_word_count").notNull().default(0),
+  state: text("state").notNull().default("pending"), // pending | ready
+  computedAt: integer("computed_at", { mode: "timestamp_ms" }),
+});
+```
+
+Processing contract:
+
+1. Each accepted chapter content write records a durable outbox job `{ chapterId, bookId, expectedContentVersion }` in the same D1 workflow as the chapter write.
+2. A sibling queue worker reads the canonical validated Lexical document, counts visible prose text, and writes `chapter_content_metrics` only when the chapter still has `expectedContentVersion`. Duplicate and stale jobs are harmless.
+3. The worker coalesces a book-rollup job. Rollup recomputes `chapterCount` and `totalWordCount` from current chapter metrics rather than applying concurrent deltas.
+4. If any chapter metric is pending for its current version, the book projection remains `state = "pending"`; APIs may still return the last available counts with that state.
+5. EPUB imports use the same calculation path but schedule one final rollup after import completion instead of forcing a book aggregate update after each imported chapter.
+
+Reading-time UI may derive an estimate from word count later. Excerpts, hero-image extraction and search indexing are not part of this count contract.
 
 ## 5. Architecture Decisions
 
@@ -629,8 +742,8 @@ Chosen: `media_attachments` table written by the chapter/book update workflow as
 - **Chapter versioning / revision history.** Deferred. `chapters.version` is for optimistic concurrency only, not a revision log. See docs/012 §11.2.
 - **Real-time collaboration (CRDT / OT) on chapter content.** Out of scope for the first release. Last-writer-wins with the optimistic `version` column is the contract; future migration to Y.js or similar is a separate doc.
 - **Inline drafts (unpublished edits on a published chapter).** Out of scope. Edits go live immediately on save; lifecycle controls visibility of the whole chapter, not of edits.
-- **Chapter passwords.** Removed. PayloadCMS had a per-chapter password gate (`chapters.password`, `hasPassword`, `passwordVersion`). The new IAM model represents "restricted readers" through Content IAM bindings + direct-share tokens. Password-as-content-gate is rejected.
-- **Importing a book "in place" after it has been edited.** Rejected; use `:replace`.
+- **Anonymous chapter lock gate.** Reopened for product confirmation by docs/018. PayloadCMS had a per-chapter password gate; Content IAM/direct-share remains the correct model for identifiable collaborators but cannot serve anonymous locked readers. Do not implement lock storage unless the listed-but-locked public chapter option in §4.7.1 is selected.
+- **Importing a book "in place" after it has been edited.** Rejected; use `/replace`.
 - **Custom user-defined Lexical node types.** Rejected. The allowed-node list is closed and platform-defined. Plugins extending content shape are a v2 conversation.
 
 ## 6. Implementation Strategy
@@ -645,6 +758,7 @@ Phases:
 6. **Replace-existing-book workflow.** Build the destructive replace path and the binding-copy logic. Defer the queue dispatch to docs/017 — until 017 lands, the replace endpoint can stage the new book and the import row, but mark the import status as `pending-worker-not-yet-built` and surface a `501 Not Implemented` for the actual processing.
 7. **IAM additions.** Permission keys, built-in role updates, `chapterResource` loader. Land after phase 2 so chapter read/update routes are gated immediately.
 8. **HTTP routes + presenters.** Land per-phase as the corresponding use cases exist.
+9. **Derived-count projections.** Land outbox-backed asynchronous chapter word count and coalesced book rollups. Import completion in docs/017 dispatches the same rollup path.
 
 Each phase ships behind no feature flag. The chapter table is empty until phase 2 routes are live; the `media_attachments` table is empty until phase 4 wires it up. Production rollout is one PR per phase, gated by `pnpm check`.
 
@@ -663,7 +777,7 @@ Target behavior:
 Implementation tasks:
 
 - [ ] Add the `chapters` table from §4.2 to [src/infrastructure/db/schema.ts](../src/infrastructure/db/schema.ts).
-- [ ] Generate the migration. Number it next-after-the-current head (the existing head is `0005_remove_legacy_authz`; this migration is `0006_chapter_and_attachments` or whatever number is current at PR time).
+- [ ] Generate the migration with the next available sequence number at implementation time; dependent proposals must not assume a fixed migration number.
 - [ ] `src/domain/books/chapter.entity.ts` with:
   - `ChapterProps` = full row snapshot (id, orgId, bookId, parentChapterId, ancestorChapterIds, depth, orderIndex, title, slug, contentJson, status, lifecycle timestamps, version, createdByUserId, createdAt, updatedAt).
   - `static create({ orgId, bookId, parentChapterId, parentAncestorChapterIds, parentDepth, title, slug, orderIndex, contentJson, createdByUserId })` — generates id, computes `depth = parentDepth + 1`, computes `ancestorChapterIds = [...parentAncestorChapterIds, parentChapterId]` (with `parentChapterId === null` producing depth 1 and empty ancestor list), defaults `contentJson` to an empty root + one blank `paragraph` block, defaults `status = "draft"`, sets `version = 1`.
@@ -748,8 +862,8 @@ Current problem:
 Target behavior:
 
 - `origin`, `originSourceImportId`, `replacedByBookId` columns on books.
-- Auto-promotion on first content mutation; explicit promotion endpoint; metadata edits do not promote.
-- Imported books reject content writes from non-system actors.
+- Auto-promotion on first ordinary content mutation after import completion; explicit promotion endpoint; metadata edits do not promote.
+- In-progress imports reject ordinary content writes; the active importer service-account workflow may populate content without promoting.
 
 Implementation tasks:
 
@@ -760,14 +874,14 @@ Implementation tasks:
   - `static createFromImport({ ..., importId })` defaults `origin = "imported"`, `originSourceImportId = importId`.
   - `markPromotedToPlatform()` flips origin in memory; raises `DomainError` if already promoted (idempotent path uses repository's compare-and-set instead, so the entity guard is defensive only).
   - `markReplacedBy(newBookId)` for §7.5.
-- [ ] New use case `src/application/books/promote-book-to-platform.usecase.ts`: requires `book.update`, calls a workflow that compare-and-sets `origin = 'platform' WHERE id = ? AND origin = 'imported'`, writes a `content_policy_events` row tagged `book.promote_to_platform`, idempotent.
-- [ ] Update `UpdateChapterUseCase` to detect when the parent book has `origin = "imported"` and pass `promoteBookFromImported: true` into the workflow, which appends the compare-and-set to its batch. Use case rejects content edits on imported books by non-system actors (see actor-type check below).
-- [ ] Actor-type check: in `UpdateChapterUseCase`, if `actor.type !== "system"` and `book.origin === "imported"`, the use case proceeds (the workflow promotes the book atomically). If `actor.type === "system"` (the EPUB importer), the use case does **not** request promotion; the importer is allowed to edit imported content during the import window.
+- [ ] New use case `src/application/books/promote-book-to-platform.usecase.ts`: requires `book.update`, calls a workflow that compare-and-sets `origin = 'platform' WHERE id = ? AND origin = 'imported'`, idempotent. Record it only through a future general `audit_events` integration selected under docs/014, never through `content_policy_events`.
+- [ ] Update `UpdateChapterUseCase` to reject ordinary content writes while an import is active and, after completion, pass `promoteBookFromImported: true` into the workflow on the first ordinary edit of an imported book.
+- [ ] Importer check: an import-specific workflow executing for the active `book_imports.id` as the EPUB importer service account may write imported chapter content without promotion; a general system actor is not used as a content-authoring bypass.
 - [ ] Extend `PATCH /books/{id}` route to accept the new metadata fields (`coverMediaId`, `description`, `language`, `subjectsJson`, `publisher`, `publicationDate`, `isbn`). These never promote.
 
 Tests:
 
-- `tests/book-origin.test.ts`: imported book + user content edit → book.origin flips; imported book + user metadata edit → book.origin stays; explicit promote endpoint flips even without a content edit; system actor edit during import does not promote.
+- `tests/book-origin.test.ts`: completed imported book + user content edit → book.origin flips; active import + user content edit → 409; imported book + user metadata edit → book.origin stays; explicit promote endpoint flips even without a content edit; active importer workflow write does not promote.
 
 ### 7.5 Replace-Existing-Book Workflow
 
@@ -782,15 +896,15 @@ Target behavior:
 Implementation tasks:
 
 - [ ] Add `archived_at` and `replaced_by_book_id` columns to `books` (in the migration above).
-- [ ] New workflow port `src/domain/books/book-replace.workflow.ts` and Drizzle implementation. Atomically: archive old book, insert new book, copy bindings, insert policy event.
-- [ ] New use case `src/application/books/replace-book.usecase.ts`. Requires `book.update` + `book.import`. Validates `expectedBookVersion`. Generates new book id. Calls the workflow. Returns `{ newBookId, importId }`.
+- [ ] New workflow port `src/domain/books/book-replace.workflow.ts` and Drizzle implementation. Atomically: perform the docs/012 archive transition on the old book, insert new book, and copy bindings. Do not insert a `content_policy_events` row for content replacement.
+- [ ] New use case `src/application/books/replace-book.usecase.ts`. Requires `book.update` + `book.import` + `book.archive`. Validates `expectedBookVersion`. Generates new book id. Calls the workflow. Returns `{ newBookId, importId }`.
 - [ ] New route `POST /books/{bookId}/replace` in [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts).
 - [ ] Stub the queue dispatch until docs/017 lands: the use case writes the `book_imports` row with status `pending` and a TODO marker; the worker side comes from 017. The use case still returns `202 Accepted`.
 - [ ] Idempotency-Key required. Replay returns the cached response.
 
 Tests:
 
-- `tests/book-replace.test.ts`: replace requires both permissions; replace copies book-level bindings; replace creates a new book row with `origin = "imported"`; replace archives the old book; concurrent replace by version mismatch returns 409.
+- `tests/book-replace.test.ts`: replace requires all three permissions; replace copies book-level bindings; replace creates a new book row with `origin = "imported"`; replace archives the old book through the lifecycle transition; concurrent replace by version mismatch returns 409; no IAM policy event is written for replacement.
 
 ### 7.6 Content IAM Permission And Role Updates
 
@@ -831,7 +945,7 @@ Implementation tasks:
 - [ ] Add `src/http/routes/chapters.routes.ts` with create-at-book, create-under-chapter, list, read, update, delete, lifecycle endpoints.
 - [ ] Add `src/http/schemas/chapter.schema.ts` for request/response shapes. `contentJson` reuses `chapterContentSchema` from §7.2.
 - [ ] Add `src/http/presenters/chapter.presenter.ts`.
-- [ ] Extend [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts) with `:promote-to-platform`, `:replace`, and the extended `PATCH` payload.
+- [ ] Extend [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts) with `/promote-to-platform`, `/replace`, and the extended `PATCH` payload.
 - [ ] Extend `src/http/schemas/book.schema.ts` and `src/http/presenters/book.presenter.ts`.
 - [ ] All routes require `bearerSecurity` and call `requireActor(c)`.
 
@@ -863,6 +977,29 @@ Tests:
 
 - Existing container tests pass; new use cases are reachable from the request scope.
 
+### 7.9 Derived Count Processing
+
+Current problem:
+
+- No canonical path computes chapter word counts or aggregate book counts, and synchronous counting would put derived work on the authoring/import critical path.
+
+Target behavior:
+
+- Chapter and book count metadata is eventually consistent projection data using the version-safe asynchronous contract in §4.9.
+
+Implementation tasks:
+
+- [ ] Add `chapter_content_metrics`, `book_content_metrics` and a durable derived-work outbox table in the appropriate migration.
+- [ ] Add pure `extractVisibleTextForWordCount(contentJson)` and `countWords(text)` helpers shared by normal and import-generated chapter content.
+- [ ] Extend the chapter-content workflow to insert/coalesce the outbox job in the same `db.batch(...)` as a content change.
+- [ ] Add a sibling queue worker under `workers/content-metadata/`; it writes metrics only for the expected content version and enqueues/coalesces book rollups.
+- [ ] Present `{ wordCount, metricsState }` for chapters and `{ chapterCount, totalWordCount, metricsState }` for books without treating pending projections as save or publish failures.
+
+Tests:
+
+- `tests/chapter-content-metrics.test.ts` covers extraction, stale-version no-op and duplicate delivery.
+- `tests/book-content-metrics.test.ts` covers rollup and pending state.
+
 ## 8. Migration And Rollout
 
 Migration order:
@@ -870,6 +1007,9 @@ Migration order:
 1. Generate `drizzle/00NN_chapter_and_attachments.sql` containing:
    - `CREATE TABLE chapters ...`
    - `CREATE TABLE media_attachments ...`
+   - `CREATE TABLE chapter_content_metrics ...`
+   - `CREATE TABLE book_content_metrics ...`
+   - `CREATE TABLE derived_content_jobs ...` (durable outbox for asynchronous metrics)
    - `ALTER TABLE books ADD COLUMN cover_media_id TEXT REFERENCES media(id) ON DELETE SET NULL`
    - `ALTER TABLE books ADD COLUMN origin TEXT NOT NULL DEFAULT 'platform'`
    - `ALTER TABLE books ADD COLUMN origin_source_import_id TEXT`
@@ -909,13 +1049,15 @@ Documentation:
 | Update chapter content with a `chapter-link` referencing a non-existent chapter id | Use case rewrites that node to `broken-link { reason: "unresolved" }` before save. Save still succeeds. |
 | Update chapter content with a `chapter-link` referencing a chapter in a different book | Rewrite to `broken-link { reason: "cross-book" }`. |
 | Update chapter content with a `chapter-link` referencing a chapter in a different org | Rewrite to `broken-link { reason: "cross-org" }`. |
-| Update chapter content with an `image.mediaId` referencing a deleted media | Rewrite to `image { mediaId: null, alt, reason: "media-deleted" }`. |
-| Update chapter content of an `imported` book by a non-system actor | Allowed. The book auto-promotes to `"platform"` atomically with the save. |
+| Update chapter content with an `image.mediaId` referencing a deleted media | Rewrite to `broken-image { alt, reason: "media-deleted" }`; no invalid nullable image node is persisted. |
+| Update chapter content of a completed `imported` book by an ordinary actor | Allowed. The book auto-promotes to `"platform"` atomically with the save. |
+| Update chapter content while its import is active | Ordinary API mutation returns `409 Import in progress`; only the matching importer service-account workflow may write without promotion. |
+| Metric job arrives after a later chapter edit | Expected-version check fails; the stale job is acknowledged without overwriting newer metrics. |
 | Concurrent edits to the same chapter (`version` mismatch) | Use case throws `ConflictError("Chapter has been modified since you loaded it; reload and retry")`. The route returns 409. |
 | Concurrent replace (`expectedBookVersion` mismatch) | `409 Conflict`. |
 | Replace targeting an already-archived book | `409 Conflict`. Operators must unarchive in D1 if recovery is needed. |
 | Delete a media that is referenced by a chapter via `media_attachments` | `409 Conflict` with `details.references`. Caller must detach first. |
-| Imported book's import workflow crashes mid-way and never completes | `book.origin` stays `imported`; chapter rows already created by the worker are visible. The user can either `:replace` (loses what is there) or `:promote-to-platform` (takes ownership of the partial state). The replace + promote pair is the intended escape hatch; there is no automatic rollback. |
+| Imported book's import workflow crashes mid-way and never completes | `book.origin` stays `imported`; ordinary content mutation remains blocked while the import is active. After docs/017 marks it failed/cancelled, the user can explicitly promote the partial state or replace/delete it. |
 | Cross-cutting permission failure during a chapter content edit (actor can `chapter.update` but not `media.attach`) | Use case rejects with `403 Forbidden` and rolls back. No partial write. |
 | Block IDs collide on a save (client sent duplicates) | `normalizeBlockIds` assigns fresh IDs to one of the colliding pair. Inline comments anchored to the renamed block are flagged as orphaned by the comments use case (docs/016). |
 | `MAX_CHAPTER_DEPTH` is changed from 4 to 3 at the env level after data exists at depth 4 | Existing rows at depth 4 are not retroactively deleted. New creates and moves enforce the new bound. Existing depth-4 chapters can be updated and deleted normally. Document this trade-off in `env.ts` JSDoc. |
@@ -1011,6 +1153,8 @@ Acceptance criteria:
 - Saving a chapter with an `image { mediaId }` block writes one `media_attachments` row.
 - Removing the image block on the next save deletes the attachment row.
 - Deleting a media that is still attached returns `409` and the list of references.
+- Setting a book cover repeatedly cannot leave two cover attachment rows for the same book.
+- A missing referenced image is persisted as `broken-image`, never as `image { mediaId: null }`.
 
 Tests:
 
@@ -1031,13 +1175,14 @@ Tasks:
 - [ ] Add the new book columns in the migration.
 - [ ] Extend `Book` entity per §7.4. Update `static create` and add `static createFromImport`.
 - [ ] Implement `PromoteBookToPlatformUseCase` and its route.
-- [ ] Extend `UpdateChapterUseCase` so that when actor is not a system actor and book.origin is "imported", the workflow batch includes `UPDATE books SET origin = 'platform' WHERE id = ? AND origin = 'imported'`.
-- [ ] Reject content writes from non-system actors on imported books that would not naturally promote (i.e., the entity guard catches metadata-only paths that should not flip origin; double-check by code review).
+- [ ] Extend `UpdateChapterUseCase` so a regular content edit on a completed imported book includes `UPDATE books SET origin = 'platform' WHERE id = ? AND origin = 'imported'` in its workflow batch.
+- [ ] Reject regular content writes while `book_imports` shows an active import; accept import-specific service-account workflow writes without promotion.
 
 Acceptance criteria:
 
-- Importer system actor edits an imported chapter → origin stays `"imported"`.
-- User actor edits an imported chapter → origin flips to `"platform"` atomically.
+- Active importer service-account workflow edits an imported chapter → origin stays `"imported"`.
+- User actor edits a completed imported chapter → origin flips to `"platform"` atomically.
+- User actor edits a chapter during an active import → `409 Conflict`.
 - User actor calls `:promote-to-platform` on an imported book → origin flips even with no chapter edit.
 - User actor edits only book metadata (title, description) → origin stays `"imported"`.
 
@@ -1052,7 +1197,7 @@ Scope:
 - `src/domain/books/book-replace.workflow.ts`
 - `src/infrastructure/repositories/drizzle-book-replace.workflow.ts`
 - `src/application/books/replace-book.usecase.ts`
-- `src/http/routes/books.routes.ts` (`:replace`)
+- `src/http/routes/books.routes.ts` (`/replace`)
 - `src/http/schemas/book.schema.ts`
 
 Tasks:
@@ -1063,9 +1208,10 @@ Tasks:
 
 Acceptance criteria:
 
-- Replace requires both `book.update` and `book.import`; missing either returns 403.
+- Replace requires `book.update`, `book.import` and `book.archive`; missing any required authority returns 403.
 - Replace copies book-level bindings, archives old book, creates new book with `origin = "imported"`.
 - Replace is idempotent on the same `Idempotency-Key`.
+- Replace does not write a content action into `content_policy_events`.
 
 Tests:
 
@@ -1151,6 +1297,34 @@ Tests:
 
 - Manual review.
 
+### BCM-I. Derived Count Metadata
+
+Scope:
+
+- `src/infrastructure/db/schema.ts` (`chapter_content_metrics`, `book_content_metrics`, derived-work outbox)
+- `src/domain/books/lexical/extract-visible-text-for-word-count.ts`
+- `src/domain/books/metrics/*.repository.ts`
+- `src/infrastructure/repositories/drizzle-*-content-metrics.repository.ts`
+- `workers/content-metadata/`
+
+Tasks:
+
+- [ ] Implement the projection tables and durable outbox contract from §4.9.
+- [ ] Enqueue metadata work atomically on chapter content writes.
+- [ ] Compute chapter word count against the expected content version.
+- [ ] Coalesce book rollup jobs and expose pending/ready projection state through presenters.
+- [ ] Connect docs/017 import finalization to one final book rollup.
+
+Acceptance criteria:
+
+- Chapter saves and publication do not wait for word-count processing.
+- Duplicate or out-of-order queue delivery cannot replace metrics computed from newer chapter content.
+- Imported chapters and platform-authored chapters use exactly the same word-count extraction rules.
+
+Tests:
+
+- `corepack pnpm test tests/chapter-content-metrics.test.ts tests/book-content-metrics.test.ts`
+
 ## 11. Future Backlog
 
 - **Inline drafts** (edit a published chapter without immediately changing what readers see). Lifecycle plugin §11.1 covers the underlying status-machine extension; this doc would extend the chapter resource with a `draft_content_json` column. Not first-release.
@@ -1180,16 +1354,18 @@ Coverage targets:
 - Entity unit tests: chapter create/move/update/cycle/depth-overflow.
 - Schema unit tests: Lexical schema acceptance + rejection + boundary sizes.
 - Helper unit tests: `extractMediaIds`, `extractChapterLinkRefs`, `rewriteUnresolvedLinks`, `normalizeBlockIds`.
-- Workflow integration tests: chapter update + media attachment diff + optional origin flip in one D1 batch.
+- Workflow integration tests: chapter update + media attachment diff + optional origin flip + metrics outbox enqueue in one D1 batch.
 - HTTP integration tests:
   - `POST /books/{id}/chapters` happy path + 401/403/409.
   - `POST /chapters/{id}/children` happy path + depth-overflow 400.
   - `PATCH /chapters/{id}` updates content + diffs attachments + flips origin on imported book.
   - `DELETE /chapters/{id}` cascades.
   - `POST /books/{bookId}/promote-to-platform` flips origin once; idempotent on replay.
-  - `POST /books/{bookId}/replace` requires both permissions, copies bindings, archives old book.
-  - `PATCH /books/{id}` accepts new metadata fields; rejects status mutation; rejects origin mutation; rejects content fields when book is imported.
+  - `GET /chapters/{id}` permits anonymous published-public reads and denies private/draft anonymous reads.
+  - `POST /books/{bookId}/replace` requires update/import/archive permissions, copies bindings, archives old book.
+  - `PATCH /books/{id}` accepts new metadata fields; rejects status mutation; rejects origin mutation.
 - IAM unit tests: chapter ancestry, denial precedence at deepest chapter level, cross-org rejection.
+- Metrics worker tests: stale-version no-op, duplicate delivery and coalesced book rollup.
 - Existing book and IAM tests must still pass.
 
 Manual smoke (against `wrangler dev`):
@@ -1204,8 +1380,10 @@ Manual smoke (against `wrangler dev`):
 - `corepack pnpm advise` is green or only carries documented suppressions.
 - All routes from §4.8 are reachable, OpenAPI-documented, and covered by Vitest integration tests.
 - `media_attachments` is populated for every chapter content edit that mentions media.
-- An imported book auto-promotes to `platform` on the first non-system content edit.
-- `POST /books/{bookId}/replace` archives the old book, creates a new book with `origin = "imported"`, and copies book-level policy bindings.
+- An imported book auto-promotes to `platform` on the first ordinary content edit after import completion; normal edits are blocked while an import is active.
+- Public published chapters can be read anonymously, with optional listed-lock behavior either explicitly selected or explicitly omitted before implementation.
+- Derived count projections are asynchronously computed with stale-job safety and exposed with pending/ready state.
+- `POST /books/{bookId}/replace` requires lifecycle archive authority, archives the old book, creates a new book with `origin = "imported"`, and copies book-level policy bindings without writing IAM policy events for content actions.
 - README.md, docs/007, docs/009, docs/012 are updated as described in BCM-H.
 - The `content-api-architecture` and `content-iam-usage` skills are updated to include chapter.
 
@@ -1213,10 +1391,11 @@ Manual smoke (against `wrangler dev`):
 
 ```text
 org
-  book (origin: platform|imported, optional cover_media_id, lifecycle-aware)
-    chapter (recursive, depth ≤ MAX_CHAPTER_DEPTH, lifecycle-aware)
-      contentJson — typed Lexical JSON with block IDs, chapter-link, broken-link
+  book (origin: platform|imported, optional cover_media_id, lifecycle-aware, public-read capable)
+    chapter (recursive, depth ≤ MAX_CHAPTER_DEPTH, lifecycle-aware, optional listed-lock decision)
+      contentJson — typed Lexical JSON with block IDs, chapter-link, broken-link, broken-image
     media_attachments (target = book | chapter, FK media)
+    chapter_content_metrics / book_content_metrics (async count projections)
 ```
 
 The book is the destination, not a pass-through for an EPUB. Chapters are a recursive tree because authoring books with parts and sub-sections is a normal case. Block IDs make inline comments and cross-chapter links durable without paying for a blocks table. Origin is at the book level because that is the granularity at which "this content has diverged from its imported source" is a meaningful claim. Replacement is loud and destructive because silent merge is the worst tooling failure mode in any import-edit cycle.

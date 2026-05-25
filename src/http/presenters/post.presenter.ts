@@ -10,6 +10,8 @@ export function presentPost(post: Post): z.infer<typeof postResponseSchema> {
   return {
     ...payload,
     publishedAt: payload.publishedAt?.toISOString() ?? null,
+    scheduledAt: payload.scheduledAt?.toISOString() ?? null,
+    archivedAt: payload.archivedAt?.toISOString() ?? null,
     createdAt: payload.createdAt.toISOString(),
     updatedAt: payload.updatedAt.toISOString(),
   };

@@ -10,7 +10,10 @@ export function bookRowToEntity(row: BookRow): Book {
     title: row.title,
     createdByUserId: row.createdByUserId,
     visibility: row.visibility as "private" | "public",
-    status: row.status as "draft" | "published" | "archived",
+    status: row.status as "draft" | "scheduled" | "published" | "archived",
+    publishedAt: row.publishedAt ?? null,
+    scheduledAt: row.scheduledAt ?? null,
+    archivedAt: row.archivedAt ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   });
@@ -25,6 +28,9 @@ export function bookToInsertRow(book: Book) {
     createdByUserId: snap.createdByUserId,
     visibility: snap.visibility,
     status: snap.status,
+    publishedAt: snap.publishedAt,
+    scheduledAt: snap.scheduledAt,
+    archivedAt: snap.archivedAt,
     createdAt: snap.createdAt,
     updatedAt: snap.updatedAt,
   };
@@ -36,6 +42,9 @@ export function bookToUpdateRow(book: Book) {
     title: snap.title,
     visibility: snap.visibility,
     status: snap.status,
+    publishedAt: snap.publishedAt,
+    scheduledAt: snap.scheduledAt,
+    archivedAt: snap.archivedAt,
     updatedAt: snap.updatedAt,
   };
 }

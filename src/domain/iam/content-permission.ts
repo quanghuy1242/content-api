@@ -11,7 +11,8 @@ export type ContentResourceType =
   | "section"
   | "block"
   | "media"
-  | "comment";
+  | "comment"
+  | "site_config";
 
 export type PrincipalType = "user" | "team" | "service_account";
 
@@ -25,24 +26,29 @@ export type ContentPermissionKey =
   | "org.create_post"
   | "org.create_category"
   | "org.create_media"
+  | "org.create_site_config"
   | "org.manage_bindings"
   | "org.manage_roles"
   | "post.read"
   | "post.update"
   | "post.delete"
   | "post.publish"
+  | "post.archive"
   | "category.read"
   | "category.update"
   | "category.delete"
   | "book.read"
   | "book.update"
   | "book.delete"
+  | "book.publish"
+  | "book.archive"
   | "book.manage_bindings"
   | "book.transfer_ownership"
   | "chapter.read"
   | "chapter.create"
   | "chapter.update"
   | "chapter.publish"
+  | "chapter.archive"
   | "section.update"
   | "block.comment"
   | "inline_comment.create"
@@ -52,7 +58,12 @@ export type ContentPermissionKey =
   | "media.create"
   | "media.update"
   | "media.attach"
-  | "media.delete";
+  | "media.delete"
+  | "site_config.read"
+  | "site_config.update"
+  | "site_config.publish"
+  | "site_config.archive"
+  | "site_config.delete";
 
 export type ContentPermissionDefinition = {
   readonly key: ContentPermissionKey;
@@ -81,24 +92,29 @@ export const CONTENT_PERMISSIONS = [
   { key: "org.create_post", description: "Create a post inside an organization", delegationClass: "ordinary" },
   { key: "org.create_category", description: "Create a category inside an organization", delegationClass: "ordinary" },
   { key: "org.create_media", description: "Create media inside an organization", delegationClass: "ordinary" },
+  { key: "org.create_site_config", description: "Create a site config in an organization", delegationClass: "ordinary" },
   { key: "org.manage_bindings", description: "Manage organization-scoped Content IAM bindings", delegationClass: "organization_admin" },
   { key: "org.manage_roles", description: "Manage organization-defined Content IAM roles", delegationClass: "organization_admin" },
   { key: "post.read", description: "Read private or draft posts", delegationClass: "ordinary" },
   { key: "post.update", description: "Update posts", delegationClass: "ordinary" },
   { key: "post.delete", description: "Delete posts", delegationClass: "ordinary" },
   { key: "post.publish", description: "Publish or unpublish posts", delegationClass: "ordinary" },
+  { key: "post.archive", description: "Archive a post (non-destructive)", delegationClass: "ordinary" },
   { key: "category.read", description: "Read categories", delegationClass: "ordinary" },
   { key: "category.update", description: "Update categories", delegationClass: "ordinary" },
   { key: "category.delete", description: "Delete categories", delegationClass: "ordinary" },
   { key: "book.read", description: "Read a private book", delegationClass: "ordinary" },
   { key: "book.update", description: "Update book metadata or content", delegationClass: "ordinary" },
   { key: "book.delete", description: "Delete a book", delegationClass: "ordinary" },
+  { key: "book.publish", description: "Publish or unpublish a book", delegationClass: "ordinary" },
+  { key: "book.archive", description: "Archive a book (non-destructive)", delegationClass: "ordinary" },
   { key: "book.manage_bindings", description: "Manage book-scoped Content IAM bindings", delegationClass: "policy_management" },
   { key: "book.transfer_ownership", description: "Transfer accountable book ownership", delegationClass: "ownership_transfer" },
   { key: "chapter.read", description: "Read private chapter content", delegationClass: "ordinary" },
   { key: "chapter.create", description: "Create a chapter in a book", delegationClass: "ordinary" },
   { key: "chapter.update", description: "Update chapter content", delegationClass: "ordinary" },
   { key: "chapter.publish", description: "Publish a chapter", delegationClass: "ordinary" },
+  { key: "chapter.archive", description: "Archive a chapter (non-destructive)", delegationClass: "ordinary" },
   { key: "section.update", description: "Update a section", delegationClass: "ordinary" },
   { key: "block.comment", description: "Comment on a block", delegationClass: "ordinary" },
   { key: "inline_comment.create", description: "Create inline comments", delegationClass: "ordinary" },
@@ -109,6 +125,11 @@ export const CONTENT_PERMISSIONS = [
   { key: "media.update", description: "Update media metadata or visibility", delegationClass: "ordinary" },
   { key: "media.attach", description: "Attach media to content", delegationClass: "ordinary" },
   { key: "media.delete", description: "Delete media", delegationClass: "ordinary" },
+  { key: "site_config.read", description: "Read a draft or archived site config", delegationClass: "ordinary" },
+  { key: "site_config.update", description: "Update a site config", delegationClass: "ordinary" },
+  { key: "site_config.publish", description: "Promote a site config to active", delegationClass: "ordinary" },
+  { key: "site_config.archive", description: "Archive a site config (non-active only)", delegationClass: "ordinary" },
+  { key: "site_config.delete", description: "Delete a site config", delegationClass: "ordinary" },
 ] as const satisfies readonly ContentPermissionDefinition[];
 
 /** Protected system role templates seeded locally and referenced by deterministic IDs. */
@@ -126,19 +147,29 @@ export const BUILT_IN_CONTENT_ROLES = [
       "org.create_post",
       "org.create_category",
       "org.create_media",
+      "org.create_site_config",
       "book.manage_bindings",
       "book.transfer_ownership",
+      "book.publish",
+      "book.archive",
       "post.read",
       "post.update",
       "post.delete",
       "post.publish",
+      "post.archive",
       "category.read",
       "category.update",
       "category.delete",
+      "chapter.archive",
       "media.read",
       "media.create",
       "media.update",
       "media.delete",
+      "site_config.read",
+      "site_config.update",
+      "site_config.publish",
+      "site_config.archive",
+      "site_config.delete",
     ],
   },
   {
@@ -161,12 +192,27 @@ export const BUILT_IN_CONTENT_ROLES = [
     ],
   },
   {
+    id: "system:org.site_manager",
+    key: "org.site_manager",
+    name: "Organization Site Manager",
+    assignableResourceType: "org",
+    protected: false,
+    permissions: [
+      "org.create_site_config",
+      "site_config.read",
+      "site_config.update",
+      "site_config.publish",
+      "site_config.archive",
+      "site_config.delete",
+    ],
+  },
+  {
     id: "system:post.owner",
     key: "post.owner",
     name: "Post Owner",
     assignableResourceType: "post",
     protected: true,
-    permissions: ["post.read", "post.update", "post.delete", "post.publish", "media.read"],
+    permissions: ["post.read", "post.update", "post.delete", "post.publish", "post.archive", "media.read"],
   },
   {
     id: "system:category.owner",
@@ -198,6 +244,8 @@ export const BUILT_IN_CONTENT_ROLES = [
       "book.read",
       "book.update",
       "book.delete",
+      "book.publish",
+      "book.archive",
       "book.manage_bindings",
       "book.transfer_ownership",
       "chapter.read",
@@ -232,6 +280,7 @@ export const BUILT_IN_CONTENT_ROLES = [
     permissions: [
       "book.read",
       "book.update",
+      "book.publish",
       "chapter.read",
       "chapter.create",
       "chapter.update",

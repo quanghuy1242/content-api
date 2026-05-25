@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, lte } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Post } from "@/domain/posts/post.entity";
 import type { PostRepository } from "@/domain/posts/post.repository";
@@ -56,5 +56,28 @@ export class DrizzlePostRepository implements PostRepository {
 
   async delete(id: string) {
     await this.crud.deleteRowById(posts, posts.id, id);
+  }
+
+  async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {
+    const rows = await this.crud.findRowsWhere<{ id: string }>(
+      posts,
+      [posts.id],
+      and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, now))!,
+      { orderBy: posts.scheduledAt, direction: "asc", limit },
+    );
+    return rows.map((row) => row.id);
+  }
+
+  async publishScheduledReady(id: string, now: Date): Promise<boolean> {
+    const result = await this.crud.updateRowsConditional(posts, {
+      set: {
+        status: "published",
+        publishedAt: now,
+        scheduledAt: null,
+        updatedAt: now,
+      },
+      where: and(eq(posts.id, id), eq(posts.status, "scheduled"), lte(posts.scheduledAt, now))!,
+    });
+    return result.rowsAffected === 1;
   }
 }

@@ -197,7 +197,7 @@ it("uses Content IAM for private book reads and updates", async () => {
   expect(readerUpdate.status).toBe(403);
 });
 
-it("allows public published book reads after an authorized update", async () => {
+it("allows public published book reads after publish and visibility update", async () => {
   const ownerToken = await bootstrapContentIamAdmin();
   const create = await request("/books", {
     method: "POST",
@@ -207,10 +207,16 @@ it("allows public published book reads after an authorized update", async () => 
   });
   const book = await create.json() as { data: { id: string } };
 
-  const publish = await request(`/books/${book.data.id}`, {
+  const makePublic = await request(`/books/${book.data.id}`, {
     method: "PATCH",
     token: ownerToken,
-    body: JSON.stringify({ visibility: "public", status: "published" }),
+    body: JSON.stringify({ visibility: "public" }),
+  });
+  expect(makePublic.status).toBe(200);
+
+  const publish = await request(`/books/${book.data.id}/publish`, {
+    method: "POST",
+    token: ownerToken,
   });
   expect(publish.status).toBe(200);
 

@@ -1,0 +1,17 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "content-api-scheduled-publish",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-17",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "content_api",
+      "database_id": "73f94f30-cd96-464c-ba37-87c857d99d88",
+      "migrations_dir": "../../drizzle"
+    }
+  ],
+  "triggers": {
+    "crons": ["0 * * * *"]
+  }
+}

@@ -11,6 +11,7 @@ import {
 import { presentPost } from "@/http/presenters/post.presenter";
 import { requireActor } from "@/http/routes/helpers";
 import { idParamSchema, idempotencyHeaderSchema, listResourceQuerySchema } from "@/http/schemas/common.schema";
+import { scheduleBodySchema } from "@/http/schemas/lifecycle.schema";
 import { createPostBodySchema, postResponseSchema, updatePostBodySchema } from "@/http/schemas/posts.schema";
 import { HTTP_STATUS_CREATED, HTTP_STATUS_NO_CONTENT, HTTP_STATUS_OK } from "@/shared/constants";
 
@@ -74,7 +75,7 @@ const postPublishRoute = createRoute({
   method: "post",
   path: "/posts/{id}/publish",
   tags: ["posts"],
-  description: "Publish a draft post to make it publicly visible.",
+  description: "Publish a draft or scheduled post to make it publicly visible.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
@@ -87,11 +88,40 @@ const postUnpublishRoute = createRoute({
   method: "post",
   path: "/posts/{id}/unpublish",
   tags: ["posts"],
-  description: "Unpublish a published post to hide it from public view.",
+  description: "Unpublish a published post or cancel a scheduled post, returning it to draft.",
   security: bearerSecurity,
   request: { params: idParamSchema },
   responses: {
     200: jsonContent(dataResponseSchema(postResponseSchema), "Unpublished post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postScheduleRoute = createRoute({
+  method: "post",
+  path: "/posts/{id}/schedule",
+  tags: ["posts"],
+  description: "Schedule a draft post to publish at a future time.",
+  security: bearerSecurity,
+  request: {
+    params: idParamSchema,
+    body: jsonRequestBody(scheduleBodySchema, "Scheduled publish payload"),
+  },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Scheduled post"),
+    ...commonErrorResponses,
+  },
+});
+
+const postArchiveRoute = createRoute({
+  method: "post",
+  path: "/posts/{id}/archive",
+  tags: ["posts"],
+  description: "Archive a post (non-destructive, terminal state).",
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(postResponseSchema), "Archived post"),
     ...commonErrorResponses,
   },
 });
@@ -149,14 +179,33 @@ export function registerPostRoutes(app: OpenAPIHono<AppEnv>) {
   app.openapi(postPublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
-    const result = await c.get("container").posts.publish.execute({ actor, postId: params.id });
+    const result = await c.get("container").posts.publish.execute({ actor, id: params.id });
     return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 
   app.openapi(postUnpublishRoute, async (c) => {
     const actor = requireActor(c);
     const params = c.req.valid("param");
-    const result = await c.get("container").posts.unpublish.execute({ actor, postId: params.id });
+    const result = await c.get("container").posts.unpublish.execute({ actor, id: params.id });
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(postScheduleRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const body = c.req.valid("json");
+    const result = await c.get("container").posts.schedule.execute({
+      actor,
+      id: params.id,
+      scheduledAt: new Date(body.scheduledAt),
+    });
+    return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(postArchiveRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").posts.archive.execute({ actor, id: params.id });
     return c.json({ data: presentPost(result) }, HTTP_STATUS_OK);
   });
 

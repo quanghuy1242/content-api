@@ -9,6 +9,7 @@ import migrationSql0003 from "../drizzle/0003_content_iam_policy.sql?raw";
 import migrationSql0004 from "../drizzle/0004_content_iam_guards.sql?raw";
 import migrationSql0005 from "../drizzle/0005_remove_legacy_authz.sql?raw";
 import migrationSql0006 from "../drizzle/0006_content_resources_org_scope.sql?raw";
+import migrationSql0007 from "../drizzle/0007_lucky_oracle.sql?raw";
 import { BUILT_IN_CONTENT_ROLES, CONTENT_PERMISSIONS } from "@/domain/iam/content-permission";
 import { createApp } from "@/main";
 import { clearClientCredentialsTokenMemoryCache } from "@/infrastructure/identity/client-credentials-token-provider";
@@ -309,6 +310,7 @@ export async function setupBeforeAll() {
     migrationSql0004,
     migrationSql0005,
     migrationSql0006,
+    migrationSql0007,
   ].flatMap((sql) =>
     sql
       .split("--> statement-breakpoint")

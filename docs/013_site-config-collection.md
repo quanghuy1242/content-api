@@ -470,7 +470,7 @@ export interface SiteConfigPublishWorkflow {
 
 ### 4.7 Database Schema
 
-Migration: `drizzle/0008_site_configs.sql` (one ordinal after `0007_lifecycle_fields.sql` from `docs/012`).
+Migration: `drizzle/0008_*.sql` generated via `pnpm db:generate` (one ordinal after the `0007_*.sql` lifecycle migration from `docs/012`).
 
 ```sql
 CREATE TABLE site_configs (

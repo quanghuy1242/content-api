@@ -40,6 +40,8 @@ export function postRowToEntity(row: PostRow): Post {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     publishedAt: row.publishedAt,
+    scheduledAt: row.scheduledAt ?? null,
+    archivedAt: row.archivedAt ?? null,
   });
 }
 
@@ -60,6 +62,8 @@ export function postToInsertRow(post: Post) {
     category: snapshot.category,
     status: snapshot.status,
     publishedAt: snapshot.publishedAt,
+    scheduledAt: snapshot.scheduledAt,
+    archivedAt: snapshot.archivedAt,
     createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,
   };
@@ -78,6 +82,8 @@ export function postToUpdateRow(post: Post) {
     category: snapshot.category,
     status: snapshot.status,
     publishedAt: snapshot.publishedAt,
+    scheduledAt: snapshot.scheduledAt,
+    archivedAt: snapshot.archivedAt,
     updatedAt: snapshot.updatedAt,
   };
 }

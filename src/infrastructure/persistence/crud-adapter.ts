@@ -4,6 +4,12 @@ import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { AnySQLiteColumn, AnySQLiteTable } from "drizzle-orm/sqlite-core";
 import { decodeCursor, encodeCursor, type CursorPage } from "@/shared/pagination/cursor";
 
+export type FindRowsWhereOptions = {
+  orderBy?: AnySQLiteColumn;
+  direction?: "asc" | "desc";
+  limit?: number;
+};
+
 type Db = DrizzleD1Database<Record<string, unknown>>;
 
 type SortDirection = "asc" | "desc";
@@ -215,6 +221,70 @@ export class CrudAdapter {
       .where(eq(idColumn, id));
 
     return (result.meta?.changes ?? 0) > 0;
+  }
+
+  /**
+   * Reads multiple rows matched by an arbitrary Drizzle predicate with optional
+   * ordering and limit. Used by lifecycle repositories for scheduled-ready scans
+   * and any other predicate-scoped multi-row read that needs stable ordering.
+   */
+  async findRowsWhere<Row>(
+    table: AnySQLiteTable,
+    columns: AnySQLiteColumn[],
+    condition: SQL<unknown>,
+    options?: FindRowsWhereOptions,
+  ): Promise<Row[]> {
+    const query = (this.db as never as {
+      select: (cols: Record<string, AnySQLiteColumn>) => {
+        from: (table: AnySQLiteTable) => {
+          where: (condition: SQL<unknown>) => {
+            orderBy: (...cols: SQL<unknown>[]) => {
+              limit: (n: number) => Promise<Row[]>;
+            };
+            limit: (n: number) => Promise<Row[]>;
+          };
+        };
+      };
+    }).select(Object.fromEntries(columns.map((col) => [col.name, col])));
+
+    const fromClause = query.from(table).where(condition);
+
+    if (options?.orderBy !== undefined && options?.limit !== undefined) {
+      return fromClause
+        .orderBy(options.direction === "asc" ? asc(options.orderBy) : desc(options.orderBy))
+        .limit(options.limit) as Promise<Row[]>;
+    }
+
+    if (options?.limit !== undefined) {
+      return fromClause.limit(options.limit) as Promise<Row[]>;
+    }
+
+    return fromClause as unknown as Promise<Row[]>;
+  }
+
+  /**
+   * Executes a conditional `UPDATE ... SET ... WHERE ...` and returns the number
+   * of affected rows. Used by lifecycle repositories for compare-and-set
+   * transitions — the `WHERE` clause can include a status guard so the update
+   * only fires if the row is in the expected state, making cron publishes safe
+   * under D1's lack of row-level locking.
+   */
+  async updateRowsConditional(
+    table: AnySQLiteTable,
+    params: { set: Record<string, unknown>; where: SQL<unknown> },
+  ): Promise<{ rowsAffected: number }> {
+    const result = await (this.db as never as {
+      update: (table: AnySQLiteTable) => {
+        set: (values: Record<string, unknown>) => {
+          where: (condition: SQL<unknown>) => Promise<{ meta?: { changes?: number } }>;
+        };
+      };
+    })
+      .update(table)
+      .set(this.withoutUndefined(params.set))
+      .where(params.where);
+
+    return { rowsAffected: result.meta?.changes ?? 0 };
   }
 
   /**

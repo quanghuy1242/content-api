@@ -1,6 +1,6 @@
 # Publish Lifecycle Adapter
 
-> Status: research and proposal
+> Status: superseded by [docs/012_content-lifecycle-plugin.md](012_content-lifecycle-plugin.md)
 >
 > Date: 2026-05-22
 >

@@ -107,3 +107,6 @@ export function mediaVariantKey(mediaId: string, version: number, name: MediaVar
 
 /** Media statuses that the queue processor considers terminal (duplicate events are skipped). */
 export const MEDIA_TERMINAL_STATUSES = new Set(["ready", "failed", "expired"]);
+
+/** Maximum number of scheduled entities the cron driver processes per manager per run. */
+export const SCHEDULED_PUBLISH_BATCH_LIMIT = 500;

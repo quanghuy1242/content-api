@@ -248,6 +248,54 @@ For create endpoints with `Idempotency-Key`:
 - Infrastructure workflow ports build the atomic `db.batch(...)` for the idempotency row plus business rows, and translate idempotency unique-key storage failures into shared typed reservation conflicts.
 - `IdempotencyRepository` only owns idempotency record lookup/cleanup. It must not orchestrate resource creation.
 
+## Content Lifecycle Plugin
+
+`docs/012` defines a pluggable status machine — `draft → scheduled → published → archived` — shared by every editorial resource. Use it for any new resource that has draft/publish semantics (Post, Book, future Chapter, SiteConfig, etc.); do not invent per-resource publish/unpublish use cases.
+
+Layout:
+
+```
+src/domain/lifecycle/
+  lifecycle-entity.ts            # LifecycleStatus + LifecycleCapable interface
+  lifecycle-manager.ts           # LifecycleManager<T> contract
+
+src/application/lifecycle/
+  publish.usecase.ts             # PublishUseCase<T>           draft|scheduled → published
+  unpublish.usecase.ts           # UnpublishUseCase<T>         scheduled|published → draft
+  schedule-publish.usecase.ts    # SchedulePublishUseCase<T>   draft → scheduled (validates scheduledAt > now)
+  archive.usecase.ts             # ArchiveUseCase<T>           any non-archived → archived (terminal)
+  <resource>-lifecycle-manager.ts # per-resource adapter (maps can* → ContentPolicy permission keys)
+
+src/composition/
+  scheduled-lifecycle.ts         # buildScheduledLifecycleManagers + runScheduledPublish (cron driver core)
+
+workers/scheduled-publish/       # dedicated Cloudflare Worker, hourly cron ("0 * * * *")
+                                 # API Worker has NO scheduled handler; cron lives in its own deploy unit
+```
+
+To add lifecycle to a new resource:
+
+1. **Entity** implements `LifecycleCapable`: add `lifecycleStatus`, `publishedAt`, `scheduledAt`, `archivedAt` getters and `publish()`, `unpublish()`, `schedule(scheduledAt)`, `archive()` methods. Each method throws `ConflictError` for invalid transitions; entities own the state machine guard. `archived` is terminal in Level 1.
+2. **`UpdateXxxProps` MUST NOT contain `status`, `publishedAt`, `scheduledAt`, or `archivedAt`** — generic PATCH cannot mutate lifecycle. `Xxx.update()` MUST reject mutations on archived entities.
+3. **Repository** adds two methods used by the cron driver:
+   - `findScheduledReadyIds(now, limit)` — indexed SELECT of overdue scheduled ids.
+   - `publishScheduledReady(id, now)` — conditional `UPDATE ... WHERE status = 'scheduled' AND scheduled_at <= ?` via `CrudAdapter.updateRowsConditional`; returns whether the row transitioned. This is the only safe cron transition primitive under D1 (no row locks → compare-and-set).
+4. **Adapter** `src/application/lifecycle/<resource>-lifecycle-manager.ts` implements `LifecycleManager<T>`. It is the only place that names a `{resource}.publish` / `{resource}.archive` permission. Schedule and unpublish reuse `{resource}.publish` (same authorization question: "may this actor cause this to be published?"); only archive uses a dedicated `{resource}.archive` key.
+5. **Permission catalog** in `src/domain/iam/content-permission.ts`: add `{resource}.publish` and `{resource}.archive` to `ContentPermissionKey` + `CONTENT_PERMISSIONS` (both `delegationClass: "ordinary"`). Wire them into the appropriate built-in roles (resource owner gets both; an author-style role gets publish only; an editor-style role gets neither).
+6. **Wiring** in `src/composition/create-request-container.ts`: add `<resource>.publish/unpublish/schedule/archive` keys instantiating the generic use cases against the adapter. Add the adapter to `buildScheduledLifecycleManagers` in `src/composition/scheduled-lifecycle.ts` so the cron picks the resource up. The cron path passes `undefined as never` for `ContentPolicy` because authorization was committed at schedule time; the cron never calls `can*` (asserted by spy test in `tests/scheduled-publish.test.ts`).
+7. **Routes** in `src/http/routes/<resource>.routes.ts`: add four `POST /<resources>/{id}/{publish|unpublish|schedule|archive}` routes. Schedule body uses the shared `scheduleBodySchema` from `src/http/schemas/lifecycle.schema.ts`. Each handler calls exactly one use case (`route-module` lint rule).
+8. **Schema + migration**: add `scheduled_at` / `archived_at` columns (plus `published_at` if not already present) as nullable `integer("…", { mode: "timestamp_ms" })`. Add a partial index `<table>_scheduled_idx ON (scheduled_at) WHERE status = 'scheduled'` to keep the cron predicate fast. Run `pnpm db:generate` — never hand-roll the SQL or `meta/_journal.json` will diverge.
+9. **Response schema + presenter**: extend `<resource>ResponseSchema` with `scheduledAt`, `archivedAt` (nullable ISO strings). Presenter converts `Date | null` → ISO string or `null`.
+10. **Tests**: add `tests/<resource>-lifecycle.test.ts` covering the four endpoints, 409 on invalid transitions, 400 on past `scheduledAt`, and 403 without `content:write` or policy binding. Race coverage for `publishScheduledReady` lives in `tests/lifecycle/scheduled-publish-race.test.ts`.
+
+Cron semantics (read before changing the driver):
+
+- The cron Worker has no actor/JWT (`§5.6` of docs/012). Authorization is checked at schedule time, never at publish time. Permission revoked between schedule and fire → schedule still fires; cancel by calling `unpublish` or `archive`.
+- The compare-and-set guard makes the cron idempotent at the row level — Cloudflare's at-least-once cron and concurrent manual publishes both end up no-op'ing on the losing path.
+- The driver iterates sequentially per resource (`SCHEDULED_PUBLISH_BATCH_LIMIT = 500`) by design — D1 concurrent-write limits would throttle a parallelized fan-out. `// eslint-disable-next-line no-await-in-loop` annotations on the two `await` sites are intentional.
+
+Media is **not** lifecycle-capable: it has its own pipeline status (`pending_upload → processing → ready → failed → expired`) and an orthogonal `visibility` flag. `publish-media.usecase.ts` / `unpublish-media.usecase.ts` are kept as-is.
+
 ## JSDoc Standard
 
 Add JSDoc at boundaries where intention can be lost:

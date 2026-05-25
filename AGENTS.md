@@ -64,6 +64,7 @@ When new findings appear, handle them autonomously:
 
 ## Rules
 
-1. Always keep README.md up to date.
-2. When work from a planning document is completed, update that document's top `Status` metadata to show it is implemented and update README.md's planning/status list in the same change.
+1. Always keep README.md up to date when public commands, topology, or setup changes. (hard gate — do not skip)
+2. When work from a planning document is completed, update status metadata or implementation notes in that document when the document asks for it.
 3. Name planning documents with a leading numbered prefix in the `xxx_...` format so their sequence stays trackable.
+4. Never craft migration SQL or snapshot files manually. After changing `src/infrastructure/db/schema.ts`, run `pnpm db:generate`. Hand-written SQL drifts the journal, snapshot, and column ordering away from Drizzle's expected state and breaks future runs.

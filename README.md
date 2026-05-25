@@ -21,7 +21,7 @@ This implementation follows the contracts in:
 
 Architecture planning documents and implementation status:
 
-> **Latest status (2026-05-25):** docs 001–011 are implemented in production. **docs/012 (Content Lifecycle Plugin) is the next implementation up.** docs/013 (Site Config Collection) depends on 012 and follows immediately. docs/014–017 are the post-lifecycle batch (book content model + interactions + EPUB import) and depend on 012; docs/018 records the review amendments now incorporated into 015–017. docs/009 is abandoned; its remaining scope lives in 015/016/017.
+> **Latest status (2026-05-25):** docs 001–012 are implemented in production. **docs/013 (Site Config Collection) is the next implementation up** (depends on 012). docs/014–017 are the post-lifecycle batch (book content model + interactions + EPUB import) and depend on 012; docs/018 records the review amendments now incorporated into 015–017. docs/009 is abandoned; its remaining scope lives in 015/016/017.
 
 
 - [docs/001_idempotency-batch-design.md](docs/001_idempotency-batch-design.md) — implemented
@@ -35,7 +35,7 @@ Architecture planning documents and implementation status:
 - [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — **abandoned**; remaining work absorbed into docs/015, docs/016, docs/017 (BKH-A book root shipped and remains in production)
 - [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
 - [docs/011_post-006-007-gap-fixes.md](docs/011_post-006-007-gap-fixes.md) — gap fixes
-- [docs/012_content-lifecycle-plugin.md](docs/012_content-lifecycle-plugin.md) — implementation-grade proposal: pluggable lifecycle plugin (`draft`/`scheduled`/`published`/`archived`) with generic use cases, per-resource adapters, compare-and-set publish, hourly Cloudflare Cron Trigger, dedicated `*.archive` permissions, status removed from generic PATCH; supersedes docs/005; covers Post, Book, SiteConfig, future Chapter
+- [docs/012_content-lifecycle-plugin.md](docs/012_content-lifecycle-plugin.md) — **implemented**: pluggable lifecycle plugin (`draft`/`scheduled`/`published`/`archived`) with generic use cases, per-resource adapters, compare-and-set publish, hourly Cloudflare Cron Trigger (`workers/scheduled-publish/`), dedicated `*.archive` permissions, status removed from generic PATCH; supersedes docs/005; covers Post, Book, future Chapter/SiteConfig
 - [docs/013_site-config-collection.md](docs/013_site-config-collection.md) — implementation-grade proposal: promotable SiteConfig collection with Zod-validated dynamic blocks, lifecycle-plugin adoption from day one, partial-unique single-published invariant, and formal rationale for categories as org-owned resources (depends on docs/012)
 - [docs/014_audit-service-stub.md](docs/014_audit-service-stub.md) — stub: placeholder noting that only `content_policy_events` exists (binding-scoped); names candidate triggers from docs/015/016/017 and defers general resource audit design
 - [docs/015_book-content-model.md](docs/015_book-content-model.md) — amended implementation-grade proposal: recursive chapters with enforceable hierarchy/attachment invariants, validated Lexical content including `broken-image`, anonymous reads for published-public chapters, optional listed-lock decision, asynchronous word/count projections, book provenance and lifecycle-aware `/replace` workflow (depends on docs/012)
@@ -188,6 +188,7 @@ Current automated coverage includes:
 - `id`-shaped user, direct-share, and service-account token fixtures
 - Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M principal-validation fetch/cache, and denial-precedence coverage
 - Book root creation, atomic owner binding, idempotent create replay/concurrency, direct-share root rejection, M2M explicit-owner import, private reads/updates, and public published reads
+- Content lifecycle plugin (`draft → scheduled → published → archived`): generic publish/unpublish/schedule/archive use cases, post + book HTTP coverage (200/400/403/409 paths), `scheduledAt`-must-be-future guard, archived-update conflict, `PATCH` rejection of lifecycle fields, scheduled-publish cron driver against real D1 with frozen clock, no-`can*`-during-cron spy, and `publishScheduledReady` compare-and-set race coverage
 
 ## Deployment
 
@@ -197,6 +198,7 @@ CI/CD is handled by [.github/workflows/ci-deploy.yml](.github/workflows/ci-deplo
 2. `wrangler d1 migrations apply content_api --remote`
 3. Deploy the API Worker (`content-api`)
 4. Deploy the queue consumer (`content-api-media-processor`)
+5. Deploy the scheduled-publish cron Worker (`content-api-scheduled-publish`, hourly `0 * * * *`) — the API Worker itself exports no `scheduled` handler; the cron lives in `workers/scheduled-publish/`
 
 Required GitHub secrets:
 

@@ -217,6 +217,57 @@
       "tool": "fallow",
       "files": "src/domain/books/book.entity.ts|src/domain/categories/category.entity.ts|src/domain/users/user.entity.ts",
       "reason": "Entity getter and snapshot pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/books.routes.ts",
+      "rule": "complexity/file-too-large",
+      "reason": "Book route module keeps the full resource surface discoverable; handlers are thin and architecture-linted"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/books.routes.ts",
+      "rule": "complexity/function-too-long",
+      "reason": "Route registration — splitting registerBookRoutes scatters related route definitions"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/books.routes.ts",
+      "rule": "code-quality/duplicate-block",
+      "reason": "Route handler pattern — each lifecycle route validates, calls one use case, and presents; extracting adds indirection"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/books.routes.ts",
+      "rule": "ai-slop/narrative-comment",
+      "reason": "Route boundary JSDoc — required by JSDoc Standard"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/domain/iam/content-permission.ts",
+      "rule": "ai-slop/narrative-comment",
+      "reason": "Permission catalog JSDoc at architectural boundary — required by JSDoc Standard"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/http/routes/content-iam.routes.ts",
+      "rule": "ai-slop/narrative-comment",
+      "reason": "Route boundary JSDoc — required by JSDoc Standard"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/books/book.entity.ts|src/domain/posts/post.entity.ts",
+      "reason": "Entity lifecycle methods (publish/unpublish/schedule/archive) — mandated by LifecycleCapable interface and lifecycle plugin"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/media/media.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter + update pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "fallow",
+      "files": "src/domain/posts/post.entity.ts|src/domain/users/user.entity.ts",
+      "reason": "Entity getter + update pattern — mandated consistency across entity classes"
     }
   ]
 }

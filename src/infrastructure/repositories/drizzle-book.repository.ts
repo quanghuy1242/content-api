@@ -1,3 +1,4 @@
+import { and, eq, lte } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
@@ -33,5 +34,28 @@ export class DrizzleBookRepository implements BookRepository {
 
   async save(book: Book) {
     await this.crud.updateRow(books, books.id, book.id, bookToUpdateRow(book));
+  }
+
+  async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {
+    const rows = await this.crud.findRowsWhere<{ id: string }>(
+      books,
+      [books.id],
+      and(eq(books.status, "scheduled"), lte(books.scheduledAt, now))!,
+      { orderBy: books.scheduledAt, direction: "asc", limit },
+    );
+    return rows.map((row) => row.id);
+  }
+
+  async publishScheduledReady(id: string, now: Date): Promise<boolean> {
+    const result = await this.crud.updateRowsConditional(books, {
+      set: {
+        status: "published",
+        publishedAt: now,
+        scheduledAt: null,
+        updatedAt: now,
+      },
+      where: and(eq(books.id, id), eq(books.status, "scheduled"), lte(books.scheduledAt, now))!,
+    });
+    return result.rowsAffected === 1;
   }
 }

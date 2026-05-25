@@ -21,6 +21,7 @@ import {
   createBookSchema,
   updateBookSchema,
 } from "@/http/schemas/books.schema";
+import { scheduleBodySchema } from "@/http/schemas/lifecycle.schema";
 import {
   bindingIdParamSchema,
   bookIdParamSchema,
@@ -90,6 +91,61 @@ const updateBookRoute = createRoute({
   },
   responses: {
     200: jsonContent(dataResponseSchema(bookResponseSchema), "Updated book"),
+    ...commonErrorResponses,
+  },
+});
+
+const bookPublishRoute = createRoute({
+  method: "post",
+  path: "/books/{id}/publish",
+  tags: ["books"],
+  description: "Publish a draft or scheduled book.",
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(bookResponseSchema), "Published book"),
+    ...commonErrorResponses,
+  },
+});
+
+const bookUnpublishRoute = createRoute({
+  method: "post",
+  path: "/books/{id}/unpublish",
+  tags: ["books"],
+  description: "Unpublish a published book or cancel a scheduled book, returning it to draft.",
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(bookResponseSchema), "Unpublished book"),
+    ...commonErrorResponses,
+  },
+});
+
+const bookScheduleRoute = createRoute({
+  method: "post",
+  path: "/books/{id}/schedule",
+  tags: ["books"],
+  description: "Schedule a draft book to publish at a future time.",
+  security: bearerSecurity,
+  request: {
+    params: idParamSchema,
+    body: jsonRequestBody(scheduleBodySchema, "Scheduled publish payload"),
+  },
+  responses: {
+    200: jsonContent(dataResponseSchema(bookResponseSchema), "Scheduled book"),
+    ...commonErrorResponses,
+  },
+});
+
+const bookArchiveRoute = createRoute({
+  method: "post",
+  path: "/books/{id}/archive",
+  tags: ["books"],
+  description: "Archive a book (non-destructive, terminal state).",
+  security: bearerSecurity,
+  request: { params: idParamSchema },
+  responses: {
+    200: jsonContent(dataResponseSchema(bookResponseSchema), "Archived book"),
     ...commonErrorResponses,
   },
 });
@@ -250,6 +306,39 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
     const params = c.req.valid("param");
     const body = c.req.valid("json");
     const result = await c.get("container").books.update.execute({ actor, bookId: params.id, input: body });
+    return c.json({ data: presentBook(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(bookPublishRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").books.publish.execute({ actor, id: params.id });
+    return c.json({ data: presentBook(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(bookUnpublishRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").books.unpublish.execute({ actor, id: params.id });
+    return c.json({ data: presentBook(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(bookScheduleRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const body = c.req.valid("json");
+    const result = await c.get("container").books.schedule.execute({
+      actor,
+      id: params.id,
+      scheduledAt: new Date(body.scheduledAt),
+    });
+    return c.json({ data: presentBook(result) }, HTTP_STATUS_OK);
+  });
+
+  app.openapi(bookArchiveRoute, async (c) => {
+    const actor = requireActor(c);
+    const params = c.req.valid("param");
+    const result = await c.get("container").books.archive.execute({ actor, id: params.id });
     return c.json({ data: presentBook(result) }, HTTP_STATUS_OK);
   });
 

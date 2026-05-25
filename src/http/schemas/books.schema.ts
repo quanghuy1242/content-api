@@ -10,7 +10,6 @@ export const createBookSchema = z.object({
 export const updateBookSchema = z.object({
   title: z.string().min(1).max(MAX_NAME_LENGTH).optional(),
   visibility: z.enum(["private", "public"]).optional(),
-  status: z.enum(["draft", "published", "archived"]).optional(),
 });
 
 export const bookResponseSchema = z.object({
@@ -19,7 +18,10 @@ export const bookResponseSchema = z.object({
   title: z.string(),
   createdByUserId: idSchema,
   visibility: z.enum(["private", "public"]),
-  status: z.enum(["draft", "published", "archived"]),
+  status: z.enum(["draft", "scheduled", "published", "archived"]),
+  publishedAt: z.string().nullable(),
+  scheduledAt: z.string().nullable(),
+  archivedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

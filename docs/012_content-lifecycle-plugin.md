@@ -835,7 +835,7 @@ HTTP schema updates:
 
 ### 4.9 Database Migration
 
-`drizzle/0007_lifecycle_fields.sql`:
+`drizzle/0007_*.sql` (generated via `pnpm db:generate` — Drizzle picks a random suffix; current file is `0007_lucky_oracle.sql`):
 
 ```sql
 -- Posts: add scheduled_at, archived_at
@@ -973,7 +973,7 @@ src/http/schemas/
   lifecycle.schema.ts                # scheduleBodySchema (shared)
 
 drizzle/
-  0007_lifecycle_fields.sql
+  0007_*.sql                         # generated via `pnpm db:generate`; current: `0007_lucky_oracle.sql`
 
 workers/scheduled-publish/           # NEW: dedicated Cloudflare Worker (sibling of workers/media-processor)
   wrangler.jsonc                     # triggers.crons = ["0 * * * *"]; shares D1 binding with API
@@ -1277,7 +1277,7 @@ Tests:
 Scope:
 
 - `src/infrastructure/db/schema.ts`
-- `drizzle/0007_lifecycle_fields.sql` (generated)
+- `drizzle/0007_*.sql` (generated via `pnpm db:generate`; current file: `0007_lucky_oracle.sql`)
 - `src/infrastructure/repositories/mappers/post.mapper.ts`
 - `src/infrastructure/repositories/mappers/book.mapper.ts`
 - `src/http/schemas/posts.schema.ts`
@@ -1510,7 +1510,7 @@ For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflar
 - `PostLifecycleManager` and `BookLifecycleManager` exist under `src/application/lifecycle/`.
 - `posts.routes.ts` exposes `/publish`, `/unpublish`, `/schedule`, `/archive`. `books.routes.ts` exposes the same four routes. `PATCH /books/{id}` rejects `status`.
 - `BUILT_IN_CONTENT_ROLES` contains `system:org.site_manager`; updated owner/admin roles include the new keys.
-- `drizzle/0007_lifecycle_fields.sql` applies cleanly on fresh D1.
+- The generated `drizzle/0007_*.sql` (currently `0007_lucky_oracle.sql`) applies cleanly on fresh D1.
 - `workers/scheduled-publish/wrangler.jsonc` declares `triggers.crons = ["0 * * * *"]` and reuses the API's D1 binding; `workers/scheduled-publish/src/index.ts` exports default `{ scheduled }` that dispatches `runScheduledPublish` through `ctx.waitUntil`. The API Worker's own `wrangler.jsonc` and `src/main.ts` are unchanged.
 - `.github/workflows/ci-deploy.yml` deploys the cron Worker after the API Worker.
 - `pnpm check` is green: lint (including architecture rules), duplicate gate, typecheck, vitest.
@@ -1547,7 +1547,7 @@ workers/scheduled-publish/       dedicated Cloudflare Worker (sibling of workers
   tsconfig.json                  extends root tsconfig; @/* alias targets ../../src/*
   src/index.ts                   exports default { scheduled }; calls runScheduledPublish
 
-drizzle/0007_lifecycle_fields.sql
+drizzle/0007_*.sql (generated via `pnpm db:generate`; current: `0007_lucky_oracle.sql`)
   posts: + scheduled_at, archived_at; index on (scheduled_at) WHERE status='scheduled'
   books: + published_at, scheduled_at, archived_at; same partial index
 

@@ -6,6 +6,9 @@ export function presentBook(book: Book): z.infer<typeof bookResponseSchema> {
   const snapshot = book.toSnapshot();
   return {
     ...snapshot,
+    publishedAt: snapshot.publishedAt?.toISOString() ?? null,
+    scheduledAt: snapshot.scheduledAt?.toISOString() ?? null,
+    archivedAt: snapshot.archivedAt?.toISOString() ?? null,
     createdAt: snapshot.createdAt.toISOString(),
     updatedAt: snapshot.updatedAt.toISOString(),
   };

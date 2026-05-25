@@ -83,3 +83,11 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: 4.92.0
           command: deploy --config workers/media-processor/wrangler.jsonc
+
+      - name: Deploy Scheduled Publish Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: 4.92.0
+          command: deploy --config workers/scheduled-publish/wrangler.jsonc

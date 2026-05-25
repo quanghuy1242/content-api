@@ -31,12 +31,16 @@ import { PublishMediaUseCase } from "@/application/media/publish-media.usecase";
 import { ServeMediaVariantUseCase } from "@/application/media/serve-media-variant.usecase";
 import { UnpublishMediaUseCase } from "@/application/media/unpublish-media.usecase";
 import { UpdateMediaUseCase } from "@/application/media/update-media.usecase";
+import { ArchiveUseCase } from "@/application/lifecycle/archive.usecase";
+import { BookLifecycleManager } from "@/application/lifecycle/book-lifecycle-manager";
+import { PostLifecycleManager } from "@/application/lifecycle/post-lifecycle-manager";
+import { PublishUseCase } from "@/application/lifecycle/publish.usecase";
+import { SchedulePublishUseCase } from "@/application/lifecycle/schedule-publish.usecase";
+import { UnpublishUseCase } from "@/application/lifecycle/unpublish.usecase";
 import { CreatePostUseCase } from "@/application/posts/create-post.usecase";
 import { DeletePostUseCase } from "@/application/posts/delete-post.usecase";
 import { GetPostUseCase } from "@/application/posts/get-post.usecase";
 import { ListPostsUseCase } from "@/application/posts/list-posts.usecase";
-import { PublishPostUseCase } from "@/application/posts/publish-post.usecase";
-import { UnpublishPostUseCase } from "@/application/posts/unpublish-post.usecase";
 import { UpdatePostUseCase } from "@/application/posts/update-post.usecase";
 import { CreateUserUseCase } from "@/application/users/create-user.usecase";
 import { DeleteUserUseCase } from "@/application/users/delete-user.usecase";
@@ -168,8 +172,10 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentPolicy,
       ),
       update: new UpdatePostUseCase(postRepository, contentPolicy),
-      publish: new PublishPostUseCase(postRepository, contentPolicy),
-      unpublish: new UnpublishPostUseCase(postRepository, contentPolicy),
+      publish: new PublishUseCase(new PostLifecycleManager(postRepository, contentPolicy)),
+      unpublish: new UnpublishUseCase(new PostLifecycleManager(postRepository, contentPolicy)),
+      schedule: new SchedulePublishUseCase(new PostLifecycleManager(postRepository, contentPolicy)),
+      archive: new ArchiveUseCase(new PostLifecycleManager(postRepository, contentPolicy)),
       delete: new DeletePostUseCase(postRepository, contentPolicy),
     },
     media: {
@@ -204,6 +210,10 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentPolicy,
       ),
       update: new UpdateBookUseCase(bookRepository, contentPolicy),
+      publish: new PublishUseCase(new BookLifecycleManager(bookRepository, contentPolicy)),
+      unpublish: new UnpublishUseCase(new BookLifecycleManager(bookRepository, contentPolicy)),
+      schedule: new SchedulePublishUseCase(new BookLifecycleManager(bookRepository, contentPolicy)),
+      archive: new ArchiveUseCase(new BookLifecycleManager(bookRepository, contentPolicy)),
     },
     contentIam: {
       bootstrapOrganizationAdmin: new BootstrapOrganizationContentAdminUseCase(

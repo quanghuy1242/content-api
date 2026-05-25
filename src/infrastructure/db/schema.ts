@@ -36,9 +36,13 @@ export const posts = sqliteTable("posts", {
   category: text("category").notNull().references(() => categories.id, { onDelete: "restrict" }),
   status: text("status").notNull().default("draft"),
   publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+  scheduledAt: integer("scheduled_at", { mode: "timestamp_ms" }),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
-});
+}, (table) => [
+  index("posts_scheduled_idx").on(table.scheduledAt).where(sql`status = 'scheduled'`),
+]);
 
 export const media = sqliteTable("media", {
   id: text("id").primaryKey(),
@@ -77,11 +81,15 @@ export const books = sqliteTable("books", {
   createdByUserId: text("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   visibility: text("visibility").notNull().default("private"),
   status: text("status").notNull().default("draft"),
+  publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+  scheduledAt: integer("scheduled_at", { mode: "timestamp_ms" }),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(sql`(unixepoch() * 1000)`),
 }, (table) => [
   index("books_org_status_idx").on(table.orgId, table.status),
   index("books_created_by_idx").on(table.createdByUserId),
+  index("books_scheduled_idx").on(table.scheduledAt).where(sql`status = 'scheduled'`),
 ]);
 
 export const contentPermissions = sqliteTable("content_permissions", {

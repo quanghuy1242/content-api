@@ -102,7 +102,7 @@ content-api/
 │   └── filter-advise.mjs                 # Filters known noise from `pnpm advise` using .advise-suppressions.json
 │
 ├── patches/                              # pnpm patch-package targets
-├── .claude/skills/                       # Local Claude skills (this file is content-api-architecture/SKILL.md)
+├── .agents/skills/                       # Local agent skills (this file is content-api-architecture/SKILL.md)
 ├── .oxlintrc.json                        # Oxlint config; wires the architecture plugin
 ├── .advise-suppressions.json             # Known-noise suppressions consumed by filter-advise.mjs
 ├── wrangler.jsonc                        # Main API Worker config: name=content-api, main=src/main.ts, D1+R2 bindings
@@ -277,7 +277,10 @@ To add lifecycle to a new resource:
 
 1. **Entity** implements `LifecycleCapable`: add `lifecycleStatus`, `publishedAt`, `scheduledAt`, `archivedAt` getters and `publish()`, `unpublish()`, `schedule(scheduledAt)`, `archive()` methods. Each method throws `ConflictError` for invalid transitions; entities own the state machine guard. `archived` is terminal in Level 1.
 2. **`UpdateXxxProps` MUST NOT contain `status`, `publishedAt`, `scheduledAt`, or `archivedAt`** — generic PATCH cannot mutate lifecycle. `Xxx.update()` MUST reject mutations on archived entities.
-3. **Repository** adds two methods used by the cron driver:
+3. **Repository** separates ordinary metadata persistence from lifecycle persistence:
+   - Ordinary `save(entity)` must omit lifecycle fields from its update row and reject writes after `status === "archived"` so a stale update cannot revive or mutate terminal content.
+   - `saveLifecycle(entity, expectedStatus)` conditionally updates only lifecycle fields under the entity's loaded source status. Manual transition races return `ConflictError` rather than overwriting committed state.
+   It also adds two methods used by the cron driver:
    - `findScheduledReadyIds(now, limit)` — indexed SELECT of overdue scheduled ids.
    - `publishScheduledReady(id, now)` — conditional `UPDATE ... WHERE status = 'scheduled' AND scheduled_at <= ?` via `CrudAdapter.updateRowsConditional`; returns whether the row transitioned. This is the only safe cron transition primitive under D1 (no row locks → compare-and-set).
 4. **Adapter** `src/application/lifecycle/<resource>-lifecycle-manager.ts` implements `LifecycleManager<T>`. It is the only place that names a `{resource}.publish` / `{resource}.archive` permission. Schedule and unpublish reuse `{resource}.publish` (same authorization question: "may this actor cause this to be published?"); only archive uses a dedicated `{resource}.archive` key.
@@ -291,7 +294,7 @@ To add lifecycle to a new resource:
 Cron semantics (read before changing the driver):
 
 - The cron Worker has no actor/JWT (`§5.6` of docs/012). Authorization is checked at schedule time, never at publish time. Permission revoked between schedule and fire → schedule still fires; cancel by calling `unpublish` or `archive`.
-- The compare-and-set guard makes the cron idempotent at the row level — Cloudflare's at-least-once cron and concurrent manual publishes both end up no-op'ing on the losing path.
+- Compare-and-set guards apply to manual lifecycle saves as well as cron publishes: Cloudflare's at-least-once cron and concurrent manual transitions cannot overwrite an already committed lifecycle state.
 - The driver iterates sequentially per resource (`SCHEDULED_PUBLISH_BATCH_LIMIT = 500`) by design — D1 concurrent-write limits would throttle a parallelized fan-out. `// eslint-disable-next-line no-await-in-loop` annotations on the two `await` sites are intentional.
 
 Media is **not** lifecycle-capable: it has its own pipeline status (`pending_upload → processing → ready → failed → expired`) and an orthogonal `visibility` flag. `publish-media.usecase.ts` / `unpublish-media.usecase.ts` are kept as-is.

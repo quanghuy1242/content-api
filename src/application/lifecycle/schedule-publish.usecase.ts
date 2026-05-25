@@ -25,8 +25,9 @@ export class SchedulePublishUseCase<T extends LifecycleCapable> {
       `You cannot schedule this ${this.manager.resourceType}`,
     );
 
+    const expectedStatus = entity.lifecycleStatus;
     entity.schedule(params.scheduledAt);
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }

@@ -43,11 +43,11 @@ class StubEntity implements LifecycleCapable {
 }
 
 function makeManager(entity: StubEntity | null, canResult = true) {
-  const saved: StubEntity[] = [];
+  const saved: Array<{ entity: StubEntity; expectedStatus: LifecycleStatus }> = [];
   const mgr: LifecycleManager<StubEntity> = {
     resourceType: "stub",
     findById: async () => entity,
-    save: async (e) => { saved.push(e); },
+    save: async (savedEntity, expectedStatus) => { saved.push({ entity: savedEntity, expectedStatus }); },
     canPublish: async () => canResult,
     canUnpublish: async () => canResult,
     canSchedule: async () => canResult,
@@ -72,7 +72,7 @@ describe("PublishUseCase", () => {
     const { mgr, saved } = makeManager(entity);
     const result = await new PublishUseCase(mgr).execute({ actor: writer(), id: "e1" });
     expect(result.lifecycleStatus).toBe("published");
-    expect(saved[0]).toBe(entity);
+    expect(saved[0]).toEqual({ entity, expectedStatus: "draft" });
   });
 
   it("rejects actors without content:write scope", async () => {
@@ -100,7 +100,7 @@ describe("UnpublishUseCase", () => {
     const { mgr, saved } = makeManager(entity);
     const result = await new UnpublishUseCase(mgr).execute({ actor: writer(), id: "e1" });
     expect(result.lifecycleStatus).toBe("draft");
-    expect(saved[0]).toBe(entity);
+    expect(saved[0]).toEqual({ entity, expectedStatus: "published" });
   });
 
   it("rejects actors without content:write scope", async () => {
@@ -126,7 +126,7 @@ describe("SchedulePublishUseCase", () => {
     });
     expect(result.lifecycleStatus).toBe("scheduled");
     expect(result.scheduledAt).toEqual(future);
-    expect(saved[0]).toBe(entity);
+    expect(saved[0]).toEqual({ entity, expectedStatus: "draft" });
   });
 
   it("rejects a past scheduledAt timestamp", async () => {

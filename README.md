@@ -56,6 +56,19 @@ Auth is implemented as an OAuth2 resource server:
 - Content IAM protects sensitive delegation, custom-role tenant isolation, optimistic role updates, disabled-role binding lifecycle, first-admin bootstrap, last-admin revocation, and bounded denied-mutation audit storage through policy and D1 write guards
 - Book product routes require local `org.create_book`, atomically create one direct owner binding, support explicit-owner service-account imports, and gate private reads/updates through Content IAM
 
+## Lifecycle Routes
+
+Posts and books expose the shared lifecycle API:
+
+| Method | Path suffix | Transition |
+|---|---|---|
+| `POST` | `/{id}/publish` | `draft` or `scheduled` to `published` |
+| `POST` | `/{id}/unpublish` | `published` or `scheduled` to `draft` |
+| `POST` | `/{id}/schedule` | `draft` to `scheduled`; body `{ "scheduledAt": "<future ISO timestamp>" }` |
+| `POST` | `/{id}/archive` | any non-archived state to terminal `archived` |
+
+Use `/posts/{id}/...` or `/books/{id}/...`. Generic `PATCH` cannot change lifecycle fields, and archived content cannot be updated. Manual lifecycle transitions and hourly scheduled publishing use conditional status writes so concurrent requests cannot revive archived rows.
+
 ## Stack
 
 - `hono@4.12.19`
@@ -188,7 +201,7 @@ Current automated coverage includes:
 - `id`-shaped user, direct-share, and service-account token fixtures
 - Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M principal-validation fetch/cache, and denial-precedence coverage
 - Book root creation, atomic owner binding, idempotent create replay/concurrency, direct-share root rejection, M2M explicit-owner import, private reads/updates, and public published reads
-- Content lifecycle plugin (`draft → scheduled → published → archived`): generic publish/unpublish/schedule/archive use cases, post + book HTTP coverage (200/400/403/409 paths), `scheduledAt`-must-be-future guard, archived-update conflict, `PATCH` rejection of lifecycle fields, scheduled-publish cron driver against real D1 with frozen clock, no-`can*`-during-cron spy, and `publishScheduledReady` compare-and-set race coverage
+- Content lifecycle plugin (`draft → scheduled → published → archived`): generic publish/unpublish/schedule/archive use cases, post + book HTTP coverage (200/400/403/409 paths), `scheduledAt`-must-be-future guard, terminal archived-update/stale-save conflicts, `PATCH` rejection of lifecycle fields, scheduled-publish cron driver against real D1 with frozen clock, no-`can*`-during-cron spy, and compare-and-set race coverage
 
 ## Deployment
 

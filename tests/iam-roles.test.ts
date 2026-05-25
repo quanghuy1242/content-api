@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 
 import { env } from "cloudflare:test";
+import { assertContentPermissionKey, BUILT_IN_CONTENT_ROLES } from "@/domain/iam/content-permission";
 import {
   bootstrapContentIamAdmin,
   countRows,
@@ -13,6 +14,22 @@ import {
 
 beforeAll(setupBeforeAll);
 beforeEach(setupBeforeEach);
+
+it("registers lifecycle and site-config permissions in the built-in role catalog", () => {
+  expect(() => assertContentPermissionKey("post.archive")).not.toThrow();
+  expect(() => assertContentPermissionKey("book.publish")).not.toThrow();
+  expect(() => assertContentPermissionKey("site_config.publish")).not.toThrow();
+
+  const siteManager = BUILT_IN_CONTENT_ROLES.find((role) => role.id === "system:org.site_manager");
+  expect(siteManager?.permissions).toEqual([
+    "org.create_site_config",
+    "site_config.read",
+    "site_config.update",
+    "site_config.publish",
+    "site_config.archive",
+    "site_config.delete",
+  ]);
+});
 
 it("manages ordinary organization-defined roles and rejects sensitive custom role composition", async () => {
   const token = await bootstrapContentIamAdmin();

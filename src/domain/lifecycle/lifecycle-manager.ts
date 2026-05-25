@@ -1,5 +1,5 @@
 import type { Actor } from "@/domain/auth/actor";
-import type { LifecycleCapable } from "./lifecycle-entity";
+import type { LifecycleCapable, LifecycleStatus } from "./lifecycle-entity";
 
 /**
  * Per-resource adapter that connects a `LifecycleCapable` entity to:
@@ -14,7 +14,8 @@ export interface LifecycleManager<T extends LifecycleCapable> {
   readonly resourceType: string;
 
   findById(id: string): Promise<T | null>;
-  save(entity: T): Promise<void>;
+  /** Persists a lifecycle transition only if the loaded source status is unchanged. */
+  save(entity: T, expectedStatus: LifecycleStatus): Promise<void>;
 
   /** Authorization checks. Each adapter decides which permission key applies. */
   canPublish(actor: Actor, entity: T): Promise<boolean>;

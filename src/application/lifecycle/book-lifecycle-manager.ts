@@ -3,6 +3,7 @@ import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import { bookResource } from "@/domain/iam/resource-loader";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { LifecycleManager } from "@/domain/lifecycle/lifecycle-manager";
 
 export class BookLifecycleManager implements LifecycleManager<Book> {
@@ -14,7 +15,7 @@ export class BookLifecycleManager implements LifecycleManager<Book> {
   ) {}
 
   findById(id: string) { return this.books.findById(id); }
-  save(entity: Book) { return this.books.save(entity); }
+  save(entity: Book, expectedStatus: LifecycleStatus) { return this.books.saveLifecycle(entity, expectedStatus); }
 
   canPublish(actor: Actor, entity: Book) {
     return this.contentPolicy.can({ actor, permission: "book.publish", resource: bookResource(entity) });

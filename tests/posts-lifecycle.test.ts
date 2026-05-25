@@ -1,6 +1,8 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 
 import { env } from "cloudflare:test";
+import { createDb } from "@/infrastructure/db/client";
+import { DrizzlePostRepository } from "@/infrastructure/repositories/drizzle-post.repository";
 import {
   issueToken,
   issueWorkspaceShareToken,
@@ -93,6 +95,40 @@ it("archives a published post", async () => {
   await expect(res.json()).resolves.toMatchObject({
     data: { id: "post-published", status: "archived" },
   });
+});
+
+it("rejects metadata updates on an archived post", async () => {
+  const token = await issueWorkspaceShareToken("user-alice");
+  const archive = await request("/posts/post-draft/archive", { method: "POST", token });
+  expect(archive.status).toBe(200);
+
+  const update = await request("/posts/post-draft", {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ title: "Renamed Archived Post" }),
+  });
+  expect(update.status).toBe(409);
+});
+
+it("prevents stale metadata and lifecycle saves from reviving an archived post", async () => {
+  const repo = new DrizzlePostRepository(createDb(env as never));
+  const staleMetadata = await repo.findById("post-draft");
+  const staleLifecycle = await repo.findById("post-draft");
+  expect(staleMetadata).not.toBeNull();
+  expect(staleLifecycle).not.toBeNull();
+  staleMetadata!.update({ title: "Stale Rename" });
+  staleLifecycle!.publish();
+
+  const token = await issueWorkspaceShareToken("user-alice");
+  const archive = await request("/posts/post-draft/archive", { method: "POST", token });
+  expect(archive.status).toBe(200);
+
+  await expect(repo.save(staleMetadata!)).rejects.toThrow("Cannot update an archived post");
+  await expect(repo.saveLifecycle(staleLifecycle!, "draft")).rejects.toThrow("Post lifecycle state changed");
+
+  const row = await env.DB.prepare("SELECT status, title FROM posts WHERE id = 'post-draft'")
+    .first<{ status: string; title: string }>();
+  expect(row).toMatchObject({ status: "archived", title: "Draft Post" });
 });
 
 it("rejects publish on an already-published post with 409", async () => {

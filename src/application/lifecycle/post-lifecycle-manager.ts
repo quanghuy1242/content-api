@@ -1,6 +1,7 @@
 import type { Actor } from "@/domain/auth/actor";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import { postResource } from "@/domain/iam/resource-loader";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { LifecycleManager } from "@/domain/lifecycle/lifecycle-manager";
 import type { Post } from "@/domain/posts/post.entity";
 import type { PostRepository } from "@/domain/posts/post.repository";
@@ -14,7 +15,7 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
   ) {}
 
   findById(id: string) { return this.posts.findById(id); }
-  save(entity: Post) { return this.posts.save(entity); }
+  save(entity: Post, expectedStatus: LifecycleStatus) { return this.posts.saveLifecycle(entity, expectedStatus); }
 
   canPublish(actor: Actor, entity: Post) {
     return this.contentPolicy.can({ actor, permission: "post.publish", resource: postResource(entity) });

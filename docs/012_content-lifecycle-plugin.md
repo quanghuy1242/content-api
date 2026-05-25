@@ -1,6 +1,6 @@
 # Content Lifecycle Plugin
 
-> Status: implementation-grade proposal — ready for handoff
+> Status: implemented — verified 2026-05-25
 >
 > Date: 2026-05-25
 >
@@ -15,8 +15,8 @@
 > - `docs/007_content-iam-policy-binding-model.md`
 > - `docs/009_book-resource-hierarchy-and-collaboration-plan.md`
 > - `docs/013_site-config-collection.md` — depends on this plugin
-> - `.claude/skills/content-api-architecture/SKILL.md`
-> - `.claude/skills/content-iam-usage/SKILL.md`
+> - `.agents/skills/content-api-architecture/SKILL.md`
+> - `.agents/skills/content-iam-usage/SKILL.md`
 > - `src/domain/posts/post.entity.ts`
 > - `src/domain/books/book.entity.ts`
 > - `src/domain/iam/content-permission.ts`
@@ -55,7 +55,7 @@
   - [4.2 Domain Contracts](#42-domain-contracts)
   - [4.3 Generic Application Use Cases](#43-generic-application-use-cases)
   - [4.4 Per-Resource Adapters](#44-per-resource-adapters)
-  - [4.5 Repository Contract — Compare-And-Set Publish](#45-repository-contract--compare-and-set-publish)
+  - [4.5 Repository Contract — Compare-And-Set Transitions](#45-repository-contract--compare-and-set-transitions)
   - [4.6 Cron Worker — Scheduled Publish Driver](#46-cron-worker--scheduled-publish-driver)
   - [4.7 Content IAM — Permission Catalog And Role Wiring](#47-content-iam--permission-catalog-and-role-wiring)
   - [4.8 Entity Migrations](#48-entity-migrations)
@@ -64,7 +64,7 @@
   - [4.11 Module Layout](#411-module-layout)
 - [5. Architecture Decisions](#5-architecture-decisions)
   - [5.1 Interface-Based Plugin, Not Mixin Or Event Bus](#51-interface-based-plugin-not-mixin-or-event-bus)
-  - [5.2 Compare-And-Set Publish Owned By The Repository](#52-compare-and-set-publish-owned-by-the-repository)
+  - [5.2 Compare-And-Set Transitions Owned By The Repository](#52-compare-and-set-transitions-owned-by-the-repository)
   - [5.3 Generic Status Update Routes Cannot Change Lifecycle](#53-generic-status-update-routes-cannot-change-lifecycle)
   - [5.4 Dedicated `*.archive` Permissions](#54-dedicated-archive-permissions)
   - [5.5 Schedule Reuses The Publish Permission](#55-schedule-reuses-the-publish-permission)
@@ -140,7 +140,7 @@ Hono route handler
         ├─ manager.findById(id)                                    repo.findById
         ├─ manager.canPublish(actor, entity)                       ContentPolicy.can("{resource}.publish", ref)
         ├─ entity.publish()                                        domain invariant guard
-        └─ manager.save(entity)                                    repo.save
+        └─ manager.save(entity, loadedStatus)                      repository CAS lifecycle write
 ```
 
 ### Scheduled publish driver (hourly cron)
@@ -276,7 +276,7 @@ export interface LifecycleCapable {
 // src/domain/lifecycle/lifecycle-manager.ts
 
 import type { Actor } from "@/domain/auth/actor";
-import type { LifecycleCapable } from "./lifecycle-entity";
+import type { LifecycleCapable, LifecycleStatus } from "./lifecycle-entity";
 
 /**
  * Per-resource adapter that connects a `LifecycleCapable` entity to:
@@ -291,7 +291,8 @@ export interface LifecycleManager<T extends LifecycleCapable> {
   readonly resourceType: string;
 
   findById(id: string): Promise<T | null>;
-  save(entity: T): Promise<void>;
+  /** Optimistic write: rejects if another lifecycle transition changed status since load. */
+  save(entity: T, expectedStatus: LifecycleStatus): Promise<void>;
 
   /** Authorization checks. Each adapter decides which permission key applies. */
   canPublish(actor: Actor, entity: T): Promise<boolean>;
@@ -349,8 +350,9 @@ export class PublishUseCase<T extends LifecycleCapable> {
       `You cannot publish this ${this.manager.resourceType}`,
     );
 
+    const expectedStatus = entity.lifecycleStatus;
     entity.publish();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }
@@ -369,8 +371,9 @@ export class UnpublishUseCase<T extends LifecycleCapable> {
       this.manager.canUnpublish(params.actor, entity),
       `You cannot unpublish this ${this.manager.resourceType}`,
     );
+    const expectedStatus = entity.lifecycleStatus;
     entity.unpublish();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }
@@ -397,8 +400,9 @@ export class SchedulePublishUseCase<T extends LifecycleCapable> {
       this.manager.canSchedule(params.actor, entity),
       `You cannot schedule this ${this.manager.resourceType}`,
     );
+    const expectedStatus = entity.lifecycleStatus;
     entity.schedule(params.scheduledAt);
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }
@@ -417,8 +421,9 @@ export class ArchiveUseCase<T extends LifecycleCapable> {
       this.manager.canArchive(params.actor, entity),
       `You cannot archive this ${this.manager.resourceType}`,
     );
+    const expectedStatus = entity.lifecycleStatus;
     entity.archive();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }
@@ -446,7 +451,7 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
   ) {}
 
   findById(id: string) { return this.posts.findById(id); }
-  save(entity: Post) { return this.posts.save(entity); }
+  save(entity: Post, expectedStatus: LifecycleStatus) { return this.posts.saveLifecycle(entity, expectedStatus); }
 
   canPublish(actor: Actor, entity: Post) {
     return this.contentPolicy.can({ actor, permission: "post.publish", resource: postResource(entity) });
@@ -472,12 +477,13 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
 
 `BookLifecycleManager` and `SiteConfigLifecycleManager` follow the same shape with their own permission keys (see [§4.7](#47-content-iam--permission-catalog-and-role-wiring)) and resource-ref helpers. `SiteConfigLifecycleManager.canArchive` adds the "not the currently-active config" guard from `docs/013`.
 
-### 4.5 Repository Contract — Compare-And-Set Publish
+### 4.5 Repository Contract — Compare-And-Set Transitions
 
-Every lifecycle-capable repository implements two new methods. Example for `PostRepository`:
+Every lifecycle-capable repository implements optimistic manual lifecycle persistence plus two cron methods. Normal metadata `save` does not persist lifecycle fields and rejects a row already archived; this prevents a request loaded before an archive from reviving or mutating terminal content. Example additions for `PostRepository`:
 
 ```ts
 // src/domain/posts/post.repository.ts (additions)
+saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void>;
 findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
 publishScheduledReady(id: string, now: Date): Promise<boolean>;
 ```
@@ -496,6 +502,14 @@ async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]
     { orderBy: posts.scheduledAt, direction: "asc", limit },
   );
   return rows.map((row) => row.id);
+}
+
+async saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void> {
+  const result = await this.crud.updateRowsConditional(posts, {
+    set: postToLifecycleUpdateRow(post),
+    where: and(eq(posts.id, post.id), eq(posts.status, expectedStatus)),
+  });
+  if (result.rowsAffected !== 1) throw new ConflictError("Post lifecycle state changed before update");
 }
 
 async publishScheduledReady(id: string, now: Date): Promise<boolean> {
@@ -746,6 +760,11 @@ export class Post implements LifecycleCapable {
   get scheduledAt(): Date | null { return this.props.scheduledAt; }
   get archivedAt(): Date | null { return this.props.archivedAt; }
 
+  update(input: UpdatePostProps): void {
+    if (this.props.status === "archived") throw new ConflictError("Cannot update an archived post");
+    // apply mutable content fields...
+  }
+
   publish(): void {
     if (this.props.status === "archived") throw new ConflictError("Cannot publish an archived post");
     if (this.props.status === "published") throw new ConflictError("Post is already published");
@@ -783,7 +802,7 @@ export class Post implements LifecycleCapable {
 }
 ```
 
-The entity now implements `LifecycleCapable`. The existing `publish()` / `unpublish()` methods are tightened with the new precondition checks. `archived` is now reachable for posts.
+The entity now implements `LifecycleCapable`. The existing `publish()` / `unpublish()` methods are tightened with the new precondition checks, and `update()` rejects terminal archived state. `archived` is now reachable for posts.
 
 #### Book
 
@@ -825,8 +844,8 @@ export class Book implements LifecycleCapable {
 
 Mapper updates:
 
-- `src/infrastructure/repositories/mappers/post.mapper.ts`: include `scheduledAt`, `archivedAt` in `postToInsertRow`, `postToUpdateRow`, and the `Post.reconstitute(...)` call inside `postRowToEntity`.
-- `src/infrastructure/repositories/mappers/book.mapper.ts`: include `publishedAt`, `scheduledAt`, `archivedAt`. Drop the `status` field from any update path that consumes `UpdateBookProps`; the mapper still writes `status` to the row from the entity snapshot (the entity owns transitions).
+- `src/infrastructure/repositories/mappers/post.mapper.ts`: include `scheduledAt`, `archivedAt` in inserts/reconstitution and `postToLifecycleUpdateRow`; ordinary `postToUpdateRow` omits lifecycle fields.
+- `src/infrastructure/repositories/mappers/book.mapper.ts`: include `publishedAt`, `scheduledAt`, `archivedAt` in inserts/reconstitution and `bookToLifecycleUpdateRow`; ordinary `bookToUpdateRow` omits lifecycle fields.
 
 HTTP schema updates:
 
@@ -1014,13 +1033,14 @@ Layer boundaries (enforced by `scripts/oxlint-js-plugins/architecture.js`):
 
 Adding a new resource costs one adapter file. Generic use cases are never modified.
 
-### 5.2 Compare-And-Set Publish Owned By The Repository
+### 5.2 Compare-And-Set Transitions Owned By The Repository
 
-D1 has no row-level locking. A naive cron `find → entity.publish() → repo.save()` is exposed to lost-update races against simultaneous manual publish or unpublish on the same row.
+D1 has no row-level locking. A naive `find → entity.transition() → repo.save()` is exposed to lost-update races: cron/manual publishing can overwrite each other, and a stale mutation can revive an archived row.
 
-Resolution: the repository exposes `publishScheduledReady(id, now)` issuing a single conditional `UPDATE` (`WHERE status = 'scheduled' AND scheduled_at <= ?`). Two paths, two contracts:
+Resolution: repositories own conditional writes. Three paths, three contracts:
 
-- **Manual transitions** (`PublishUseCase`, etc.) call `entity.publish()` and the entity guards invariants. `entity.publish()` is intentionally strict — it throws if already published — because the caller expressed an explicit user intent.
+- **Manual transitions** (`PublishUseCase`, etc.) call the entity guard and then `saveLifecycle(entity, expectedStatus)`, which updates only lifecycle columns under `WHERE status = expectedStatus`. A competing transition yields `409` instead of overwriting committed state.
+- **Metadata updates** write no lifecycle columns and are conditional on `status != 'archived'`. A request loaded before archive cannot mutate or revive the archived row.
 - **Cron transitions** call `repo.publishScheduledReady(id, now)`. The SQL guard makes the operation idempotent without touching the entity. Concurrent manual publish wins the race (the cron UPDATE matches 0 rows), and vice versa.
 
 This removes the need for an entity-level "idempotent if already published" hack.
@@ -1224,11 +1244,11 @@ Scope:
 
 Tasks:
 
-- [ ] Define `LifecycleStatus` and `LifecycleCapable` (§4.2).
-- [ ] Define `LifecycleManager<T>` (§4.2).
-- [ ] Implement `PublishUseCase`, `UnpublishUseCase`, `SchedulePublishUseCase`, `ArchiveUseCase` (§4.3).
-- [ ] Extend `CrudAdapter` with `findRowsWhere<Row>` and `updateRowsConditional` (§4.5). Add JSDoc per `architecture/crud-adapter-jsdoc`.
-- [ ] Add `scheduleBodySchema` in `src/http/schemas/lifecycle.schema.ts`. Imports `z` from `@hono/zod-openapi`.
+- [x] Define `LifecycleStatus` and `LifecycleCapable` (§4.2).
+- [x] Define `LifecycleManager<T>` (§4.2).
+- [x] Implement `PublishUseCase`, `UnpublishUseCase`, `SchedulePublishUseCase`, `ArchiveUseCase` (§4.3), with optimistic source-status persistence.
+- [x] Extend `CrudAdapter` with `findRowsWhere<Row>` and `updateRowsConditional` (§4.5). Add JSDoc per `architecture/crud-adapter-jsdoc`.
+- [x] Add `scheduleBodySchema` in `src/http/schemas/lifecycle.schema.ts`. Imports `z` from `@hono/zod-openapi`.
 
 Acceptance criteria:
 
@@ -1250,15 +1270,15 @@ Scope:
 
 Tasks:
 
-- [ ] Extend `ContentResourceType` with `"site_config"`.
-- [ ] Extend `ContentPermissionKey` and `CONTENT_PERMISSIONS` with the new keys in §4.7.
-- [ ] Update `BUILT_IN_CONTENT_ROLES`:
+- [x] Extend `ContentResourceType` with `"site_config"`.
+- [x] Extend `ContentPermissionKey` and `CONTENT_PERMISSIONS` with the new keys in §4.7.
+- [x] Update `BUILT_IN_CONTENT_ROLES`:
   - `system:post.owner` += `post.archive`
   - `system:book.owner` += `book.publish`, `book.archive`
   - `system:book.author` += `book.publish`
   - `system:org.content_admin` += new permissions listed in §4.7
-- [ ] Add `system:org.site_manager` role (permissions in §4.7).
-- [ ] Update unit tests that snapshot the permission catalog and role catalog.
+- [x] Add `system:org.site_manager` role (permissions in §4.7).
+- [x] Update unit tests that cover the permission catalog and role catalog.
 
 Acceptance criteria:
 
@@ -1285,12 +1305,12 @@ Scope:
 
 Tasks:
 
-- [ ] Add `scheduledAt`, `archivedAt` columns to `posts` Drizzle table; add `publishedAt`, `scheduledAt`, `archivedAt` to `books`.
-- [ ] Add partial indexes `posts_scheduled_idx`, `books_scheduled_idx` on `(scheduled_at) WHERE status = 'scheduled'`.
-- [ ] Run `pnpm db:generate`; verify the generated SQL against §4.9. Edit the SQL only to standardize index names if Drizzle picks different ones.
-- [ ] Update post.mapper and book.mapper for new fields. Post mapper passes `scheduledAt`, `archivedAt` through `Post.reconstitute(...)` and `postToInsertRow` / `postToUpdateRow`.
-- [ ] Update `postResponseSchema` and `bookResponseSchema` to include new optional ISO fields.
-- [ ] Remove `status` from `updateBookBodySchema` (paired with LCY-E).
+- [x] Add `scheduledAt`, `archivedAt` columns to `posts` Drizzle table; add `publishedAt`, `scheduledAt`, `archivedAt` to `books`.
+- [x] Add partial indexes `posts_scheduled_idx`, `books_scheduled_idx` on `(scheduled_at) WHERE status = 'scheduled'`.
+- [x] Run `pnpm db:generate`; verify the generated SQL against §4.9.
+- [x] Update post.mapper and book.mapper for lifecycle fields, with separate metadata and lifecycle update rows.
+- [x] Update `postResponseSchema` and `bookResponseSchema` to include new optional ISO fields.
+- [x] Remove `status` from `updateBookBodySchema` (paired with LCY-E).
 
 Acceptance criteria:
 
@@ -1317,13 +1337,13 @@ Scope:
 
 Tasks:
 
-- [ ] Implement `LifecycleCapable` on `Post`: getters, `schedule()`, `archive()`; tighten `publish()` and `unpublish()` (§4.8).
-- [ ] Add `findScheduledReadyIds` and `publishScheduledReady` to `PostRepository` interface and Drizzle implementation (§4.5).
-- [ ] Add `PostLifecycleManager` (§4.4).
-- [ ] Replace `posts.publish` / `posts.unpublish` in `create-request-container.ts` with `new PublishUseCase(postLifecycleManager)` etc. Add `posts.schedule`, `posts.archive`.
-- [ ] Add `POST /posts/{id}/schedule` and `POST /posts/{id}/archive` routes; refactor existing publish/unpublish handlers to call generic use cases by `{ actor, id }`.
-- [ ] Delete `publish-post.usecase.ts` and `unpublish-post.usecase.ts`.
-- [ ] Update `postResponseSchema` to include `scheduledAt`, `archivedAt`.
+- [x] Implement `LifecycleCapable` on `Post`: getters, `schedule()`, `archive()`; tighten lifecycle transitions and terminal-state `update()` (§4.8).
+- [x] Add `saveLifecycle`, `findScheduledReadyIds`, and `publishScheduledReady` to `PostRepository` and its Drizzle implementation (§4.5).
+- [x] Add `PostLifecycleManager` (§4.4).
+- [x] Replace `posts.publish` / `posts.unpublish` in `create-request-container.ts` with `new PublishUseCase(postLifecycleManager)` etc. Add `posts.schedule`, `posts.archive`.
+- [x] Add `POST /posts/{id}/schedule` and `POST /posts/{id}/archive` routes; refactor existing publish/unpublish handlers to call generic use cases by `{ actor, id }`.
+- [x] Delete `publish-post.usecase.ts` and `unpublish-post.usecase.ts`.
+- [x] Update `postResponseSchema` to include `scheduledAt`, `archivedAt`.
 
 Acceptance criteria:
 
@@ -1352,13 +1372,13 @@ Scope:
 
 Tasks:
 
-- [ ] Implement `LifecycleCapable` on `Book`: `publish`, `unpublish`, `schedule`, `archive` (§4.8).
-- [ ] Remove `status` from `UpdateBookProps` and from `updateBookBodySchema`.
-- [ ] Tighten `Book.update()` to reject mutations when `status === "archived"`.
-- [ ] Add `findScheduledReadyIds` and `publishScheduledReady` to `BookRepository`.
-- [ ] Add `BookLifecycleManager`.
-- [ ] Wire `books.publish/unpublish/schedule/archive` in `create-request-container.ts`.
-- [ ] Add four new routes to `books.routes.ts`.
+- [x] Implement `LifecycleCapable` on `Book`: `publish`, `unpublish`, `schedule`, `archive` (§4.8).
+- [x] Remove `status` from `UpdateBookProps` and from `updateBookBodySchema`.
+- [x] Tighten `Book.update()` and repository writes to preserve terminal archived state.
+- [x] Add `saveLifecycle`, `findScheduledReadyIds`, and `publishScheduledReady` to `BookRepository`.
+- [x] Add `BookLifecycleManager`.
+- [x] Wire `books.publish/unpublish/schedule/archive` in `create-request-container.ts`.
+- [x] Add four new routes to `books.routes.ts`.
 
 Acceptance criteria:
 
@@ -1386,13 +1406,13 @@ Scope:
 
 Tasks:
 
-- [ ] Create the `workers/scheduled-publish/` directory matching the layout in §4.6.1.
-- [ ] Implement `workers/scheduled-publish/wrangler.jsonc` with `triggers.crons = ["0 * * * *"]` and the shared D1 binding (same `database_id` as the API Worker; `migrations_dir: "../../drizzle"`).
-- [ ] Implement `workers/scheduled-publish/tsconfig.json` extending the root tsconfig with `@/*` path alias to `../../src/*`.
-- [ ] Implement `workers/scheduled-publish/src/index.ts` exporting `default { scheduled }` that builds managers and calls `runScheduledPublish` inside `ctx.waitUntil(...)`.
-- [ ] Implement `buildScheduledLifecycleManagers(env)` and `runScheduledPublish(managers, now)` in `src/composition/scheduled-lifecycle.ts` (§4.6.2).
-- [ ] Add a deploy step to `.github/workflows/ci-deploy.yml`: `wrangler deploy --config workers/scheduled-publish/wrangler.jsonc` after the API deploy step.
-- [ ] Document the cron Worker in README under "Deployment" alongside the existing media-processor Worker.
+- [x] Create the `workers/scheduled-publish/` directory matching the layout in §4.6.1.
+- [x] Implement `workers/scheduled-publish/wrangler.jsonc` with `triggers.crons = ["0 * * * *"]` and the shared D1 binding (same `database_id` as the API Worker; `migrations_dir: "../../drizzle"`).
+- [x] Implement `workers/scheduled-publish/tsconfig.json` extending the root tsconfig with `@/*` path alias to `../../src/*`.
+- [x] Implement `workers/scheduled-publish/src/index.ts` exporting `default { scheduled }` that builds managers and calls `runScheduledPublish` inside `ctx.waitUntil(...)`.
+- [x] Implement `buildScheduledLifecycleManagers(env)` and `runScheduledPublish(managers, now)` in `src/composition/scheduled-lifecycle.ts` (§4.6.2).
+- [x] Add a deploy step to `.github/workflows/ci-deploy.yml`: `wrangler deploy --config workers/scheduled-publish/wrangler.jsonc` after the API deploy step.
+- [x] Document the cron Worker in README under "Deployment" alongside the existing media-processor Worker.
 
 Acceptance criteria:
 
@@ -1417,10 +1437,10 @@ Scope:
 
 Tasks:
 
-- [ ] Mark `docs/005` `Status: superseded by docs/012` at the top of the file.
-- [ ] Update README "planning/status list" entry for `docs/012` to `implemented`.
-- [ ] Update README to mention `triggers.crons` and the new lifecycle endpoints under "Routes".
-- [ ] Run `pnpm advise`. Suppress only catalogued duplications (entity lifecycle methods, lifecycle adapter shape) per `.advise-suppressions.json` conventions in `CLAUDE.md`.
+- [x] Mark `docs/005` `Status: superseded by docs/012` at the top of the file.
+- [x] Update README "planning/status list" entry for `docs/012` to `implemented`.
+- [x] Update README to mention `triggers.crons` and the new lifecycle endpoints under "Routes".
+- [x] Run `pnpm advise`. Suppress only catalogued duplications (entity lifecycle methods, lifecycle adapter shape) per `.advise-suppressions.json` conventions in `AGENTS.md`.
 
 Acceptance criteria:
 
@@ -1505,8 +1525,8 @@ For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflar
 
 - `src/domain/lifecycle/{lifecycle-entity,lifecycle-manager}.ts` exist and compile.
 - `src/application/lifecycle/{publish,unpublish,schedule-publish,archive}.usecase.ts` exist; each calls scope check → manager → entity method → save in that order.
-- `CrudAdapter` exposes `findRowsWhere` and `updateRowsConditional`; both have JSDoc; both have at least one test path through Post repository.
-- `Post` and `Book` implement `LifecycleCapable`; their props include `publishedAt`, `scheduledAt`, `archivedAt` (Post had `publishedAt` already).
+- `CrudAdapter` exposes `findRowsWhere` and `updateRowsConditional`; both have JSDoc; lifecycle repositories use conditional writes for cron and manual transitions.
+- `Post` and `Book` implement `LifecycleCapable`; their props include `publishedAt`, `scheduledAt`, `archivedAt` (Post had `publishedAt` already), and archived rows reject metadata writes.
 - `PostLifecycleManager` and `BookLifecycleManager` exist under `src/application/lifecycle/`.
 - `posts.routes.ts` exposes `/publish`, `/unpublish`, `/schedule`, `/archive`. `books.routes.ts` exposes the same four routes. `PATCH /books/{id}` rejects `status`.
 - `BUILT_IN_CONTENT_ROLES` contains `system:org.site_manager`; updated owner/admin roles include the new keys.

@@ -19,8 +19,9 @@ export class UnpublishUseCase<T extends LifecycleCapable> {
       `You cannot unpublish this ${this.manager.resourceType}`,
     );
 
+    const expectedStatus = entity.lifecycleStatus;
     entity.unpublish();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }

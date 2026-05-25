@@ -1,10 +1,16 @@
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, ne } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
+import { ConflictError } from "@/shared/errors";
 import { books } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
-import { bookRowToEntity, bookToUpdateRow } from "@/infrastructure/repositories/mappers/book.mapper";
+import {
+  bookRowToEntity,
+  bookToLifecycleUpdateRow,
+  bookToUpdateRow,
+} from "@/infrastructure/repositories/mappers/book.mapper";
 
 type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
@@ -33,7 +39,23 @@ export class DrizzleBookRepository implements BookRepository {
   }
 
   async save(book: Book) {
-    await this.crud.updateRow(books, books.id, book.id, bookToUpdateRow(book));
+    const result = await this.crud.updateRowsConditional(books, {
+      set: bookToUpdateRow(book),
+      where: and(eq(books.id, book.id), ne(books.status, "archived"))!,
+    });
+    if (result.rowsAffected !== 1) {
+      throw new ConflictError("Cannot update an archived book");
+    }
+  }
+
+  async saveLifecycle(book: Book, expectedStatus: LifecycleStatus) {
+    const result = await this.crud.updateRowsConditional(books, {
+      set: bookToLifecycleUpdateRow(book),
+      where: and(eq(books.id, book.id), eq(books.status, expectedStatus))!,
+    });
+    if (result.rowsAffected !== 1) {
+      throw new ConflictError("Book lifecycle state changed before update");
+    }
   }
 
   async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {

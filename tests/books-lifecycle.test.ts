@@ -1,6 +1,8 @@
 /// <reference types="@cloudflare/vitest-pool-workers/types" />
 
 import { env } from "cloudflare:test";
+import { createDb } from "@/infrastructure/db/client";
+import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
 import {
   bootstrapContentIamAdmin,
   issueToken,
@@ -167,4 +169,22 @@ it("book.update is rejected on an archived book", async () => {
     body: JSON.stringify({ title: "Renamed Archived Book" }),
   });
   expect(res.status).toBe(409);
+});
+
+it("prevents stale metadata saves from modifying an archived book", async () => {
+  const token = await bootstrapContentIamAdmin();
+  const bookId = await createBook(token);
+  const repo = new DrizzleBookRepository(createDb(env as never));
+  const stale = await repo.findById(bookId);
+  expect(stale).not.toBeNull();
+  stale!.update({ title: "Stale Rename" });
+
+  const archive = await request(`/books/${bookId}/archive`, { method: "POST", token });
+  expect(archive.status).toBe(200);
+  await expect(repo.save(stale!)).rejects.toThrow("Cannot update an archived book");
+
+  const row = await env.DB.prepare("SELECT status, title FROM books WHERE id = ?")
+    .bind(bookId)
+    .first<{ status: string; title: string }>();
+  expect(row).toMatchObject({ status: "archived", title: "Lifecycle Test Book" });
 });

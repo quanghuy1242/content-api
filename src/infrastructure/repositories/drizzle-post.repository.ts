@@ -1,10 +1,17 @@
-import { and, eq, lte } from "drizzle-orm";
+import { and, eq, lte, ne } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { Post } from "@/domain/posts/post.entity";
 import type { PostRepository } from "@/domain/posts/post.repository";
+import { ConflictError } from "@/shared/errors";
 import { posts } from "@/infrastructure/db/schema";
 import { CrudAdapter } from "@/infrastructure/persistence/crud-adapter";
-import { postRowToEntity, postToInsertRow, postToUpdateRow } from "@/infrastructure/repositories/mappers/post.mapper";
+import {
+  postRowToEntity,
+  postToInsertRow,
+  postToLifecycleUpdateRow,
+  postToUpdateRow,
+} from "@/infrastructure/repositories/mappers/post.mapper";
 
 type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
@@ -51,7 +58,23 @@ export class DrizzlePostRepository implements PostRepository {
   }
 
   async save(post: Post) {
-    await this.crud.updateRow(posts, posts.id, post.id, postToUpdateRow(post));
+    const result = await this.crud.updateRowsConditional(posts, {
+      set: postToUpdateRow(post),
+      where: and(eq(posts.id, post.id), ne(posts.status, "archived"))!,
+    });
+    if (result.rowsAffected !== 1) {
+      throw new ConflictError("Cannot update an archived post");
+    }
+  }
+
+  async saveLifecycle(post: Post, expectedStatus: LifecycleStatus) {
+    const result = await this.crud.updateRowsConditional(posts, {
+      set: postToLifecycleUpdateRow(post),
+      where: and(eq(posts.id, post.id), eq(posts.status, expectedStatus))!,
+    });
+    if (result.rowsAffected !== 1) {
+      throw new ConflictError("Post lifecycle state changed before update");
+    }
   }
 
   async delete(id: string) {

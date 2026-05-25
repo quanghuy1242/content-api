@@ -19,8 +19,9 @@ export class ArchiveUseCase<T extends LifecycleCapable> {
       `You cannot archive this ${this.manager.resourceType}`,
     );
 
+    const expectedStatus = entity.lifecycleStatus;
     entity.archive();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }

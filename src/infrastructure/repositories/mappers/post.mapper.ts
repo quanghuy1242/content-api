@@ -80,6 +80,14 @@ export function postToUpdateRow(post: Post) {
     contentJson: serializePostContent(post),
     coverImage: snapshot.coverImage,
     category: snapshot.category,
+    updatedAt: snapshot.updatedAt,
+  };
+}
+
+/** Maps only entity-owned lifecycle state for guarded lifecycle transitions. */
+export function postToLifecycleUpdateRow(post: Post) {
+  const snapshot = post.toSnapshot();
+  return {
     status: snapshot.status,
     publishedAt: snapshot.publishedAt,
     scheduledAt: snapshot.scheduledAt,

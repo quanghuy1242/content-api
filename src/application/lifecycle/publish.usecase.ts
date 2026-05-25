@@ -19,8 +19,9 @@ export class PublishUseCase<T extends LifecycleCapable> {
       `You cannot publish this ${this.manager.resourceType}`,
     );
 
+    const expectedStatus = entity.lifecycleStatus;
     entity.publish();
-    await this.manager.save(entity);
+    await this.manager.save(entity, expectedStatus);
     return entity;
   }
 }

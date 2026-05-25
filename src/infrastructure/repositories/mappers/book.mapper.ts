@@ -41,6 +41,14 @@ export function bookToUpdateRow(book: Book) {
   return {
     title: snap.title,
     visibility: snap.visibility,
+    updatedAt: snap.updatedAt,
+  };
+}
+
+/** Maps only entity-owned lifecycle state for guarded lifecycle transitions. */
+export function bookToLifecycleUpdateRow(book: Book) {
+  const snap = book.toSnapshot();
+  return {
     status: snap.status,
     publishedAt: snap.publishedAt,
     scheduledAt: snap.scheduledAt,

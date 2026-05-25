@@ -81,6 +81,7 @@ export class Post implements LifecycleCapable {
   get archivedAt() { return this.props.archivedAt; }
 
   update(input: UpdatePostProps) {
+    if (this.props.status === "archived") throw new ConflictError("Cannot update an archived post");
     if (input.title !== undefined) this.props.title = input.title;
     if (input.excerpt !== undefined) this.props.excerpt = input.excerpt;
     if (input.content !== undefined) this.props.content = input.content;

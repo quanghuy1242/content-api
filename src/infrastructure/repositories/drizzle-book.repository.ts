@@ -1,4 +1,4 @@
-import { and, eq, lte, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, ne } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Book } from "@/domain/books/book.entity";
 import type { BookRepository } from "@/domain/books/book.repository";
@@ -16,8 +16,10 @@ type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
 export class DrizzleBookRepository implements BookRepository {
   private readonly crud: CrudAdapter;
+  private readonly db: Db;
 
   constructor(db: Db) {
+    this.db = db;
     this.crud = new CrudAdapter(db);
   }
 
@@ -58,17 +60,14 @@ export class DrizzleBookRepository implements BookRepository {
     }
   }
 
-  async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {
-    const rows = await this.crud.findRowsWhere<{ id: string }>(
-      books,
-      [books.id],
-      and(eq(books.status, "scheduled"), lte(books.scheduledAt, now))!,
-      { orderBy: books.scheduledAt, direction: "asc", limit },
-    );
-    return rows.map((row) => row.id);
-  }
+  async publishScheduledReady(now: Date, limit: number): Promise<number> {
+    const sub = this.db
+      .select({ id: books.id })
+      .from(books)
+      .where(and(eq(books.status, "scheduled"), lte(books.scheduledAt, now)))
+      .orderBy(asc(books.scheduledAt))
+      .limit(limit);
 
-  async publishScheduledReady(id: string, now: Date): Promise<boolean> {
     const result = await this.crud.updateRowsConditional(books, {
       set: {
         status: "published",
@@ -76,8 +75,8 @@ export class DrizzleBookRepository implements BookRepository {
         scheduledAt: null,
         updatedAt: now,
       },
-      where: and(eq(books.id, id), eq(books.status, "scheduled"), lte(books.scheduledAt, now))!,
+      where: inArray(books.id, sub),
     });
-    return result.rowsAffected === 1;
+    return result.rowsAffected;
   }
 }

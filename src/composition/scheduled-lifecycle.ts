@@ -24,26 +24,23 @@ export function buildScheduledLifecycleManagers(env: AppBindings): readonly Life
 }
 
 /**
- * Iterates over each lifecycle manager and atomically publishes every overdue
- * scheduled entity using compare-and-set. No entity hydration, no can* check.
+ * Iterates over each lifecycle manager and publishes every overdue scheduled
+ * entity in batches using a single atomic D1 UPDATE per batch. Loops until
+ * no rows are left to publish, so a large backlog is fully drained within
+ * one cron tick rather than spilling into the next hour.
  */
 export async function runScheduledPublish(
   managers: readonly LifecycleManager<LifecycleCapable>[],
   now: Date,
-): Promise<{ transitioned: number; skipped: number }> {
+): Promise<{ transitioned: number }> {
   let transitioned = 0;
-  let skipped = 0;
   for (const manager of managers) {
-    // Sequential by design: D1 has per-database concurrent-write limits; bursting
-    // up to 500 parallel writes per resource type would risk throttling.
-    // eslint-disable-next-line no-await-in-loop
-    const ids = await manager.findScheduledReadyIds(now, SCHEDULED_PUBLISH_BATCH_LIMIT);
-    for (const id of ids) {
+    while (true) {
       // eslint-disable-next-line no-await-in-loop
-      const ok = await manager.publishScheduledReady(id, now);
-      if (ok) transitioned += 1;
-      else skipped += 1;
+      const n = await manager.publishScheduledReady(now, SCHEDULED_PUBLISH_BATCH_LIMIT);
+      if (n === 0) break;
+      transitioned += n;
     }
   }
-  return { transitioned, skipped };
+  return { transitioned };
 }

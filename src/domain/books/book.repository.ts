@@ -9,8 +9,6 @@ export interface BookRepository {
   save(book: Book): Promise<void>;
   /** Persists a lifecycle transition through an optimistic status guard. */
   saveLifecycle(book: Book, expectedStatus: LifecycleStatus): Promise<void>;
-  /** Returns IDs of scheduled books whose scheduled_at is at or before `now`. */
-  findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-  /** Atomically publishes a scheduled book if its status is still `scheduled`. */
-  publishScheduledReady(id: string, now: Date): Promise<boolean>;
+  /** Atomically publishes up to `limit` scheduled books whose `scheduled_at <= now`. */
+  publishScheduledReady(now: Date, limit: number): Promise<number>;
 }

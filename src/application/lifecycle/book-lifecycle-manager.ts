@@ -30,10 +30,7 @@ export class BookLifecycleManager implements LifecycleManager<Book> {
     return this.contentPolicy.can({ actor, permission: "book.archive", resource: bookResource(entity) });
   }
 
-  findScheduledReadyIds(now: Date, limit: number) {
-    return this.books.findScheduledReadyIds(now, limit);
-  }
-  publishScheduledReady(id: string, now: Date) {
-    return this.books.publishScheduledReady(id, now);
+  publishScheduledReady(now: Date, limit: number) {
+    return this.books.publishScheduledReady(now, limit);
   }
 }

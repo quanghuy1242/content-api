@@ -30,10 +30,7 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
     return this.contentPolicy.can({ actor, permission: "post.archive", resource: postResource(entity) });
   }
 
-  findScheduledReadyIds(now: Date, limit: number) {
-    return this.posts.findScheduledReadyIds(now, limit);
-  }
-  publishScheduledReady(id: string, now: Date) {
-    return this.posts.publishScheduledReady(id, now);
+  publishScheduledReady(now: Date, limit: number) {
+    return this.posts.publishScheduledReady(now, limit);
   }
 }

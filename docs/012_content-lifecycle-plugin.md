@@ -153,10 +153,12 @@ Cloudflare Cron Trigger ("0 * * * *") on the workers/scheduled-publish Worker
         managers = buildScheduledLifecycleManagers(env)         from src/composition/scheduled-lifecycle.ts
         runScheduledPublish(managers, now):
           for each manager:
-            ids = manager.findScheduledReadyIds(now, limit=500) indexed SELECT
-            for each id in ids:
-              transitioned = manager.publishScheduledReady(id, now)  conditional UPDATE
+            while true:
+              n = manager.publishScheduledReady(now, limit=500)  single D1 UPDATE with id IN (subquery)
+              if n == 0 break
+              transitioned += n
               // no entity load, no canPublish check — see §5.2 and §5.6
+              // loops until the entire backlog is drained within one cron tick
 ```
 
 ## 3. Current-State Findings
@@ -301,23 +303,15 @@ export interface LifecycleManager<T extends LifecycleCapable> {
   canArchive(actor: Actor, entity: T): Promise<boolean>;
 
   /**
-   * Lists IDs of entities whose schedule is overdue at `now`.
-   * Used by the cron driver. Implementations return at most `limit` IDs.
+   * Atomically transitions up to `limit` rows from `scheduled` to `published`
+   * where `status = 'scheduled' AND scheduled_at <= now`. Returns the number
+   * of rows that actually transitioned. Implemented as a single D1 UPDATE
+   * with a subquery guard — bulk, not SELECT-then-loop.
    *
-   * Returns IDs only; the cron driver never hydrates entities — it calls
-   * publishScheduledReady on each id to perform an atomic transition.
+   * Cron driver calls this in a do…while until it returns 0, draining the
+   * entire backlog within one cron tick.
    */
-  findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-
-  /**
-   * Atomically transitions the row from `scheduled` to `published` if and
-   * only if its current status is `scheduled` and `scheduled_at <= now`.
-   * Returns true if the row transitioned, false otherwise (e.g. cancelled,
-   * already published, or row missing).
-   *
-   * This is the only safe cron transition primitive under D1.
-   */
-  publishScheduledReady(id: string, now: Date): Promise<boolean>;
+  publishScheduledReady(now: Date, limit: number): Promise<number>;
 }
 ```
 
@@ -466,11 +460,8 @@ export class PostLifecycleManager implements LifecycleManager<Post> {
     return this.contentPolicy.can({ actor, permission: "post.archive", resource: postResource(entity) });
   }
 
-  findScheduledReadyIds(now: Date, limit: number) {
-    return this.posts.findScheduledReadyIds(now, limit);
-  }
-  publishScheduledReady(id: string, now: Date) {
-    return this.posts.publishScheduledReady(id, now);
+  publishScheduledReady(now: Date, limit: number) {
+    return this.posts.publishScheduledReady(now, limit);
   }
 }
 ```
@@ -484,24 +475,28 @@ Every lifecycle-capable repository implements optimistic manual lifecycle persis
 ```ts
 // src/domain/posts/post.repository.ts (additions)
 saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void>;
-findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-publishScheduledReady(id: string, now: Date): Promise<boolean>;
+publishScheduledReady(now: Date, limit: number): Promise<number>;
 ```
 
 Drizzle implementation:
 
 ```ts
 // src/infrastructure/repositories/drizzle-post.repository.ts (additions)
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte } from "drizzle-orm";
 
-async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {
-  const rows = await this.crud.findRowsWhere<{ id: string }>(
-    posts,
-    [posts.id],
-    and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, now)),
-    { orderBy: posts.scheduledAt, direction: "asc", limit },
-  );
-  return rows.map((row) => row.id);
+async publishScheduledReady(now: Date, limit: number): Promise<number> {
+  const sub = this.db
+    .select({ id: posts.id })
+    .from(posts)
+    .where(and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, now)))
+    .orderBy(asc(posts.scheduledAt))
+    .limit(limit);
+
+  const result = await this.crud.updateRowsConditional(posts, {
+    set: { status: "published", publishedAt: now, scheduledAt: null, updatedAt: now },
+    where: inArray(posts.id, sub),
+  });
+  return result.rowsAffected;
 }
 
 async saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void> {
@@ -511,27 +506,9 @@ async saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void> 
   });
   if (result.rowsAffected !== 1) throw new ConflictError("Post lifecycle state changed before update");
 }
-
-async publishScheduledReady(id: string, now: Date): Promise<boolean> {
-  const result = await this.crud.updateRowsConditional(posts, {
-    set: {
-      status: "published",
-      publishedAt: now,
-      scheduledAt: null,
-      updatedAt: now,
-    },
-    where: and(eq(posts.id, id), eq(posts.status, "scheduled"), lte(posts.scheduledAt, now)),
-  });
-  return result.rowsAffected === 1;
-}
 ```
 
-This requires two additions to `CrudAdapter` (see [LCY-A](#lcy-a-domain-contracts-and-generic-use-cases) backlog):
-
-- `findRowsWhere<Row>(table, columns, where, { orderBy, direction, limit })`: a centralized predicate-scoped multi-row read with stable ordering and limit. Required so per-resource repositories do not hand-roll Drizzle selects.
-- `updateRowsConditional(table, { set, where })`: returns `{ rowsAffected: number }`. Required for compare-and-set; the existing `updateRow(table, idColumn, id, values)` cannot express a conditional `status = 'scheduled'` guard.
-
-Both helpers are added once and reused by Book and SiteConfig adapters.
+This requires `updateRowsConditional` on `CrudAdapter`. The `id IN (subquery LIMIT n)` pattern produces one atomic SQL statement — no SELECT-then-loop, no N+1 round-trips. The cron driver calls `publishScheduledReady` in a `while(true)` loop with a batch limit until it returns 0, draining the full backlog within one cron tick.
 
 ### 4.6 Cron Worker — Scheduled Publish Driver
 
@@ -631,32 +608,32 @@ export function buildScheduledLifecycleManagers(env: AppBindings): readonly Life
 }
 
 /**
- * Iterates over each lifecycle manager and atomically publishes every overdue
- * scheduled entity using compare-and-set. No entity hydration, no can* check.
+ * Iterates over each lifecycle manager and publishes every overdue scheduled
+ * entity in batches using a single atomic D1 UPDATE per batch. Loops until
+ * no rows are left to publish, so a large backlog is fully drained within
+ * one cron tick rather than spilling into the next hour.
  */
 export async function runScheduledPublish(
   managers: readonly LifecycleManager<LifecycleCapable>[],
   now: Date,
-): Promise<{ transitioned: number; skipped: number }> {
+): Promise<{ transitioned: number }> {
   let transitioned = 0;
-  let skipped = 0;
   for (const manager of managers) {
-    const ids = await manager.findScheduledReadyIds(now, BATCH_LIMIT);
-    for (const id of ids) {
-      const ok = await manager.publishScheduledReady(id, now);
-      if (ok) transitioned += 1;
-      else skipped += 1;
+    while (true) {
+      const n = await manager.publishScheduledReady(now, BATCH_LIMIT);
+      if (n === 0) break;
+      transitioned += n;
     }
   }
-  return { transitioned, skipped };
+  return { transitioned };
 }
 ```
 
-The `undefined as never` placeholder for `ContentPolicy` is acceptable here because the cron path never calls `can*`. To avoid the hazard, lifecycle adapters can take an optional `contentPolicy` constructor parameter, or the cron path can use lightweight cron-only adapter variants that omit `can*` from the interface. Either is fine; the simplest is to keep one adapter class and rely on the fact that the cron driver only calls `findScheduledReadyIds` and `publishScheduledReady`. **Acceptance criterion for LCY-F**: a unit test asserts `runScheduledPublish` never invokes `can*` methods.
+The `undefined as never` placeholder for `ContentPolicy` is acceptable here because the cron path never calls `can*`. **Acceptance criterion for LCY-F**: a unit test asserts `runScheduledPublish` never invokes `can*` methods.
 
 #### 4.6.3 Cadence And Bounds
 
-Hourly cadence rationale: editorial scheduling tolerates up to ~1 hour of latency; hourly cron amortizes Worker cold-start and DB connections; D1 reads in the cron path are bounded (one indexed SELECT plus N compare-and-set updates per resource type, capped at 500).
+Hourly cadence rationale: editorial scheduling tolerates up to ~1 hour of latency; hourly cron amortizes Worker cold-start and DB connections; each cron tick drains the full backlog — one atomic `UPDATE ... WHERE id IN (subquery LIMIT n)` per resource type per batch, looping until no rows remain. No SELECT, no per-ID round-trip.
 
 ### 4.7 Content IAM — Permission Catalog And Role Wiring
 
@@ -1041,7 +1018,7 @@ Resolution: repositories own conditional writes. Three paths, three contracts:
 
 - **Manual transitions** (`PublishUseCase`, etc.) call the entity guard and then `saveLifecycle(entity, expectedStatus)`, which updates only lifecycle columns under `WHERE status = expectedStatus`. A competing transition yields `409` instead of overwriting committed state.
 - **Metadata updates** write no lifecycle columns and are conditional on `status != 'archived'`. A request loaded before archive cannot mutate or revive the archived row.
-- **Cron transitions** call `repo.publishScheduledReady(id, now)`. The SQL guard makes the operation idempotent without touching the entity. Concurrent manual publish wins the race (the cron UPDATE matches 0 rows), and vice versa.
+- **Cron transitions** call `repo.publishScheduledReady(now, limit)`, a single bulk `UPDATE ... WHERE status = 'scheduled' AND scheduled_at <= now` atomically transitioning up to `limit` rows. Concurrent manual publish wins the race (the cron UPDATE includes `status = 'scheduled'` in its WHERE), and vice versa. The cron driver loops until the method returns 0, draining the entire backlog within one tick.
 
 This removes the need for an entity-level "idempotent if already published" hack.
 
@@ -1106,7 +1083,7 @@ Implication: if a user's permission is revoked after they schedule a post, the s
 | `PostStatus` | extend to `draft \| scheduled \| published \| archived` |
 | `PostProps` | add `scheduledAt: Date \| null`, `archivedAt: Date \| null` |
 | Methods | add `schedule()`, `archive()`; tighten `publish()`, `unpublish()` |
-| Repository | add `findScheduledReadyIds`, `publishScheduledReady` |
+| Repository | add `publishScheduledReady(now, limit)` |
 | Mapper | add new fields to insert/update/reconstitute |
 | Permission | add `post.archive` |
 | Roles | `system:post.owner` gains `post.archive` |
@@ -1124,7 +1101,7 @@ Existing `POST /posts/{id}/publish` and `POST /posts/{id}/unpublish` routes reta
 | `BookProps` | add `publishedAt`, `scheduledAt`, `archivedAt` |
 | `UpdateBookProps` | **remove** `status` (§5.3) |
 | Methods | add `publish()`, `unpublish()`, `schedule()`, `archive()`; lock `update()` against archived books |
-| Repository | add `findScheduledReadyIds`, `publishScheduledReady` |
+| Repository | add `publishScheduledReady(now, limit)` |
 | Mapper | add new fields; status is sourced from the entity snapshot only |
 | Permission | add `book.publish`, `book.archive` |
 | Roles | `system:book.owner`: `book.publish`, `book.archive`; `system:book.author`: `book.publish`; `system:book.editor`: no change |
@@ -1214,16 +1191,16 @@ Adding `triggers.crons` requires a Workers Paid or Cron-eligible plan. Confirm t
 | Schedule while already scheduled or published | `entity.schedule()` raises `ConflictError` → `409`. |
 | Publish while archived | `entity.publish()` raises `ConflictError` → `409`. |
 | Publish while already published (manual path) | `entity.publish()` raises `ConflictError` → `409`. Manual callers see explicit failure, not silent no-op. |
-| Cron and manual publish race | Cron compare-and-set `WHERE status = 'scheduled'`; if manual already moved the row to `published`, cron UPDATE affects 0 rows → `publishScheduledReady` returns `false` → skipped. |
+| Cron and manual publish race | Cron UPDATE `WHERE status = 'scheduled'`; if manual already moved the row, cron UPDATE affects 0 rows → `publishScheduledReady` returns 0 for that batch. |
 | Cron job interrupted mid-batch | Already-transitioned rows are now `status = 'published'` and outside the next batch's predicate. Untransitioned rows remain `scheduled` and are picked up next hour. |
-| Cron batch > 500 overdue rows | Limit is 500 per resource type per run. The remainder fires next cron. Worst-case under a single cron tick is `500 × number_of_lifecycle_resources` writes. |
+| Cron batch > 500 overdue rows | Each batch handles up to 500 rows per D1 UPDATE. The cron driver loops until `publishScheduledReady` returns 0, so 5,000 overdue rows are fully drained in 10 batches within the same cron tick. |
 | Unpublish a scheduled item | Allowed; transitions back to `draft`, clears `scheduledAt`. |
 | Archive the currently-active SiteConfig | Adapter's `canArchive` returns `false` (resource rule), even if the actor has `site_config.archive` on the org. Caller must activate a replacement first (`409`). |
 | Permission revoked after schedule was set | Schedule still fires (§5.6). To prevent, revoke the schedule via unpublish/archive. |
 | Existing published row with `publishedAt = NULL` after migration | Presenter surfaces `null`; front-end falls back to `updatedAt` for display. |
 | Service-account actor calls lifecycle endpoints | Authorized via service-account principal binding the same way as user actor. No special path. |
 | Direct-share user actor calls lifecycle endpoints | Works for resources where a direct binding grants `{resource}.publish` (e.g. a direct book editor). For org-level resources like SiteConfig, direct-share tokens cannot meet the binding requirement. |
-| Cron runs at a time the DB is degraded | `findScheduledReadyIds` rejection or `publishScheduledReady` rejection is logged and re-tried next hour. No retry within a single cron tick. |
+| Cron runs at a time the DB is degraded | `publishScheduledReady` rejection is logged; the retry-on-failure behavior is up to the cron trigger (Cloudflare retries the scheduled invocation). Within one tick, partial progress from an earlier batch is already committed and the next batch retry is safe (idempotent by CAS). |
 | Two cron triggers fire simultaneously (Cloudflare guarantees at-least-once) | Compare-and-set ensures duplicate transitions match 0 rows on the second attempt. Operations are idempotent at the row level. |
 | Clock skew between scheduling and cron | Both use server clock (`new Date()`). `scheduledAt <= now` predicate uses the cron's `event.scheduledTime`. Skew across Cloudflare regions is bounded. |
 
@@ -1338,7 +1315,7 @@ Scope:
 Tasks:
 
 - [x] Implement `LifecycleCapable` on `Post`: getters, `schedule()`, `archive()`; tighten lifecycle transitions and terminal-state `update()` (§4.8).
-- [x] Add `saveLifecycle`, `findScheduledReadyIds`, and `publishScheduledReady` to `PostRepository` and its Drizzle implementation (§4.5).
+- [x] Add `saveLifecycle` and `publishScheduledReady(now, limit)` to `PostRepository` and its Drizzle implementation (§4.5).
 - [x] Add `PostLifecycleManager` (§4.4).
 - [x] Replace `posts.publish` / `posts.unpublish` in `create-request-container.ts` with `new PublishUseCase(postLifecycleManager)` etc. Add `posts.schedule`, `posts.archive`.
 - [x] Add `POST /posts/{id}/schedule` and `POST /posts/{id}/archive` routes; refactor existing publish/unpublish handlers to call generic use cases by `{ actor, id }`.
@@ -1375,7 +1352,7 @@ Tasks:
 - [x] Implement `LifecycleCapable` on `Book`: `publish`, `unpublish`, `schedule`, `archive` (§4.8).
 - [x] Remove `status` from `UpdateBookProps` and from `updateBookBodySchema`.
 - [x] Tighten `Book.update()` and repository writes to preserve terminal archived state.
-- [x] Add `saveLifecycle`, `findScheduledReadyIds`, and `publishScheduledReady` to `BookRepository`.
+- [x] Add `saveLifecycle` and `publishScheduledReady(now, limit)` to `BookRepository`.
 - [x] Add `BookLifecycleManager`.
 - [x] Wire `books.publish/unpublish/schedule/archive` in `create-request-container.ts`.
 - [x] Add four new routes to `books.routes.ts`.
@@ -1425,7 +1402,7 @@ Acceptance criteria:
 
 Tests:
 
-- New `tests/scheduled-publish.test.ts`: seed 3 scheduled posts (two overdue, one future), run `runScheduledPublish`, assert two transitioned. Seed an overdue post, archive it before invoking, assert `publishScheduledReady` returns `false` and final status remains `archived`. Assert no `can*` adapter call is made during the run.
+- New `tests/scheduled-publish.test.ts`: seed 3 scheduled posts (two overdue, one future), run `runScheduledPublish`, assert two transitioned. Seed an overdue post, archive it before invoking, assert `publishScheduledReady` returns 0 and final status remains `archived`. Seed multiple pages of overdue posts, assert the cron driver loops until all are drained. Assert no `can*` adapter call is made during the run.
 
 ### LCY-G. Documentation And Cleanup
 
@@ -1503,7 +1480,7 @@ export const contentVersions = sqliteTable(
 
 ### 11.3 Higher-Reliability Scheduling
 
-For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflare Queues. The schedule writer enqueues a delayed message keyed on `scheduledAt`; the consumer calls the same `publishScheduledReady(id, now)` primitive. The Level 1 entity/use case/adapter shape is unchanged.
+For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflare Queues. The schedule writer enqueues a delayed message keyed on `scheduledAt`; the consumer calls the same `publishScheduledReady(now, limit)` primitive. The Level 1 entity/use case/adapter shape is unchanged.
 
 ## 12. Test And Verification Plan
 
@@ -1513,8 +1490,8 @@ For sub-hour precision or SLA-grade reliability, replace the cron with Cloudflar
 | Unit — entities | Direct tests on `Post.publish/unpublish/schedule/archive` and `Book.*` for every allowed transition and every rejected transition. |
 | Unit — adapters | `tests/lifecycle/post-lifecycle-manager.test.ts`: spy on `ContentPolicy.can` to verify the permission key is `post.publish` / `post.archive` per method. |
 | Integration — HTTP routes | `tests/posts-lifecycle.test.ts`, `tests/books-lifecycle.test.ts`: full HTTP round-trip through the worker test pool, including `403` when permission is missing and `409` for invalid transitions. |
-| Integration — cron | `tests/scheduled-publish.test.ts`: seed scheduled rows, invoke `runScheduledPublish(managers, frozenNow)`, assert transitions and skip behavior. |
-| Race — compare-and-set | `tests/scheduled-publish-race.test.ts`: invoke `publishScheduledReady` twice concurrently using `Promise.all`; assert exactly one returns `true`. |
+| Integration — cron | `tests/scheduled-publish.test.ts`: seed scheduled rows, invoke `runScheduledPublish(managers, frozenNow)`, assert transitions and bulk-drain behavior. |
+| Race — compare-and-set | `tests/scheduled-publish-race.test.ts`: invoke `publishScheduledReady(now, limit)` twice concurrently using `Promise.all`; assert exactly one invocation transitions each row. |
 | Permissions catalog | `tests/content-iam.policy.test.ts`: `assertContentPermissionKey` accepts new keys; roles seed with new keys. |
 | Update-status block | `tests/books.test.ts`: `PATCH /books/{id}` with `{ status: "published" }` returns 400 with the OpenAPI unknown-field error. |
 | Lint architecture | `pnpm lint` — verifies no `architecture/route-module` regression and no mapper imports outside infrastructure. |

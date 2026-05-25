@@ -1,4 +1,4 @@
-import { and, eq, lte, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, ne } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { Post } from "@/domain/posts/post.entity";
@@ -22,8 +22,10 @@ type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
  */
 export class DrizzlePostRepository implements PostRepository {
   private readonly crud: CrudAdapter;
+  private readonly db: Db;
 
   constructor(db: Db) {
+    this.db = db;
     this.crud = new CrudAdapter(db);
   }
 
@@ -81,17 +83,14 @@ export class DrizzlePostRepository implements PostRepository {
     await this.crud.deleteRowById(posts, posts.id, id);
   }
 
-  async findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]> {
-    const rows = await this.crud.findRowsWhere<{ id: string }>(
-      posts,
-      [posts.id],
-      and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, now))!,
-      { orderBy: posts.scheduledAt, direction: "asc", limit },
-    );
-    return rows.map((row) => row.id);
-  }
+  async publishScheduledReady(now: Date, limit: number): Promise<number> {
+    const sub = this.db
+      .select({ id: posts.id })
+      .from(posts)
+      .where(and(eq(posts.status, "scheduled"), lte(posts.scheduledAt, now)))
+      .orderBy(asc(posts.scheduledAt))
+      .limit(limit);
 
-  async publishScheduledReady(id: string, now: Date): Promise<boolean> {
     const result = await this.crud.updateRowsConditional(posts, {
       set: {
         status: "published",
@@ -99,8 +98,8 @@ export class DrizzlePostRepository implements PostRepository {
         scheduledAt: null,
         updatedAt: now,
       },
-      where: and(eq(posts.id, id), eq(posts.status, "scheduled"), lte(posts.scheduledAt, now))!,
+      where: inArray(posts.id, sub),
     });
-    return result.rowsAffected === 1;
+    return result.rowsAffected;
   }
 }

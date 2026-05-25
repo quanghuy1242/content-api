@@ -52,8 +52,7 @@ function makeManager(entity: StubEntity | null, canResult = true) {
     canUnpublish: async () => canResult,
     canSchedule: async () => canResult,
     canArchive: async () => canResult,
-    findScheduledReadyIds: async () => [],
-    publishScheduledReady: async () => false,
+    publishScheduledReady: async () => 0,
   };
   return { mgr, saved };
 }

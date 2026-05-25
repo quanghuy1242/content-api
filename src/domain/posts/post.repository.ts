@@ -15,8 +15,6 @@ export interface PostRepository {
   /** Persists a lifecycle transition through an optimistic status guard. */
   saveLifecycle(post: Post, expectedStatus: LifecycleStatus): Promise<void>;
   delete(id: string): Promise<void>;
-  /** Returns IDs of scheduled posts whose scheduled_at is at or before `now`. */
-  findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-  /** Atomically publishes a scheduled post if its status is still `scheduled`. */
-  publishScheduledReady(id: string, now: Date): Promise<boolean>;
+  /** Atomically publishes up to `limit` scheduled posts whose `scheduled_at <= now`. */
+  publishScheduledReady(now: Date, limit: number): Promise<number>;
 }

@@ -12,16 +12,15 @@ beforeAll(setupBeforeAll);
 beforeEach(setupBeforeEach);
 
 type CallRecord = {
-  findScheduledReadyIdsCalls: Array<{ now: Date; limit: number }>;
-  publishScheduledReadyCalls: Array<{ id: string; now: Date }>;
+  publishScheduledReadyCalls: Array<{ now: Date; limit: number }>;
   canCalls: string[];
 };
 
 function makeStubManager(
-  scheduledIds: string[],
-  publishResults: Record<string, boolean>,
+  results: Array<{ batch: number; response: number }>,
   calls: CallRecord,
 ): LifecycleManager<LifecycleCapable> {
+  let callIndex = 0;
   return {
     resourceType: "stub",
     findById: async () => null,
@@ -42,64 +41,79 @@ function makeStubManager(
       calls.canCalls.push(`canArchive:${entity.id}`);
       return false;
     },
-    findScheduledReadyIds: async (now, limit) => {
-      calls.findScheduledReadyIdsCalls.push({ now, limit });
-      return scheduledIds;
-    },
-    publishScheduledReady: async (id, now) => {
-      calls.publishScheduledReadyCalls.push({ id, now });
-      return publishResults[id] ?? false;
+    publishScheduledReady: async (now, limit) => {
+      calls.publishScheduledReadyCalls.push({ now, limit });
+      const entry = results[callIndex++];
+      return entry?.response ?? 0;
     },
   };
 }
 
 function emptyRecord(): CallRecord {
-  return { findScheduledReadyIdsCalls: [], publishScheduledReadyCalls: [], canCalls: [] };
+  return { publishScheduledReadyCalls: [], canCalls: [] };
 }
 
 describe("runScheduledPublish", () => {
-  it("returns zero counts when no entities are ready", async () => {
+  it("returns zero when no entities are ready", async () => {
     const calls = emptyRecord();
-    const mgr = makeStubManager([], {}, calls);
+    const mgr = makeStubManager([{ batch: 1, response: 0 }], calls);
     const result = await runScheduledPublish([mgr], new Date());
-    expect(result).toEqual({ transitioned: 0, skipped: 0 });
-    expect(calls.findScheduledReadyIdsCalls).toHaveLength(1);
+    expect(result).toEqual({ transitioned: 0 });
+    expect(calls.publishScheduledReadyCalls).toHaveLength(1);
   });
 
-  it("counts transitioned and skipped correctly", async () => {
+  it("returns the count of transitioned rows from a single batch", async () => {
     const calls = emptyRecord();
-    const mgr = makeStubManager(["a", "b", "c"], { a: true, b: false, c: true }, calls);
+    const mgr = makeStubManager([{ batch: 1, response: 3 }], calls);
     const result = await runScheduledPublish([mgr], new Date());
-    expect(result).toEqual({ transitioned: 2, skipped: 1 });
-    expect(calls.publishScheduledReadyCalls).toHaveLength(3);
+    expect(result).toEqual({ transitioned: 3 });
+  });
+
+  it("loops until publishScheduledReady returns 0", async () => {
+    const calls = emptyRecord();
+    const mgr = makeStubManager([
+      { batch: 1, response: 500 },
+      { batch: 2, response: 500 },
+      { batch: 3, response: 200 },
+      { batch: 4, response: 0 },
+    ], calls);
+    const result = await runScheduledPublish([mgr], new Date());
+    expect(result).toEqual({ transitioned: 1200 });
+    expect(calls.publishScheduledReadyCalls).toHaveLength(4);
   });
 
   it("aggregates results across multiple managers", async () => {
     const calls1 = emptyRecord();
     const calls2 = emptyRecord();
-    const mgr1 = makeStubManager(["p1"], { p1: true }, calls1);
-    const mgr2 = makeStubManager(["b1", "b2"], { b1: true, b2: false }, calls2);
+    const mgr1 = makeStubManager([
+      { batch: 1, response: 2 },
+      { batch: 2, response: 0 },
+    ], calls1);
+    const mgr2 = makeStubManager([
+      { batch: 1, response: 1 },
+      { batch: 2, response: 0 },
+    ], calls2);
     const result = await runScheduledPublish([mgr1, mgr2], new Date());
-    expect(result).toEqual({ transitioned: 2, skipped: 1 });
+    expect(result).toEqual({ transitioned: 3 });
   });
 
   it("never calls can* methods on any manager", async () => {
     const calls = emptyRecord();
-    const mgr = makeStubManager(["e1", "e2"], { e1: true, e2: true }, calls);
+    const mgr = makeStubManager([{ batch: 1, response: 2 }], calls);
     await runScheduledPublish([mgr], new Date());
     expect(calls.canCalls).toHaveLength(0);
   });
 
-  it("passes the same `now` timestamp to findScheduledReadyIds and publishScheduledReady", async () => {
+  it("passes the now timestamp and batch limit to publishScheduledReady", async () => {
     const now = new Date("2030-06-01T12:00:00Z");
     const calls = emptyRecord();
-    const mgr = makeStubManager(["e1"], { e1: true }, calls);
+    const mgr = makeStubManager([{ batch: 1, response: 1 }, { batch: 2, response: 0 }], calls);
     await runScheduledPublish([mgr], now);
-    expect(calls.findScheduledReadyIdsCalls[0]?.now).toEqual(now);
-    expect(calls.publishScheduledReadyCalls[0]).toEqual({ id: "e1", now });
+    expect(calls.publishScheduledReadyCalls[0]).toEqual({ now, limit: 500 });
+    expect(calls.publishScheduledReadyCalls[1]).toEqual({ now, limit: 500 });
   });
 
-  it("is idempotent when findScheduledReadyIds returns empty on the second run", async () => {
+  it("is idempotent — second run after a full drain returns 0", async () => {
     let runCount = 0;
     const mgr: LifecycleManager<LifecycleCapable> = {
       resourceType: "stub",
@@ -109,12 +123,11 @@ describe("runScheduledPublish", () => {
       canUnpublish: async () => false,
       canSchedule: async () => false,
       canArchive: async () => false,
-      findScheduledReadyIds: async () => runCount++ === 0 ? ["e1"] : [],
-      publishScheduledReady: async () => true,
+      publishScheduledReady: async () => runCount++ === 0 ? 3 : 0,
     };
     const first = await runScheduledPublish([mgr], new Date());
     const second = await runScheduledPublish([mgr], new Date());
-    expect(first.transitioned).toBe(1);
+    expect(first.transitioned).toBe(3);
     expect(second.transitioned).toBe(0);
   });
 });
@@ -131,7 +144,6 @@ describe("buildScheduledLifecycleManagers + D1 integration", () => {
     });
     expect(schedulePost.status).toBe(200);
 
-    // Backdate to make overdue.
     await env.DB.prepare("UPDATE posts SET scheduled_at = ? WHERE id = 'post-draft'")
       .bind(now.getTime() - 60_000).run();
 
@@ -161,5 +173,34 @@ describe("buildScheduledLifecycleManagers + D1 integration", () => {
     const row = await env.DB.prepare("SELECT status FROM posts WHERE id = 'post-draft'")
       .first<{ status: string }>();
     expect(row?.status).toBe("scheduled");
+  });
+
+  it("drains multiple pages when the backlog exceeds the batch limit", async () => {
+    const now = new Date();
+    const token = await issueWorkspaceShareToken("user-alice");
+
+    // Seed three overdue scheduled posts directly.
+    const overdue = now.getTime() - 60_000;
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO posts (id, org_id, title, slug, excerpt, content_json, author, category, status, scheduled_at) VALUES (?, ?, ?, ?, ?, json(?), ?, ?, 'scheduled', ?)",
+      ).bind("post-bulk-a", "org-main", "Bulk A", "bulk-a", "A", "{}", "user-alice", "cat-alice", overdue),
+      env.DB.prepare(
+        "INSERT INTO posts (id, org_id, title, slug, excerpt, content_json, author, category, status, scheduled_at) VALUES (?, ?, ?, ?, ?, json(?), ?, ?, 'scheduled', ?)",
+      ).bind("post-bulk-b", "org-main", "Bulk B", "bulk-b", "B", "{}", "user-alice", "cat-alice", overdue),
+      env.DB.prepare(
+        "INSERT INTO posts (id, org_id, title, slug, excerpt, content_json, author, category, status, scheduled_at) VALUES (?, ?, ?, ?, ?, json(?), ?, ?, 'scheduled', ?)",
+      ).bind("post-bulk-c", "org-main", "Bulk C", "bulk-c", "C", "{}", "user-alice", "cat-alice", overdue),
+    ]);
+
+    const managers = buildScheduledLifecycleManagers(env as never);
+    const result = await runScheduledPublish(managers, now);
+    expect(result.transitioned).toBeGreaterThanOrEqual(3);
+
+    for (const id of ["post-bulk-a", "post-bulk-b", "post-bulk-c"]) {
+      const row = await env.DB.prepare("SELECT status FROM posts WHERE id = ?")
+        .bind(id).first<{ status: string }>();
+      expect(row?.status).toBe("published");
+    }
   });
 });

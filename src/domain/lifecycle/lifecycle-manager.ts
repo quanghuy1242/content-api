@@ -24,17 +24,12 @@ export interface LifecycleManager<T extends LifecycleCapable> {
   canArchive(actor: Actor, entity: T): Promise<boolean>;
 
   /**
-   * Lists IDs of entities whose schedule is overdue at `now`.
-   * Used by the cron driver. Implementations return at most `limit` IDs.
-   */
-  findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
-
-  /**
-   * Atomically transitions the row from `scheduled` to `published` if and
-   * only if its current status is `scheduled` and `scheduled_at <= now`.
-   * Returns true if the row transitioned, false otherwise.
+   * Atomically transitions up to `limit` rows from `scheduled` to `published`
+   * where `status = 'scheduled' AND scheduled_at <= now`. Returns the number
+   * of rows that actually transitioned. A single D1 UPDATE with a subquery
+   * guard — no SELECT-then-loop.
    *
-   * This is the only safe cron transition primitive under D1.
+   * Cron driver calls this in a do…while until it returns 0.
    */
-  publishScheduledReady(id: string, now: Date): Promise<boolean>;
+  publishScheduledReady(now: Date, limit: number): Promise<number>;
 }

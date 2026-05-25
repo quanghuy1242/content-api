@@ -11,8 +11,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("posts-lifecycle", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("schedules a draft post with a future timestamp", async () => {
   const token = await issueWorkspaceShareToken("user-alice");
@@ -158,4 +159,5 @@ it("rejects lifecycle actions without a content policy binding", async () => {
 
   const archive = await request("/posts/post-draft/archive", { method: "POST", token: bob });
   expect(archive.status).toBe(403);
+});
 });

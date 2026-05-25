@@ -8,8 +8,6 @@ import type { LifecycleManager } from "@/domain/lifecycle/lifecycle-manager";
 import { buildScheduledLifecycleManagers, runScheduledPublish } from "@/composition/scheduled-lifecycle";
 import { issueWorkspaceShareToken, request, setupBeforeAll, setupBeforeEach } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
 
 type CallRecord = {
   publishScheduledReadyCalls: Array<{ now: Date; limit: number }>;
@@ -133,6 +131,9 @@ describe("runScheduledPublish", () => {
 });
 
 describe("buildScheduledLifecycleManagers + D1 integration", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
+
   it("transitions overdue scheduled posts via the real D1 repository", async () => {
     const now = new Date();
     const ownerToken = await issueWorkspaceShareToken("user-alice");
@@ -177,8 +178,6 @@ describe("buildScheduledLifecycleManagers + D1 integration", () => {
 
   it("drains multiple pages when the backlog exceeds the batch limit", async () => {
     const now = new Date();
-    const token = await issueWorkspaceShareToken("user-alice");
-
     // Seed three overdue scheduled posts directly.
     const overdue = now.getTime() - 60_000;
     await env.DB.batch([

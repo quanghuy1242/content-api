@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import {
   BUILT_IN_CONTENT_ROLES,
@@ -13,6 +14,12 @@ import { contentRoleRowToEntity, contentRoleToInsertRow } from "@/infrastructure
 
 type Db = DrizzleD1Database<typeof import("@/infrastructure/db/schema")>;
 
+// Skip the full catalog sync after the first successful run. The catalog only
+// changes when built-in permissions or roles are updated in code, which always
+// coincides with a Worker restart that resets this flag. In tests, seed()
+// restores catalog rows before each test, so subsequent requests safely skip.
+let catalogSynced = false;
+
 /** Drizzle repository for local Content IAM roles and role-permission rows. */
 export class DrizzleContentRoleRepository implements ContentRoleRepository {
   private readonly crud: CrudAdapter;
@@ -22,26 +29,30 @@ export class DrizzleContentRoleRepository implements ContentRoleRepository {
   }
 
   async ensureSystemCatalog() {
+    if (catalogSynced) return;
     const now = new Date();
-    await Promise.all(CONTENT_PERMISSIONS.map(async (permission) => {
-      await this.crud.insertRow(contentPermissions, {
-        key: permission.key,
-        description: permission.description,
-        delegationClass: permission.delegationClass,
+
+    const stmts: BatchItem<"sqlite">[] = [];
+
+    for (const p of CONTENT_PERMISSIONS) {
+      stmts.push(this.crud.buildInsertIgnore(contentPermissions, {
+        key: p.key,
+        description: p.description,
+        delegationClass: p.delegationClass,
         enabled: true,
         createdAt: now,
         updatedAt: now,
-      }, { onConflictDoNothing: true });
-      await this.crud.updateRow(contentPermissions, contentPermissions.key, permission.key, {
-        description: permission.description,
-        delegationClass: permission.delegationClass,
+      }));
+      stmts.push(this.crud.buildUpdate(contentPermissions, {
+        description: p.description,
+        delegationClass: p.delegationClass,
         enabled: true,
         updatedAt: now,
-      });
-    }));
+      }, eq(contentPermissions.key, p.key)));
+    }
 
-    await Promise.all(BUILT_IN_CONTENT_ROLES.map(async (role) => {
-      await this.crud.insertRow(contentRoles, {
+    for (const role of BUILT_IN_CONTENT_ROLES) {
+      stmts.push(this.crud.buildInsertIgnore(contentRoles, {
         id: role.id,
         namespaceId: "system",
         key: role.key,
@@ -52,8 +63,8 @@ export class DrizzleContentRoleRepository implements ContentRoleRepository {
         version: 1,
         createdAt: now,
         updatedAt: now,
-      }, { onConflictDoNothing: true });
-      await this.crud.updateRow(contentRoles, contentRoles.id, role.id, {
+      }));
+      stmts.push(this.crud.buildUpdate(contentRoles, {
         namespaceId: "system",
         key: role.key,
         name: role.name,
@@ -61,10 +72,19 @@ export class DrizzleContentRoleRepository implements ContentRoleRepository {
         builtIn: true,
         enabled: true,
         updatedAt: now,
-      });
-      await this.crud.deleteRows(contentRolePermissions, eq(contentRolePermissions.roleId, role.id));
-      await this.insertPermissions(role.id, role.permissions);
-    }));
+      }, eq(contentRoles.id, role.id)));
+      stmts.push(this.crud.buildDelete(contentRolePermissions, eq(contentRolePermissions.roleId, role.id)));
+      for (const permKey of role.permissions) {
+        stmts.push(this.crud.buildInsertIgnore(contentRolePermissions, {
+          roleId: role.id,
+          permissionKey: permKey,
+          createdAt: now,
+        }));
+      }
+    }
+
+    await this.crud.runBatch(stmts);
+    catalogSynced = true;
   }
 
   async findMany(params: { namespaceId?: string; namespaceIds?: readonly string[]; limit: number; cursor?: string }) {

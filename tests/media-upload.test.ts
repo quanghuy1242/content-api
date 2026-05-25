@@ -114,6 +114,7 @@ class TransientImageService extends FakeImageService {
   }
 }
 
+describe("media-upload", () => {
 it("starts upload-backed media in pending state and blocks publish before ready", () => {
   const media = buildPendingMedia({
     id: "media-1",
@@ -238,6 +239,7 @@ it("acks invalid queue keys and retries failed processing", async () => {
   expect(processed).toEqual(["media/retry-me/v1/original"]);
   expect(result.ackAll).toBe(false);
   expect(result.retryMessages).toEqual([{ msgId: "2" }]);
+});
 });
 
 function buildPendingMedia(input: {

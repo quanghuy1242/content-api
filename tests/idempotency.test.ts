@@ -10,8 +10,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("idempotency", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("replays post creation safely with the same idempotency key and rejects body mismatches", async () => {
   const token = await issueWorkspaceShareToken("user-alice");
@@ -302,4 +303,5 @@ it("validates idempotency headers as UUIDs", async () => {
   await expect(res.json()).resolves.toMatchObject({
     error: { code: "VALIDATION_ERROR" },
   });
+});
 });

@@ -8,8 +8,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("posts-media", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("publishes a draft post for its author", async () => {
   const token = await issueWorkspaceShareToken("user-alice");
@@ -138,4 +139,5 @@ it("streams a stored media variant through the API worker", async () => {
   expect(variantRes.headers.get("cache-control")).toContain("public");
   const variantBody = await variantRes.arrayBuffer();
   expect(new TextDecoder().decode(variantBody)).toBe("medium-image");
+});
 });

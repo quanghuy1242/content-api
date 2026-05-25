@@ -63,6 +63,17 @@ export class CrudAdapter {
   }
 
   /**
+   * Builds an INSERT OR IGNORE statement without executing it.
+   *
+   * Use this variant in bulk-init batch builds where rows may already exist
+   * and a conflict should silently skip the row. The companion `buildUpdate`
+   * or `buildInsert` covers the normal write path where conflicts are errors.
+   */
+  buildInsertIgnore(table: AnySQLiteTable, values: Record<string, unknown>): BatchItem<"sqlite"> {
+    return this.buildInsertQuery(table, values).onConflictDoNothing() as unknown as BatchItem<"sqlite">;
+  }
+
+  /**
    * Builds a Drizzle update statement without executing it.
    *
    * Workflow infrastructure uses this when a state mutation and audit event must
@@ -79,6 +90,17 @@ export class CrudAdapter {
       .update(table)
       .set(this.withoutUndefined(values))
       .where(condition) as unknown as BatchItem<"sqlite">;
+  }
+
+  /**
+   * Executes a pre-built list of batch statements in a single D1 round-trip.
+   *
+   * Repositories that compose statements via `buildInsert`, `buildInsertIgnore`,
+   * `buildUpdate`, or `buildDelete` must call this instead of `db.batch()`
+   * directly — `db.batch()` is restricted to workflow files by architecture lint.
+   */
+  async runBatch(stmts: BatchItem<"sqlite">[]): Promise<void> {
+    await this.db.batch(stmts as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   }
 
   /**

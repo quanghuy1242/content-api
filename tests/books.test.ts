@@ -12,8 +12,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("books", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("creates a book with its owner binding atomically and replays the result idempotently", async () => {
   const token = await bootstrapContentIamAdmin();
@@ -301,4 +302,5 @@ it("allows only one competing book ownership transfer to commit", async () => {
     "book-main",
     "system:book.owner",
   )).toBe(1);
+});
 });

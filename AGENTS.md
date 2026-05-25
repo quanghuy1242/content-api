@@ -54,6 +54,24 @@ When new findings appear, handle them autonomously:
 - D1 migrations are seeded via `import migrationSql from "../drizzle/0000_*.sql?raw"`
 - No external services needed; JWKS is mocked via `createApp({ fetchImpl })`
 
+### Test performance rules (do not regress these)
+
+The suite runs in ~10 s. Several optimizations keep it there; violating any one of them can push it back to 80 s+.
+
+**One worker for all tests** — `vitest.config.mts` sets `include: ["tests/all.test.ts"]`. The barrel `tests/all.test.ts` imports every test file. Every new test file must be added to that barrel. Never add a new entry to `include` — that spawns a second worker and incurs the full workerd startup cost again.
+
+**Wrap every test file's tests in a `describe` block** — top-level `beforeAll`/`beforeEach` hooks in an imported barrel file apply globally to all tests, not just the file they came from. Every test file must wrap its tests and hooks in `describe("file-name", () => { ... })` so hooks are scoped.
+
+**`setupBeforeAll` is idempotent** — it guards key-pair generation (`keyPairInitialized`) and D1 migrations (`migrationsApplied`) with module-level flags. Adding a second `setupBeforeAll` call from a new describe block is safe; the expensive work only runs once.
+
+**`setupBeforeEach` runs the minimal seed** — `seed()` does a single `env.DB.batch()` combining all DELETEs and INSERTs. Do not split it back into two sequential batches. R2 fixture objects are seeded once (`r2Seeded` flag) because nothing deletes them between tests.
+
+**`bootstrapContentIamAdmin()` is direct D1, not HTTP** — it calls `seedBootstrapAdmin()` which writes two rows (bootstrap org record + `system:org.content_admin` binding) directly into D1. Never revert it to an HTTP request; that adds ~44 × 300 ms of JWT-sign + JWT-verify + principal-validation overhead per test. Tests that explicitly test the bootstrap HTTP endpoint call `request("/organizations/…/content-iam/bootstrap", …)` directly and are unaffected.
+
+**`ensureSystemCatalog()` runs once per Worker** — `DrizzleContentRoleRepository` has a module-level `catalogSynced` flag. The method fires on every write use case (create post/book/category/media/binding/role) but the ~200-statement catalog batch only executes once per Worker lifetime. Workers restart on deployment, resetting the flag. Do not remove the flag or call the method unconditionally.
+
+**Media-upload and pure-unit tests have no DB setup hooks** — `tests/media-upload.test.ts` uses in-memory repositories; its describe block has no `beforeAll`/`beforeEach`. The `runScheduledPublish` describe in `tests/scheduled-publish.test.ts` uses stub managers. Only add setup hooks to describes that actually touch D1.
+
 ## Aliases
 
 `@/*` → `src/*` (tsconfig paths + vitest resolve.alias)

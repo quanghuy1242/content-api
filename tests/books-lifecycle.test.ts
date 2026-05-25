@@ -13,8 +13,6 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
 
 async function createBook(token: string): Promise<string> {
   const res = await request("/books", {
@@ -27,6 +25,10 @@ async function createBook(token: string): Promise<string> {
   const body = await res.json() as { data: { id: string } };
   return body.data.id;
 }
+
+describe("books-lifecycle", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("publishes a draft book and makes it publicly readable when visibility is public", async () => {
   const token = await bootstrapContentIamAdmin();
@@ -187,4 +189,5 @@ it("prevents stale metadata saves from modifying an archived book", async () => 
     .bind(bookId)
     .first<{ status: string; title: string }>();
   expect(row).toMatchObject({ status: "archived", title: "Lifecycle Test Book" });
+});
 });

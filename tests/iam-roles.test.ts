@@ -12,8 +12,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("iam-roles", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("registers lifecycle and site-config permissions in the built-in role catalog", () => {
   expect(() => assertContentPermissionKey("post.archive")).not.toThrow();
@@ -313,3 +314,4 @@ it("allows exactly one concurrent duplicate binding create to commit", async () 
   expect(creates.filter((r) => r.status === 201)).toHaveLength(1);
   expect(creates.filter((r) => r.status === 409)).toHaveLength(1);
 }, 10_000);
+});

@@ -6,10 +6,11 @@ import { DrizzlePostRepository } from "@/infrastructure/repositories/drizzle-pos
 import { createDb } from "@/infrastructure/db/client";
 import { issueWorkspaceShareToken, request, setupBeforeAll, setupBeforeEach } from "../helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
 
 describe("publishScheduledReady bulk compare-and-set race", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
+
   it("only the first concurrent caller transitions a scheduled row", async () => {
     const token = await issueWorkspaceShareToken("user-alice");
     const future = new Date(Date.now() + 3_600_000).toISOString();

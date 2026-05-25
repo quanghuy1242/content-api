@@ -11,8 +11,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("iam-book", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("bootstraps Content IAM, grants a book reader, records denials, and lists audit events", async () => {
   const token = await bootstrapContentIamAdmin();
@@ -277,4 +278,5 @@ it("prevents sharing managers from delegating or revoking protected sharing-mana
     token: managerToken,
   });
   expect(protectedRevoke.status).toBe(403);
+});
 });

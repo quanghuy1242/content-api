@@ -9,8 +9,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("basics", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("returns 401 for unauthenticated protected routes", async () => {
   const res = await request("/users");
@@ -200,5 +201,6 @@ it("does not erase existing local identity fields when a content token omits pro
       fullName: "Alice User",
     },
   });
+});
 });
 

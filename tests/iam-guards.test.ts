@@ -12,8 +12,9 @@ import {
   setupBeforeEach,
 } from "./helpers";
 
-beforeAll(setupBeforeAll);
-beforeEach(setupBeforeEach);
+describe("iam-guards", () => {
+  beforeAll(setupBeforeAll);
+  beforeEach(setupBeforeEach);
 
 it("requires organization membership for sensitive direct-user Content IAM targets", async () => {
   const token = await bootstrapContentIamAdmin();
@@ -315,4 +316,5 @@ it("can recreate expired Content IAM bindings after cleanup", async () => {
     "system:book.reader",
     "book-main",
   )).toBe(1);
+});
 });

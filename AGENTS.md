@@ -68,3 +68,4 @@ When new findings appear, handle them autonomously:
 2. When work from a planning document is completed, update status metadata or implementation notes in that document when the document asks for it.
 3. Name planning documents with a leading numbered prefix in the `xxx_...` format so their sequence stays trackable.
 4. Never craft migration SQL or snapshot files manually. After changing `src/infrastructure/db/schema.ts`, run `pnpm db:generate`. Hand-written SQL drifts the journal, snapshot, and column ordering away from Drizzle's expected state and breaks future runs.
+5. During review, absolutely honor any user-provided implementation plan and do not change that plan; gather recommendations about edge cases, concurrent use cases, architectural design, or race conditions and present them to the user after plan-conforming code review and fixes, for explicit approval before implementation.

@@ -31,7 +31,7 @@
 > Assumptions:
 >
 > - Content IAM (`docs/007`) is operational. SiteConfig integrates exactly as Book/Post do.
-> - `docs/012` (Content Lifecycle Plugin) lands first. SiteConfig depends on `LifecycleCapable`, `LifecycleManager<T>`, the four generic use cases, and the partial-index pattern for `(scheduled_at) WHERE status = 'scheduled'`.
+> - `docs/012` (Content Lifecycle Plugin) lands first. SiteConfig depends on `LifecycleCapable`, `LifecycleManager<T>`, the four generic use cases, lifecycle compare-and-set writes (`save(entity, expectedStatus)` / `saveLifecycle`), and the partial-index pattern for `(scheduled_at) WHERE status = 'scheduled'`.
 > - Blocks are validated at the API boundary by Zod and stored as a single JSON column. D1 (SQLite) supports JSON querying only through `json_extract`; this is acceptable because no first-release feature needs to query blocks by content.
 > - At most one `SiteConfig` per org may have `status = "published"` at a time. The invariant is enforced both by a DB partial unique index and by adapter-level checks.
 > - The `category.owner` system role is already marked deprecated in code with a reference to this doc; this doc formalizes that rationale.
@@ -198,31 +198,34 @@ SiteConfig adopts `docs/012` directly. The vocabulary uses the same words:
 | `published` | The active configuration; rendered by `GET /site-configs/active`. |
 | `archived` | Retired and immutable; cannot become active again. |
 
-Publish transition has a side-effect on another row (atomic deactivation of the currently-published config). This is handled inside the adapter's `save()` path — see [§4.10](#410-siteconfig-lifecycle-adapter).
+Publish transition has a side-effect on another row (atomic deactivation of the currently-published config). This is handled inside the adapter's `save(entity, expectedStatus)` path through the publish workflow, while preserving the lifecycle compare-and-set contract from `docs/012` — see [§4.10](#410-siteconfig-lifecycle-adapter).
 
 ### 4.3 Activation Model And Single-Published Invariant
 
 Only one config per org may be `status = 'published'`. Invariant enforced at three layers:
 
 1. **DB**: partial unique index `site_configs_single_published_org_idx` on `(org_id) WHERE status = 'published'`. Any second concurrent publish fails with a unique-constraint error; infrastructure translates it to `ConflictError`.
-2. **Adapter `save()`**: when persisting a config whose new status is `published`, the adapter issues a D1 batch:
+2. **Adapter `save(entity, expectedStatus)`**: when persisting a config whose new status is `published`, the adapter calls `publishAtomic(config, expectedStatus)`. Its D1 batch updates only lifecycle fields and conditions both replacement and promotion on the target still having the loaded lifecycle state:
 
 ```sql
 -- Step A: archive the current published config in this org (no-op for first ever publish).
 UPDATE site_configs
    SET status = 'archived', published_at = NULL, archived_at = ?, updated_at = ?
- WHERE org_id = ? AND status = 'published' AND id != ?;
+ WHERE org_id = ? AND status = 'published' AND id != ?
+   AND EXISTS (
+     SELECT 1 FROM site_configs target
+      WHERE target.id = ? AND target.org_id = site_configs.org_id AND target.status = ?
+   );
 
--- Step B: persist the new published row (insert if new, update if existing).
+-- Step B: publish the loaded target only if its lifecycle state did not change.
 UPDATE site_configs
-   SET status = 'published', published_at = ?, scheduled_at = NULL, archived_at = NULL, updated_at = ?,
-       name = ?, slug = ?, page_title = ?, bio = ?, about_content_json = ?, hero_media_id = ?, blocks_json = ?
- WHERE id = ?;
+   SET status = 'published', published_at = ?, scheduled_at = NULL, archived_at = NULL, updated_at = ?
+ WHERE id = ? AND status = ?;
 ```
 
 3. **Adapter `canArchive`**: refuses to archive the currently-published config. Caller must publish a replacement first.
 
-The first publish ever for an org has no predecessor; Step A is a no-op.
+For unpublish, schedule, and explicit archive, the manager delegates to `SiteConfigRepository.saveLifecycle(config, expectedStatus)`. Ordinary `save(config)` persists metadata and blocks only, and rejects when the row has since become archived; it never writes lifecycle columns. The first publish ever for an org has no predecessor, so Step A is a no-op.
 
 There is no `deactivate` operation. To go dark, publish a minimal "maintenance mode" config.
 
@@ -434,6 +437,7 @@ export class SiteConfig implements LifecycleCapable {
 ```ts
 // src/domain/site-config/site-config.repository.ts
 import type { SiteConfig } from "@/domain/site-config/site-config.entity";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { CursorPage } from "@/shared/pagination/cursor";
 
 export interface SiteConfigRepository {
@@ -441,10 +445,17 @@ export interface SiteConfigRepository {
   findActiveByOrgId(orgId: string): Promise<SiteConfig | null>;
   findBySlug(orgId: string, slug: string): Promise<SiteConfig | null>;
   listByOrgId(params: { orgId: string; limit: number; cursor?: string }): Promise<CursorPage<SiteConfig>>;
+  /** Metadata/block save only; must reject when the persisted row is archived. */
   save(config: SiteConfig): Promise<void>;
+  /** Dedicated lifecycle CAS write required by docs/012. */
+  saveLifecycle(config: SiteConfig, expectedStatus: LifecycleStatus): Promise<void>;
   delete(id: string): Promise<boolean>;
 
-  /** Required by the lifecycle plugin (docs/012 §4.5) for cron candidate scanning. */
+  /**
+   * Required by the lifecycle plugin (docs/012 §4.5) for cron candidate scanning.
+   * SiteConfig returns due IDs in activation order:
+   * scheduledAt ASC, createdAt ASC, id ASC.
+   */
   findScheduledReadyIds(now: Date, limit: number): Promise<readonly string[]>;
 }
 ```
@@ -454,6 +465,7 @@ A separate workflow port handles the atomic publish:
 ```ts
 // src/domain/site-config/site-config-publish.workflow.ts
 import type { SiteConfig } from "@/domain/site-config/site-config.entity";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 
 export interface SiteConfigPublishWorkflow {
   /**
@@ -461,7 +473,7 @@ export interface SiteConfigPublishWorkflow {
    * and persists `config` with status='published'. Translates a unique-index
    * violation on (org_id) WHERE status='published' into ConflictError.
    */
-  publishAtomic(config: SiteConfig): Promise<void>;
+  publishAtomic(config: SiteConfig, expectedStatus: LifecycleStatus): Promise<void>;
 
   /** Atomically publishes one due scheduled config while preserving the single-published invariant. */
   publishScheduledReady(id: string, now: Date): Promise<boolean>;
@@ -663,6 +675,7 @@ Update use case must reject any input that smuggles a `status`, `publishedAt`, `
 import type { Actor } from "@/domain/auth/actor";
 import type { ContentPolicy } from "@/domain/iam/content-policy";
 import { siteConfigResource } from "@/domain/iam/resource-loader";
+import type { LifecycleStatus } from "@/domain/lifecycle/lifecycle-entity";
 import type { LifecycleManager } from "@/domain/lifecycle/lifecycle-manager";
 import type { SiteConfigRepository } from "@/domain/site-config/site-config.repository";
 import type { SiteConfigPublishWorkflow } from "@/domain/site-config/site-config-publish.workflow";
@@ -680,16 +693,16 @@ export class SiteConfigLifecycleManager implements LifecycleManager<SiteConfig> 
   findById(id: string) { return this.configs.findById(id); }
 
   /**
-   * Persists the entity. When the new status is "published", we route through
-   * the publish workflow's atomic batch (archive current + write target). Other
-   * transitions are plain saves.
+   * Persists a lifecycle transition with the state loaded by the use case.
+   * Publishing routes through the atomic replacement workflow; other
+   * transitions use the repository lifecycle CAS write.
    */
-  async save(entity: SiteConfig): Promise<void> {
+  async save(entity: SiteConfig, expectedStatus: LifecycleStatus): Promise<void> {
     if (entity.lifecycleStatus === "published") {
-      await this.publishWorkflow.publishAtomic(entity);
+      await this.publishWorkflow.publishAtomic(entity, expectedStatus);
       return;
     }
-    await this.configs.save(entity);
+    await this.configs.saveLifecycle(entity, expectedStatus);
   }
 
   canPublish(actor: Actor, entity: SiteConfig) {
@@ -721,7 +734,11 @@ export class SiteConfigLifecycleManager implements LifecycleManager<SiteConfig> 
 }
 ```
 
-The cron driver's `publishScheduledReady(id, now)` for SiteConfig must also enforce the single-published invariant. Implementation:
+The cron driver's `publishScheduledReady(id, now)` for SiteConfig must also enforce the single-published invariant. Unlike Post or Book scheduled rows, several due SiteConfigs in one org intentionally replace one another. `SiteConfigRepository.findScheduledReadyIds(now, limit)` therefore returns due IDs ordered by `scheduled_at ASC`, then `created_at ASC`, then `id ASC`. The shared driver from `docs/012` already awaits `publishScheduledReady` sequentially, so it needs no behavior change: each due activation archives the preceding active config, and the last due config in deterministic order ends published.
+
+If a batch limit splits overdue candidates across cron runs, each query still selects the earliest remaining due configs first under the same order. A later scheduled config is never intentionally processed before an earlier still-due config.
+
+Implementation:
 
 ```ts
 // src/infrastructure/repositories/drizzle-site-config-publish.workflow.ts (publishScheduledReady)
@@ -735,14 +752,18 @@ async publishScheduledReady(id: string, now: Date): Promise<boolean> {
         .where(
           and(
             eq(siteConfigs.status, "published"),
-            // Subselect the orgId of the scheduled target.
-            eq(
-              siteConfigs.orgId,
-              this.db.select({ id: siteConfigs.orgId }).from(siteConfigs).where(eq(siteConfigs.id, id)).limit(1),
-            ),
+            // Only replace an active row while the target is still a due scheduled row.
+            sql`EXISTS (
+              SELECT 1 FROM site_configs AS target
+               WHERE target.id = ${id}
+                 AND target.org_id = ${siteConfigs.orgId}
+                 AND target.status = 'scheduled'
+                 AND target.scheduled_at <= ${now}
+            )`,
           ),
         ),
-      // Promote the scheduled row.
+      // Promote this due row. The caller supplies IDs in deterministic order;
+      // a later due row in the same org will archive this row in its turn.
       this.db
         .update(siteConfigs)
         .set({ status: "published", publishedAt: now, scheduledAt: null, archivedAt: null, updatedAt: now })
@@ -763,7 +784,7 @@ async publishScheduledReady(id: string, now: Date): Promise<boolean> {
 
 Two important notes:
 
-- D1 SQLite does not support arbitrary subqueries in `UPDATE … WHERE` against the same table in all builds. If Drizzle's subquery feature does not translate cleanly, replace the first batch statement with two passes: (a) `SELECT org_id FROM site_configs WHERE id = ?`; (b) `UPDATE site_configs SET status='archived' … WHERE org_id = ? AND status='published'`. The implementation backlog calls this out under [SCG-E](#scg-e-lifecycle-adapter-integration).
+- The workflow must preserve the conditional target check in Step A. If Drizzle cannot express the `EXISTS` clause cleanly, implement this as a workflow transaction that first validates the due scheduled target and then performs both lifecycle writes; do not archive an active config when the target CAS no longer matches.
 - The unique partial index can still fire if another transaction publishes a different config in the same org between the two statements of the batch. The workflow catches that case and returns `false`.
 
 ### 4.11 HTTP API Surface
@@ -986,6 +1007,8 @@ Phased work, each phase keeps `pnpm check` green:
 | Block embeds `mediaId` that points to deleted media | Blocks are inside JSON; SQLite FK does not apply. Front-end shows a broken-media placeholder. A periodic cleanup job (future) can scan `blocks_json` for stale media IDs. |
 | Publishing an archived config | Entity rejects: `ConflictError("Cannot publish an archived site config")` → `409`. Caller must duplicate and publish. |
 | Updating an archived config | Entity rejects in `update()` → `409`. |
+| A metadata/block save loaded before a concurrent archive | Repository metadata `save(config)` is conditional on `status != 'archived'`; it returns `409` and cannot revive or alter the archived config. |
+| A manual lifecycle request loaded before another lifecycle transition | `saveLifecycle(config, expectedStatus)` or `publishAtomic(config, expectedStatus)` changes zero target rows and returns `409`; it cannot overwrite newer lifecycle state. |
 | Block schema evolution — unknown block type on read | Mapper uses framework-free per-block decoding, dropping unrecognized entries and adding a `console.warn` record for ops. |
 | Slug collision on create | Repository `findBySlug` returns existing; use case raises `ConflictError("Slug already in use")` → `409`. If slug omitted, `randomizedSlugFromTitle` includes a random suffix; collision probability is negligible. |
 | Empty `blocks` array | Valid. Active config renders with only top-level fields. |
@@ -994,7 +1017,7 @@ Phased work, each phase keeps `pnpm check` green:
 | Archiving the active config | Adapter `canArchive` returns false → `403 Forbidden`. Caller publishes a replacement, which atomically archives the previous active, then can archive that one. |
 | Scheduled config waiting through `archive()` on the same row | The schedule is cleared (entity sets `scheduledAt = null`); the cron will not pick it up. |
 | Cron picks up a scheduled config whose org gained an active config between schedule and cron | Compare-and-set commits the second config as the new active; the previous active is archived in the same batch. This is the documented behavior — schedule wins. To prevent it, the author should unpublish the schedule or activate manually beforehand. |
-| Concurrent publish at top-of-hour with multiple scheduled configs in same org | The first cron tick selects N candidates; for each, `publishScheduledReady` either succeeds or fails. Only one can succeed (unique partial index). The others remain `scheduled` and are picked up next hour. **Operator-visible note**: scheduling two configs for the same org at the same minute is a likely UX bug. Surfacing this in the admin UI is a non-goal here. |
+| Multiple configs in one org are already due when cron runs | Due configs are processed sequentially in deterministic order: `scheduledAt ASC`, then `createdAt ASC`, then `id ASC`. Each successful activation atomically archives the previous active config; the last ordered due config ends published and earlier due configs end archived. |
 | `Idempotency-Key` reused with different body on create | `CONFLICT` per existing idempotency contract. |
 | Service-account create | Same authorization path as user; service account must have `org.create_site_config` on the org. |
 
@@ -1062,17 +1085,18 @@ Scope:
 
 Tasks:
 
-- [ ] Implement `SiteConfigRepository` interface (§4.6).
-- [ ] Implement `SiteConfigPublishWorkflow` interface; the Drizzle implementation runs the two-step archive-then-promote batch with subquery or two-pass org-id resolution (§4.10).
-- [ ] Implement mappers: `siteConfigRowToEntity`, `siteConfigToInsertRow`, `siteConfigToUpdateRow`. All explicit field-by-field per `architecture/mapper-file`. Reconstitute via `SiteConfig.reconstitute`. Preserve the per-block fallback on read through framework-free decoding; do not import HTTP schemas into the mapper.
-- [ ] Implement `findScheduledReadyIds(now, limit)` using `CrudAdapter.findRowsWhere`.
+- [ ] Implement `SiteConfigRepository` interface (§4.6), including metadata-only `save(config)` guarded against archived rows and lifecycle-only `saveLifecycle(config, expectedStatus)`.
+- [ ] Implement `SiteConfigPublishWorkflow` interface; the Drizzle implementation runs the conditional two-step archive-then-promote lifecycle batch and accepts `expectedStatus` (§4.10).
+- [ ] Implement mappers: `siteConfigRowToEntity`, `siteConfigToInsertRow`, `siteConfigToUpdateRow`, `siteConfigToLifecycleUpdateRow`. All explicit field-by-field per `architecture/mapper-file`. `siteConfigToUpdateRow` omits lifecycle fields; `siteConfigToLifecycleUpdateRow` contains only lifecycle timestamps/status plus `updatedAt`. Reconstitute via `SiteConfig.reconstitute`. Preserve the per-block fallback on read through framework-free decoding; do not import HTTP schemas into the mapper.
+- [ ] Implement `findScheduledReadyIds(now, limit)` with deterministic activation ordering: `scheduledAt ASC`, then `createdAt ASC`, then `id ASC`. Reuse `CrudAdapter.findRowsWhere` if it supports ordered tie-breakers; otherwise extend that helper rather than issuing ad hoc persistence queries.
 - [ ] Implement `publishScheduledReady(id, now)` on `DrizzleSiteConfigPublishWorkflow` using a `db.batch(...)` plus `isSqliteUniqueConstraintError(error, "site_configs.single_published_org")` translation.
 
 Acceptance criteria:
 
-- Drizzle repo passes integration tests for `findById`, `findActiveByOrgId`, `findBySlug`, `listByOrgId`, `save`, `delete`.
-- `publishAtomic` rejects with `ConflictError` when a unique-index violation is raised.
-- `publishScheduledReady` is idempotent under concurrent invocation (test: `Promise.all([fn(id), fn(id)])` — exactly one returns true).
+- Drizzle repo passes integration tests for `findById`, `findActiveByOrgId`, `findBySlug`, `listByOrgId`, metadata-only `save`, `saveLifecycle`, and `delete`; a stale metadata save after archive returns `ConflictError`.
+- `publishAtomic` rejects with `ConflictError` when the target `expectedStatus` is stale or when a unique-index violation is raised.
+- `publishScheduledReady` is idempotent under concurrent invocation for the same scheduled row (test: `Promise.all([fn(id), fn(id)])` — exactly one returns true).
+- When multiple configs in one org are due, processing the returned IDs produces deterministic activation history and leaves the last row under `(scheduledAt, createdAt, id)` ordering as `published`.
 
 Tests:
 
@@ -1095,7 +1119,7 @@ Tasks:
 - [ ] `CreateSiteConfigUseCase` mirrors `CreatePostUseCase` (idempotency, scope, IAM via `requireOwnedContentCreateContext`, slug resolution, workflow port). Permission key: `org.create_site_config`.
 - [ ] `GetActiveSiteConfigUseCase` takes `{ orgId }`, no actor, no permission check. Returns `null` if absent (route translates to `404`).
 - [ ] `GetSiteConfigUseCase` takes `{ actor, id }`; if active, returns it without IAM; otherwise calls `ContentPolicy.can("site_config.read", siteConfigResource(config))`.
-- [ ] `UpdateSiteConfigUseCase`: scope check → load → `can("site_config.update", ref)` → `entity.update(...)` → `repo.save(entity)`.
+- [ ] `UpdateSiteConfigUseCase`: scope check → load → `can("site_config.update", ref)` → `entity.update(...)` → metadata-only `repo.save(entity)`; repository conditional write returns `409` if archive committed after load.
 - [ ] `DeleteSiteConfigUseCase`: scope check → load → `can("site_config.delete", ref)` → reject if `status in ("scheduled", "published")` → `repo.delete(id)`.
 - [ ] `ListSiteConfigsUseCase`: scope check → derive org → `repo.listByOrgId(...)` → filter via `canMany("site_config.read", refs)`.
 
@@ -1120,7 +1144,7 @@ Tasks:
 - [ ] Add `siteConfigResource(config)` helper (§4.8).
 - [ ] Implement `SiteConfigLifecycleManager` (§4.10):
   - `findById` → repo.
-  - `save` routes published states through `SiteConfigPublishWorkflow.publishAtomic` and other states through `repo.save`.
+  - `save(entity, expectedStatus)` routes published states through `SiteConfigPublishWorkflow.publishAtomic(entity, expectedStatus)` and other states through `repo.saveLifecycle(entity, expectedStatus)`.
   - `can{Publish,Unpublish,Schedule}` → `ContentPolicy.can("site_config.publish", siteConfigResource(entity))`.
   - `canArchive` returns false for the published config; otherwise `ContentPolicy.can("site_config.archive", siteConfigResource(entity))`.
   - `findScheduledReadyIds` → repo; `publishScheduledReady` → publish workflow.
@@ -1178,7 +1202,7 @@ Tasks:
 Acceptance criteria:
 
 - `container.siteConfigs.publish.execute({ actor, id })` end-to-end publishes a draft config and archives the previous published one in the same org.
-- After redeploying the `workers/scheduled-publish/` Worker, the hourly cron picks up a scheduled site config and promotes it (verified by extending `tests/scheduled-publish.test.ts` to seed a site config).
+- After redeploying the `workers/scheduled-publish/` Worker, the hourly cron picks up scheduled site configs in deterministic activation order and promotes them sequentially (verified by extending `tests/scheduled-publish.test.ts` with multiple overdue site configs in one org).
 - No changes to `workers/scheduled-publish/wrangler.jsonc`, its `tsconfig.json`, or its `src/index.ts` are required; SiteConfig is wired entirely through `src/composition/scheduled-lifecycle.ts`.
 
 ### SCG-H. Documentation And Cleanup
@@ -1216,12 +1240,12 @@ Acceptance criteria:
 | Unit — entity | Every transition method; `update` rejects on archived; `toSnapshot` clones `blocks` (no aliasing). |
 | Unit — block schema | Discriminator coverage; `safeParse` recovery for unknown discriminants. |
 | Unit — mapper | Round-trip entity → row → entity preserves all fields including dates and `blocks`. Malformed `blocks_json` recovers via per-block filtering. |
-| Integration — repository | All `SiteConfigRepository` methods against a real D1 (vitest worker pool). |
-| Integration — publish workflow | Concurrent `publishAtomic` calls on different configs in the same org: one succeeds, the other returns `ConflictError`. |
+| Integration — repository | All `SiteConfigRepository` methods against a real D1 (vitest worker pool); stale metadata writes cannot modify an archived row; non-publish lifecycle transitions require matching expected status. |
+| Integration — publish workflow | Concurrent `publishAtomic` calls on different configs in the same org: one succeeds, the other returns `ConflictError`; stale expected target state does not archive the active config. |
 | Integration — lifecycle adapter | Generic `PublishUseCase<SiteConfig>` with adapter publishes a draft and archives the prior published. `ArchiveUseCase<SiteConfig>` on published config → `Forbidden`. |
 | Integration — HTTP | All 10 endpoints. Public `GET /site-configs/active`, `404` when none active, idempotent create replay, `PATCH` rejecting `status`. |
 | Integration — IAM | Direct-share actor without `org.create_site_config` is forbidden on create; org `system:org.site_manager` member can publish; `system:org.content_admin` can do everything. |
-| Integration — cron | Scheduled config with `scheduledAt = now - 1s` is promoted by `runScheduledPublish`; prior published is archived. |
+| Integration — cron | One overdue config is promoted and the prior published row is archived; multiple overdue configs in one org are processed by `scheduledAt`, `createdAt`, then `id`, with the last due row published and earlier rows archived. |
 | Race | Two concurrent publishes on different configs in the same org via `Promise.all` — assert exactly one ends `published`. |
 | Architecture lint | `pnpm lint` — verify `architecture/entity-class`, `architecture/mapper-file`, `architecture/route-module`, `architecture/no-plain-zod-import`, `architecture/req-valid-usage` all pass. |
 | Duplication | `pnpm check:dup` — Drizzle repo and mapper expected to clone-match book/post repo; add suppression entries pointing at this doc and `docs/012`. |
@@ -1232,7 +1256,7 @@ Acceptance criteria:
 - `site_configs` table created with all four indexes (`org_slug_idx`, `org_status_idx`, `single_published_org_idx`, `scheduled_idx`).
 - `SiteConfig` entity implements `LifecycleCapable` with all four transition methods, snapshot clone, and full getters.
 - Plain `SiteBlock`/`SiteBlocks` types in `src/domain/site-config/site-block.ts`; `siteBlockSchema` and `siteBlocksSchema` Zod schemas in `src/http/schemas/site-config-blocks.schema.ts`.
-- `SiteConfigRepository`, `SiteConfigPublishWorkflow`, Drizzle implementations, and explicit mapper present.
+- `SiteConfigRepository`, `SiteConfigPublishWorkflow`, Drizzle implementations, and explicit metadata/lifecycle mappers present; ordinary saves cannot write or revive archived lifecycle state, and lifecycle paths apply expected-status CAS.
 - `SiteConfigLifecycleManager` present and wired in `create-request-container.ts` and `scheduled-lifecycle.ts`.
 - Use cases under `src/application/site-config/`: create, get, get-active, list, update, delete. Lifecycle use cases are the generic ones from `docs/012`.
 - Routes in `src/http/routes/site-configs.routes.ts`: 10 endpoints documented in §4.11, registered in `src/http/routes/index.ts`.
@@ -1257,8 +1281,8 @@ docs/012 prerequisites           lifecycle plugin + permission catalog + crud-ad
 src/domain/site-config/
   site-config.entity.ts          SiteConfig implements LifecycleCapable
   site-block.ts                  plain block types (hero, bio, about, featured_posts, links)
-  site-config.repository.ts      findById/findActive/findBySlug/list/save/delete + scheduled-ready scan
-  site-config-publish.workflow.ts publishAtomic/publishScheduledReady → archive current published + promote target
+  site-config.repository.ts      findById/findActive/findBySlug/list/save/saveLifecycle/delete + scheduled-ready scan
+  site-config-publish.workflow.ts publishAtomic(expectedStatus)/publishScheduledReady → conditional archive + promote target
 
 src/infrastructure/repositories/
   drizzle-site-config.repository.ts
@@ -1269,7 +1293,7 @@ src/application/lifecycle/
   site-config-lifecycle-manager.ts
     canPublish/Unpublish/Schedule → "site_config.publish"
     canArchive                    → false if published; else "site_config.archive"
-    save                          → publishAtomic for published, repo.save otherwise
+    save(entity, expectedStatus)  → publishAtomic for published, repo.saveLifecycle otherwise
 
 src/application/site-config/
   create-site-config.usecase.ts        idempotent + slug resolution + "org.create_site_config"
@@ -1297,4 +1321,4 @@ src/composition/scheduled-lifecycle.ts        adds SiteConfigLifecycleManager to
 src/domain/iam/resource-loader.ts             + siteConfigResource(...)
 ```
 
-A SiteConfig starts as `draft`, may be `scheduled` for a future publish, becomes `published` atomically (archiving any previously-published sibling in the same org), and may be `archived` after being unpublished or replaced. Active configs are publicly readable through `GET /site-configs/active`. All non-active reads, mutations, and lifecycle transitions go through Content IAM. Blocks are Zod-validated on write and stored as JSON. The single-published-per-org invariant is enforced by a DB partial unique index and an adapter-level write workflow. Scheduled publishes are committed by the hourly Worker cron through the same compare-and-set primitive used by Post and Book.
+A SiteConfig starts as `draft`, may be `scheduled` for a future publish, becomes `published` atomically (archiving any previously-published sibling in the same org), and may be `archived` after being unpublished or replaced. Active configs are publicly readable through `GET /site-configs/active`. All non-active reads, mutations, and lifecycle transitions go through Content IAM. Blocks are Zod-validated on write and stored as JSON. The single-published-per-org invariant is enforced by a DB partial unique index and an adapter-level write workflow. Scheduled publishes are committed by the hourly Worker cron through the same compare-and-set primitive used by Post and Book; when several SiteConfigs are due, they activate sequentially by `scheduledAt`, `createdAt`, then `id`, so the final due config is active.

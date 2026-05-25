@@ -39,7 +39,7 @@
 >
 > Assumptions:
 >
-> - The book content model (docs/015) is implemented before this doc lands. In particular: recursive chapters, the Lexical schema with `chapter-link`/`broken-link`/`image`/`broken-image` nodes, `media_attachments`, `book.origin`, derived-count dispatch, and the `book.import` permission.
+> - The book content model (docs/015) is implemented before this doc lands. In particular: recursive chapters, the Lexical schema with `chapter-link`/`broken-link`/`image`/`broken-image` nodes, `media_attachments`, `book.origin`, derived-count dispatch, the `book.import` permission, and the lifecycle-CAS guarded `/replace` archive workflow.
 > - The new EPUB worker is a sibling Cloudflare Worker under `workers/epub-processor/`. It shares D1, R2, Images, and Queues with the API Worker. It does not import API application/domain/infrastructure modules wholesale; reusable validation and media constants required by both deployment units are promoted to `src/shared/**`, while import execution adapters live inside the worker.
 > - Cloudflare Workers Queues, R2, R2 object-create event notifications, and `DecompressionStream` are available. The EPUB streaming parse uses `DecompressionStream("deflate-raw")` to inflate ZIP entries; `epubjs` is **not** used (it depends on browser globals).
 > - Browsers upload the `.epub` archive to R2 via the same presigned PUT URL pattern as media uploads (architecture §14). The Worker does not see the archive bytes through the HTTP request.
@@ -230,6 +230,9 @@ Dropped:
    -> new-book mode requires content:write + org.import_book on the workspace organization
    -> replace mode is initiated through /books/{bookId}/replace and requires
       book.update + book.import + book.archive (docs/015)
+   -> replacement starts only if docs/015 atomically archives the loaded
+      predecessor under its expected lifecycle status/version guards;
+      stale predecessor state returns 409 before an import row is created
    -> creates book_imports row, status = "pending-upload"
    -> generates archiveObjectKey = "book-imports/{importId}/archive.epub"
    -> returns presigned PUT URL (TTL = 15 minutes by default)
@@ -591,6 +594,7 @@ Direct-share tokens cannot start an import: new-book import requires workspace o
   - On success, creates a `book_imports` row with `importMode = "replace"`, `bookId = newBookId`, `replacedBookId = oldBookId`.
   - Returns `{ newBookId, importId, archiveObjectKey, uploadUrl, expiresAt }`.
   - Requires `book.update`, `book.import` and `book.archive` as specified by docs/015.
+  - Returns `409` without creating the replacement import when docs/015's predecessor lifecycle/version CAS no longer matches.
 
 - `GET    /book-imports/{importId}` — status + progress.
   - Requires `book.read` on the target book (or the initiator's own row if the book has not been created yet).
@@ -980,6 +984,7 @@ Documentation:
 | Direct-share token tries to start an import | `403 Forbidden`; new-book import requires workspace organization authority and replacement is not share-reader authority. |
 | Importer service account is absent or attempts work outside the active import target | Step fails with an authorization error; do not provision it with `system:org.content_admin` as a workaround. |
 | Replace import races with a manual chapter edit on the new book | Normal content edit returns `409 Import in progress`; importer-owned content cannot silently overwrite accepted human edits. |
+| `/replace` races with a lifecycle transition on the predecessor book | The docs/015 archive CAS returns `409`; no replacement book or replacement import is created from stale predecessor state. |
 | A failed import on a `/replace` flow | The old book is still archived. Operator runbook: either perform an explicit lifecycle recovery or call `/replace` again with a fixed archive. |
 | Queue messages duplicated (Cloudflare at-least-once delivery) | Each step handler compare-and-set claims its normalized `book_import_items` row; completed items acknowledge duplicate delivery without repeating writes, and finalization derives completion from item states. |
 | Worker invocation exceeds 30s CPU budget on a single chapter | Cloudflare aborts the invocation; the queue retries. Handlers should be small enough that this never happens; if it does (very large chapter HTML), the chapter ends up in the failed state after retries. A future enhancement would split chapter-content step further. |
@@ -1187,12 +1192,14 @@ Tasks:
 
 - [ ] Replace the docs/015 stub that wrote a `book_imports` row in `pending-worker-not-yet-built` with a real call to start an import (mode `"replace"`).
 - [ ] The use case returns `{ newBookId, importId, uploadUrl, expiresAt, archiveObjectKey }` so the client can upload the new archive.
+- [ ] Preserve docs/015's lifecycle/version guarded predecessor archive: a zero-row archive result returns `409` before any replacement import is enqueued.
 - [ ] Update docs/015 §7.5 status to reflect that the stub is now connected.
 
 Acceptance criteria:
 
 - `POST /books/{bookId}/replace` returns a presigned URL; uploading the archive starts the import; the new book is filled in.
 - `POST /books/{bookId}/replace` requires `book.update`, `book.import` and `book.archive`.
+- `POST /books/{bookId}/replace` returns `409` and creates no replacement import when its predecessor lifecycle CAS is stale.
 
 Tests:
 
@@ -1271,6 +1278,7 @@ Manual smoke (against `wrangler dev` + local D1 + miniflare R2):
 - `chapter-link` and `broken-link` nodes appear in imported chapter content with real chapter IDs; no raw EPUB href is persisted in D1.
 - Embedded images become initiator-owned media rows through an import-specific workflow plus `media_attachments`; the existing media-processor generates derivatives without modification.
 - `POST /books/{bookId}/replace` (docs/015 §4.6) is wired to enqueue an import via this pipeline.
+- `/replace` preserves docs/015's lifecycle/version archive CAS and enqueues no replacement import when the predecessor state is stale.
 - The EPUB importer service account passes `ImportExecutionPolicy` only for active import-owned targets and has no `system:org.content_admin` binding.
 - Active imports reject ordinary editor content writes, and successful finalization schedules the derived-count rollup without mutating book lifecycle status.
 - `corepack pnpm check` passes.

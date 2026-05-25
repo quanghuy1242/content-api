@@ -37,7 +37,7 @@
 > Assumptions:
 >
 > - Content IAM (docs/007) is operational. Chapter mutations and non-public reads go through `ContentPolicy.can(actor, permission, resource)` with ancestors `[parent-chapter…, book, org]`; anonymous published-public reads use the explicit public path in §4.7.1.
-> - The Content Lifecycle Plugin (docs/012) is operational. Chapters and Books use the plugin's `draft → scheduled → published → archived` machine. This document does not redefine lifecycle vocabulary; it lists which permissions and adapters chapters add.
+> - The Content Lifecycle Plugin (docs/012) is operational. Chapters and Books use the plugin's `draft → scheduled → published → archived` machine and its write boundary: ordinary saves never write lifecycle fields or modify archived rows, while dedicated transitions use `saveLifecycle(entity, expectedStatus)`. This document does not redefine lifecycle vocabulary; it lists which permissions and adapters chapters add.
 > - Block content is validated by Zod at the API boundary and stored as a single JSON column on `chapters.content_json`. There is **no** `blocks` table.
 > - The configurable max chapter depth defaults to 4 (book is depth 0; root chapter is depth 1; deepest leaf chapter is depth 4). The config lives in an environment-validated constant, not in user data.
 > - `media` already exists with the upload-and-derivatives pipeline from docs/002 / architecture §14. This doc adds attachment tracking; it does not change media's own lifecycle.
@@ -148,6 +148,8 @@ client
        saves chapter row
        if book.origin = "imported" then book.origin <- "platform"
          (auto-promotion is atomic with the chapter save)
+       (the chapter write is version-checked, omits lifecycle fields, and
+        rejects if the chapter was archived after it was loaded)
 
   -> POST /chapters/{chapterId}/publish        (lifecycle plugin)
   -> POST /chapters/{chapterId}/archive        (lifecycle plugin)
@@ -160,7 +162,8 @@ Replace-existing-book flow:
 client
   -> POST /books/{bookId}/replace { newImportObjectKey, ... }
        starts a destructive workflow:
-         - archives book{bookId} (status -> archived, replaced_by_book_id set)
+         - archives book{bookId} with its loaded lifecycle status/version as
+           compare-and-set guards (status -> archived, replaced_by_book_id set)
          - creates book{newId}   (origin = "imported")
          - transfers all policy bindings from old book to new book
          - kicks off an EPUB import targeting newId         (docs/017)
@@ -185,11 +188,13 @@ UpdateChapterUseCase
   -> for each added id: mediaPolicy.assertCanAttach(actor, media)
   -> updateChapterAndAttachmentsWorkflow.run({
        chapter,
+       expectedVersion,
        addedAttachments,
        removedAttachments,
        promoteBookFromImportedToPlatform?,
      })
-       (single db.batch — chapter row + attachment rows + optional book.origin flip)
+       (single db.batch — metadata/content-only chapter CAS guarded against
+        archived state + attachment rows + optional book.origin flip)
 ```
 
 ## 3. Current-State Findings
@@ -344,6 +349,12 @@ Delete semantics:
 - `parent_chapter_id` is a restrictive self-FK. `DELETE /chapters/{id}` deletes descendants explicitly in leaf-first order inside one workflow `db.batch(...)`; `ON DELETE CASCADE` is not used because media-attachment cleanup must remain explicit.
 - Each cascade-deleted chapter contributes a removed-media-reference set; the workflow merges them and deletes the corresponding `media_attachments` rows.
 - The cascade must verify `ContentPolicy.can(actor, "chapter.delete", chapterRef)` on the top deletion target only. Descendants inherit the decision via ancestry.
+
+Lifecycle and ordinary-write boundary:
+
+- `Chapter` implements `LifecycleCapable`; dedicated publish, unpublish, schedule and archive calls use the generic lifecycle use cases from `docs/012` through `ChapterLifecycleManager`.
+- `ChapterRepository.saveLifecycle(chapter, expectedStatus)` changes only lifecycle columns under `WHERE id = ? AND status = expectedStatus`; scheduled-ready scan/publication methods follow the `docs/012` CAS contract.
+- Ordinary chapter content, title, move and attachment workflows do not persist `status`, `publishedAt`, `scheduledAt` or `archivedAt`. Their chapter UPDATE includes `status != 'archived'` as well as the content `version` predicate, so an edit loaded before an archive returns `409` rather than modifying retired content.
 
 ### 4.3 Chapter Lexical Content Schema
 
@@ -542,11 +553,11 @@ Authorization: `book.update`, `book.import`, and `book.archive` (the lifecycle p
 
 Workflow (single `db.batch(...)` in the workflow port, then queue dispatch):
 
-1. Load old book; assert `version === expectedBookVersion`.
+1. Load old book; assert `version === expectedBookVersion` and capture `expectedLifecycleStatus = book.lifecycleStatus` for the archive CAS below.
 2. Generate new `bookId`.
 3. Atomic batch:
    - INSERT new `books` row, same `orgId`, same metadata snapshot (title, description, language, isbn, …), `origin = "imported"`, `status = "draft"`, `cover_media_id = NULL` (the new import will set it).
-   - Archive the old book through the docs/012 lifecycle boundary in the same workflow: `status = "archived"`, `archived_at = now`, `replaced_by_book_id = newBookId`, increment `version`.
+   - Archive the old book through the docs/012 lifecycle boundary in the same workflow: `UPDATE ... SET status = "archived", archived_at = now, replaced_by_book_id = newBookId, version = version + 1 WHERE id = oldId AND version = expectedBookVersion AND status = expectedLifecycleStatus`. If the guarded write changes zero rows, the batch fails with `409` and does not create the replacement book or copy bindings.
    - COPY all `content_policy_bindings` rows whose `resource_type = "book" AND resource_id = oldId` to point at `newId`. Bindings on descendants (chapters) are not copied — the new book starts with no chapters until the import worker creates them, and a chapter binding on a no-longer-existing chapter would be orphaned.
    - Do not insert an IAM policy event. `book.replaced` is a candidate general `audit_events` action under docs/014; if general audit is required before replacement launches, promote that small prerequisite explicitly.
 4. Enqueue an EPUB import message targeting `newBookId` with `newImportObjectKey` (docs/017 §4 owns the worker side).
@@ -560,6 +571,7 @@ Failure modes:
 
 - New import fails: the old book stays archived. Operator runbook: either retry the import on `newBookId` or perform an explicitly controlled lifecycle recovery; any such recovery is a candidate general-audit trigger under docs/014.
 - Concurrent replace attempts: `expectedBookVersion` mismatch returns `409 Conflict`.
+- Lifecycle action committed after the old book was loaded: the guarded archive write changes zero rows and returns `409 Conflict`; replacement does not overwrite the newer lifecycle state.
 
 What the replace workflow does **not** do:
 
@@ -787,13 +799,15 @@ Implementation tasks:
 - [ ] `src/domain/books/chapter.repository.ts` interface:
   - `findById(id)`, `findByBookAndId({ bookId, id })`, `listChildren({ bookId, parentChapterId, limit, cursor })`, `listAllInBook(bookId)` (capped, used for `recursive=true`).
   - `findAncestorPath({ bookId, parentChapterId })` returns `{ depth, ancestorChapterIds }` for create.
+  - `saveLifecycle(chapter, expectedStatus)`, `findScheduledReadyIds(now, limit)`, and `publishScheduledReady(id, now)` implement the lifecycle CAS/cron contract from `docs/012`.
 - [ ] Workflow port `src/domain/books/chapter-update-and-attachments.workflow.ts`:
-  - `run({ chapter, addedMediaIds, removedMediaIds, promoteBookFromImported })` returns void; throws shared typed errors only. Implementation `src/infrastructure/repositories/drizzle-chapter-update-and-attachments.workflow.ts` uses `db.batch(...)`.
+  - `run({ chapter, expectedVersion, addedMediaIds, removedMediaIds, promoteBookFromImported })` returns void; throws shared typed errors only. The chapter UPDATE omits lifecycle columns and is conditional on `version = expectedVersion AND status != 'archived'`. Implementation `src/infrastructure/repositories/drizzle-chapter-update-and-attachments.workflow.ts` uses `db.batch(...)`.
 - [ ] Workflow port `src/domain/books/chapter-move.workflow.ts`:
   - `run({ chapter, descendantUpdates })` where `descendantUpdates` is a list of `(id, newDepth, newAncestorChapterIds)`. Implemented with `db.batch(...)`. Repository computes the descendants by reading rows whose `ancestorChapterIdsJson` contains the moved chapter id.
 - [ ] Workflow port `src/domain/books/chapter-delete.workflow.ts`:
   - Atomic delete of one chapter + its descendants + every `media_attachments` row whose `targetType = "chapter"` and `targetId IN (deletedChapterIds)`.
 - [ ] Mappers in `src/infrastructure/repositories/mappers/chapter.mapper.ts` (row ↔ entity).
+- [ ] `src/application/lifecycle/chapter-lifecycle-manager.ts` delegates ordinary lifecycle transitions to `ChapterRepository.saveLifecycle(chapter, expectedStatus)` and cron publication to the repository scheduled-ready methods.
 
 Tests:
 
@@ -847,6 +861,7 @@ Implementation tasks:
 - [ ] Drizzle implementation in `src/infrastructure/repositories/drizzle-media-attachment.repository.ts`.
 - [ ] Extend `DeleteMediaUseCase` (currently in [src/application/media/delete-media.usecase.ts](../src/application/media/delete-media.usecase.ts)) to check attachments before delete and throw `ConflictError` with `details: { references: [{ targetType, targetId, blockId? }] }`.
 - [ ] Extend `UpdateChapterUseCase` to compute the media-ID diff (added/removed) and pass it to the workflow.
+- [ ] Ensure chapter content/attachment writes are metadata/content-only and reject an archived row at the repository/workflow predicate; they must not restore lifecycle fields from a stale entity snapshot.
 - [ ] Add `UpdateBookCoverUseCase` (in `src/application/books/update-book-cover.usecase.ts`) used by the extended `PATCH /books/{id}` route.
 
 Tests:
@@ -896,7 +911,7 @@ Target behavior:
 Implementation tasks:
 
 - [ ] Add `archived_at` and `replaced_by_book_id` columns to `books` (in the migration above).
-- [ ] New workflow port `src/domain/books/book-replace.workflow.ts` and Drizzle implementation. Atomically: perform the docs/012 archive transition on the old book, insert new book, and copy bindings. Do not insert a `content_policy_events` row for content replacement.
+- [ ] New workflow port `src/domain/books/book-replace.workflow.ts` and Drizzle implementation. Atomically: perform the docs/012 archive transition on the old book using both `expectedBookVersion` and its loaded `expectedLifecycleStatus` as guards, insert new book, and copy bindings. A zero-row archive aborts with `409`; do not insert a `content_policy_events` row for content replacement.
 - [ ] New use case `src/application/books/replace-book.usecase.ts`. Requires `book.update` + `book.import` + `book.archive`. Validates `expectedBookVersion`. Generates new book id. Calls the workflow. Returns `{ newBookId, importId }`.
 - [ ] New route `POST /books/{bookId}/replace` in [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts).
 - [ ] Stub the queue dispatch until docs/017 lands: the use case writes the `book_imports` row with status `pending` and a TODO marker; the worker side comes from 017. The use case still returns `202 Accepted`.
@@ -971,6 +986,7 @@ Implementation tasks:
 - [ ] Add `chapters` and `mediaAttachments` repository factories.
 - [ ] Add the three chapter workflow factories.
 - [ ] Add the new use cases under `container.books.*` and `container.chapters.*`.
+- [ ] Construct `ChapterLifecycleManager` for the chapter lifecycle routes and register its scheduled-ready implementation with `src/composition/scheduled-lifecycle.ts`.
 - [ ] Keep the file under the architecture-lint complexity threshold (the route-registration / composition exception is documented in CLAUDE.md).
 
 Tests:
@@ -1054,7 +1070,10 @@ Documentation:
 | Update chapter content while its import is active | Ordinary API mutation returns `409 Import in progress`; only the matching importer service-account workflow may write without promotion. |
 | Metric job arrives after a later chapter edit | Expected-version check fails; the stale job is acknowledged without overwriting newer metrics. |
 | Concurrent edits to the same chapter (`version` mismatch) | Use case throws `ConflictError("Chapter has been modified since you loaded it; reload and retry")`. The route returns 409. |
+| Chapter content/move save races with a lifecycle archive | The ordinary workflow UPDATE is conditional on `status != 'archived'` and returns `409`; it cannot change or revive the archived chapter. |
+| Manual chapter lifecycle actions race | `ChapterRepository.saveLifecycle(chapter, expectedStatus)` returns `409` for the stale action; newer lifecycle state wins. |
 | Concurrent replace (`expectedBookVersion` mismatch) | `409 Conflict`. |
+| Replace races with a lifecycle action on the predecessor book | The replacement archive CAS includes loaded status and version; it returns `409` without creating/copying a replacement from stale state. |
 | Replace targeting an already-archived book | `409 Conflict`. Operators must unarchive in D1 if recovery is needed. |
 | Delete a media that is referenced by a chapter via `media_attachments` | `409 Conflict` with `details.references`. Caller must detach first. |
 | Imported book's import workflow crashes mid-way and never completes | `book.origin` stays `imported`; ordinary content mutation remains blocked while the import is active. After docs/017 marks it failed/cancelled, the user can explicitly promote the partial state or replace/delete it. |
@@ -1087,9 +1106,10 @@ Scope:
 Tasks:
 
 - [ ] Add the `chapters` table with all columns, indexes, and FK behavior from §4.2.
-- [ ] Implement `Chapter` entity following entity rules; cover `create`, `move`, `update`, `toSnapshot`.
+- [ ] Implement `Chapter` entity following entity rules and `LifecycleCapable`; cover `create`, `move`, `update`, lifecycle methods and `toSnapshot`; reject ordinary `update`/`move` mutations of archived chapters.
 - [ ] Implement the three workflow ports with `db.batch(...)`.
-- [ ] Implement repository methods `findById`, `findByBookAndId`, `listChildren`, `listAllInBook`, `findAncestorPath`.
+- [ ] Implement repository methods `findById`, `findByBookAndId`, `listChildren`, `listAllInBook`, `findAncestorPath`, plus lifecycle `saveLifecycle`, `findScheduledReadyIds` and `publishScheduledReady`.
+- [ ] Implement `ChapterLifecycleManager` with `save(entity, expectedStatus)` delegating to lifecycle CAS writes; wire it for routes and scheduled publication.
 - [ ] Add `MAX_CHAPTER_DEPTH` constant and env binding.
 
 Acceptance criteria:
@@ -1097,6 +1117,7 @@ Acceptance criteria:
 - Inserting a chapter at depth 1 succeeds; at depth `MAX_CHAPTER_DEPTH + 1` throws `ValidationError`.
 - Moving a subtree updates every descendant's `depth` and `ancestorChapterIdsJson` in one batch.
 - Deleting a chapter deletes its descendants and their `media_attachments` rows in one batch.
+- Lifecycle transitions require the loaded expected status, and a stale ordinary chapter save cannot modify a concurrently archived row.
 
 Tests:
 
@@ -1202,7 +1223,7 @@ Scope:
 
 Tasks:
 
-- [ ] Implement the atomic workflow per §4.6.
+- [ ] Implement the atomic workflow per §4.6, including the expected lifecycle-status and version guard on the predecessor archive update.
 - [ ] Implement the use case with `expectedBookVersion` check and `Idempotency-Key` enforcement.
 - [ ] Implement the route; until docs/017 lands, the worker dispatch is a stub that writes a `book_imports` row in `pending` and returns 202.
 
@@ -1210,6 +1231,7 @@ Acceptance criteria:
 
 - Replace requires `book.update`, `book.import` and `book.archive`; missing any required authority returns 403.
 - Replace copies book-level bindings, archives old book, creates new book with `origin = "imported"`.
+- Replace returns `409` without creating a new book when the predecessor lifecycle state changes after load.
 - Replace is idempotent on the same `Idempotency-Key`.
 - Replace does not write a content action into `content_policy_events`.
 
@@ -1354,7 +1376,7 @@ Coverage targets:
 - Entity unit tests: chapter create/move/update/cycle/depth-overflow.
 - Schema unit tests: Lexical schema acceptance + rejection + boundary sizes.
 - Helper unit tests: `extractMediaIds`, `extractChapterLinkRefs`, `rewriteUnresolvedLinks`, `normalizeBlockIds`.
-- Workflow integration tests: chapter update + media attachment diff + optional origin flip + metrics outbox enqueue in one D1 batch.
+- Workflow integration tests: chapter update + media attachment diff + optional origin flip + metrics outbox enqueue in one D1 batch; stale content writes after archive are rejected.
 - HTTP integration tests:
   - `POST /books/{id}/chapters` happy path + 401/403/409.
   - `POST /chapters/{id}/children` happy path + depth-overflow 400.
@@ -1362,7 +1384,7 @@ Coverage targets:
   - `DELETE /chapters/{id}` cascades.
   - `POST /books/{bookId}/promote-to-platform` flips origin once; idempotent on replay.
   - `GET /chapters/{id}` permits anonymous published-public reads and denies private/draft anonymous reads.
-  - `POST /books/{bookId}/replace` requires update/import/archive permissions, copies bindings, archives old book.
+  - `POST /books/{bookId}/replace` requires update/import/archive permissions, copies bindings, archives old book, and rejects a stale predecessor lifecycle state without partial replacement.
   - `PATCH /books/{id}` accepts new metadata fields; rejects status mutation; rejects origin mutation.
 - IAM unit tests: chapter ancestry, denial precedence at deepest chapter level, cross-org rejection.
 - Metrics worker tests: stale-version no-op, duplicate delivery and coalesced book rollup.
@@ -1383,7 +1405,8 @@ Manual smoke (against `wrangler dev`):
 - An imported book auto-promotes to `platform` on the first ordinary content edit after import completion; normal edits are blocked while an import is active.
 - Public published chapters can be read anonymously, with optional listed-lock behavior either explicitly selected or explicitly omitted before implementation.
 - Derived count projections are asynchronously computed with stale-job safety and exposed with pending/ready state.
-- `POST /books/{bookId}/replace` requires lifecycle archive authority, archives the old book, creates a new book with `origin = "imported"`, and copies book-level policy bindings without writing IAM policy events for content actions.
+- Chapter lifecycle endpoints and scheduled publication use the `docs/012` expected-status CAS contract, while ordinary chapter workflows cannot alter archived lifecycle state.
+- `POST /books/{bookId}/replace` requires lifecycle archive authority, archives the old book through a version-and-lifecycle guarded write, creates a new book with `origin = "imported"`, and copies book-level policy bindings without writing IAM policy events for content actions.
 - README.md, docs/007, docs/009, docs/012 are updated as described in BCM-H.
 - The `content-api-architecture` and `content-iam-usage` skills are updated to include chapter.
 

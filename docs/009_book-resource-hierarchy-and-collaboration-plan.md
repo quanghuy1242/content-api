@@ -1,15 +1,25 @@
 # Book Resource Hierarchy And Collaboration Plan
 
-> Status: implementation in progress; BKH-A book product routes verified, descendant hierarchy pending
+> **Status: ABANDONED — superseded by docs/015, docs/016, and docs/017.**
 >
-> Date: 2026-05-24
+> Date: 2026-05-24 (original); abandoned 2026-05-25.
 >
-> Scope:
+> Why abandoned: the descendant-hierarchy design here was reconsidered. The new docs replace this plan with:
+>
+> - `docs/015_book-content-model.md` — recursive chapters, Lexical content schema (block IDs, `chapter-link`, `broken-link`, media nodes), `media_attachments`, `book.origin` model, "replace existing book" destructive workflow. **Replaces sections 6.1, 6.4, 8 (BKH-B, BKH-C), and 9 of this doc.**
+> - `docs/016_book-interactions.md` — comments + inline comments (IAM-tracked), bookmarks + reading progress (subject-private; not IAM-tracked). **Replaces sections 6.3 and 8 (BKH-D) of this doc.**
+> - `docs/017_epub-import.md` — EPUB import as a sibling Cloudflare Worker, two-pass walk using docs/015's link-node contract, `book_imports` table, `book.import` permission. **Replaces the import-related notes scattered through this doc.**
+>
+> Carry-over: the BKH-A work (book root, `POST /books`, atomic owner binding) shipped from this plan and remains valid. Its acceptance criteria are covered as the current state of [src/domain/books/book.entity.ts](../src/domain/books/book.entity.ts) and [src/http/routes/books.routes.ts](../src/http/routes/books.routes.ts); no further work tracked here.
+>
+> Do not implement from this document. Read the three replacement docs instead. The original content below is kept for archival reference only.
+>
+> Original scope:
 >
 > - `/home/quanghuy1242/pjs/content-api`
 > - Future book, chapter, section, block, comment, inline-comment, bookmark, reading-progress, media-attachment, and recommendation resources
 >
-> Source docs:
+> Original source docs:
 >
 > - `docs/006_migrate-auther-to-id.md`
 > - `docs/007_content-iam-policy-binding-model.md`
@@ -17,12 +27,12 @@
 > - `docs/payloadcms-access-control-policy-spec.md`
 > - `/home/quanghuy1242/pjs/auth/docs/010_organization-teams-oauth-flow.md`
 >
-> Related docs:
+> Original related docs:
 >
 > - `docs/003_entity-classes-and-oxlint-arch-linting.md`
 > - `docs/008_review-last-commit-006-007.md`
 >
-> Verification:
+> Original verification:
 >
 > - BKH-A: `corepack pnpm check` passed with 75 Vitest tests; `corepack pnpm advise` passed with documented suppressions only; `git diff --check` passed.
 

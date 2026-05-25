@@ -21,6 +21,9 @@ This implementation follows the contracts in:
 
 Architecture planning documents and implementation status:
 
+> **Latest status (2026-05-25):** docs 001–011 are implemented in production. **docs/012 (Content Lifecycle Plugin) is the next implementation up.** docs/013 (Site Config Collection) depends on 012 and follows immediately. docs/014–017 are the post-lifecycle batch (book content model + interactions + EPUB import) and depend on 012. docs/009 is abandoned; its remaining scope lives in 015/016/017.
+
+
 - [docs/001_idempotency-batch-design.md](docs/001_idempotency-batch-design.md) — implemented
 - [docs/002_media-upload-flow.md](docs/002_media-upload-flow.md) — implemented
 - [docs/003_entity-classes-and-oxlint-arch-linting.md](docs/003_entity-classes-and-oxlint-arch-linting.md) — implemented
@@ -29,11 +32,15 @@ Architecture planning documents and implementation status:
 - [docs/006_migrate-auther-to-id.md](docs/006_migrate-auther-to-id.md) — implemented
 - [docs/007_content-iam-policy-binding-model.md](docs/007_content-iam-policy-binding-model.md) — IAM substrate, book product root, and legacy authz cleanup implemented; descendant hierarchy in progress
 - [docs/008_review-last-commit-006-007.md](docs/008_review-last-commit-006-007.md) — review addressed
-- [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — in progress; BKH-A book product routes verified, descendant hierarchy pending
+- [docs/009_book-resource-hierarchy-and-collaboration-plan.md](docs/009_book-resource-hierarchy-and-collaboration-plan.md) — **abandoned**; remaining work absorbed into docs/015, docs/016, docs/017 (BKH-A book root shipped and remains in production)
 - [docs/010_batch-2-review-006-007.md](docs/010_batch-2-review-006-007.md) — remediation verified
 - [docs/011_post-006-007-gap-fixes.md](docs/011_post-006-007-gap-fixes.md) — gap fixes
 - [docs/012_content-lifecycle-plugin.md](docs/012_content-lifecycle-plugin.md) — implementation-grade proposal: pluggable lifecycle plugin (`draft`/`scheduled`/`published`/`archived`) with generic use cases, per-resource adapters, compare-and-set publish, hourly Cloudflare Cron Trigger, dedicated `*.archive` permissions, status removed from generic PATCH; supersedes docs/005; covers Post, Book, SiteConfig, future Chapter
 - [docs/013_site-config-collection.md](docs/013_site-config-collection.md) — implementation-grade proposal: promotable SiteConfig collection with Zod-validated dynamic blocks, lifecycle-plugin adoption from day one, partial-unique single-published invariant, and formal rationale for categories as org-owned resources (depends on docs/012)
+- [docs/014_audit-service-stub.md](docs/014_audit-service-stub.md) — stub: placeholder noting that only `content_policy_events` exists (binding-scoped); names candidate triggers from docs/015/016/017 and defers general resource audit design
+- [docs/015_book-content-model.md](docs/015_book-content-model.md) — implementation-grade proposal: recursive `chapters` table (configurable max depth, default 4), Lexical content schema (block IDs, `chapter-link`/`broken-link`/`image` nodes), `media_attachments` table + `media.attach` permission, `book.origin = imported|platform` with auto-promotion on first edit, and `POST /books/{id}:replace` destructive workflow (depends on docs/012)
+- [docs/016_book-interactions.md](docs/016_book-interactions.md) — implementation-grade proposal: comments + inline comments as IAM-tracked resources with public-vs-moderation policy split, rate limits, edit window, block-orphaning behavior; bookmarks + reading progress as user-private subject-scoped tables not routed through `ContentPolicy.can` (depends on docs/015)
+- [docs/017_epub-import.md](docs/017_epub-import.md) — implementation-grade proposal: browser uploads `.epub` to R2 via presigned URL, R2 event-driven queue, new `workers/epub-processor/` Worker, streaming ZIP+OPF parse with Range reads + `DecompressionStream`, two-pass walk producing recursive chapters + import-time `chapter-link` resolution + reuse of the existing media pipeline; `book_imports` table + `book.import` permission; wires `POST /books/{id}:replace` to the same pipeline (depends on docs/015)
 
 Auth is implemented as an OAuth2 resource server:
 

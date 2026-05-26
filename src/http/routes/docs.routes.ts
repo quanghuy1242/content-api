@@ -1,19 +1,6 @@
-import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { type OpenAPIHono } from "@hono/zod-openapi";
+import { Scalar } from "@scalar/hono-api-reference";
 import type { AppEnv } from "@/http/app-env";
-import { swaggerUiHtml } from "@/http/swagger-ui";
-
-const docsRoute = createRoute({
-  method: "get",
-  path: "/docs",
-  tags: ["system"],
-  description: "Swagger UI for browsing the Content API.",
-  responses: {
-    200: {
-      content: { "text/html": { schema: z.string() } },
-      description: "Swagger UI page",
-    },
-  },
-});
 
 export function registerDocsRoutes(app: OpenAPIHono<AppEnv>) {
   app.openAPIRegistry.registerComponent("securitySchemes", "Bearer", {
@@ -28,5 +15,15 @@ export function registerDocsRoutes(app: OpenAPIHono<AppEnv>) {
       version: "0.1.0",
     },
   });
-  app.openapi(docsRoute, (c) => c.html(swaggerUiHtml));
+  app.get(
+    "/docs",
+    Scalar({
+      url: "/openapi.json",
+      pageTitle: "Content API Docs",
+      theme: "saturn",
+      authentication: {
+        preferredSecurityScheme: "Bearer",
+      },
+    }),
+  );
 }

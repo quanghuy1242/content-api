@@ -16,14 +16,11 @@ export function registerDocsRoutes(app: OpenAPIHono<AppEnv>) {
     },
   });
   app.get(
-    "/docs",
+    "/reference",
     Scalar({
       url: "/openapi.json",
       pageTitle: "Content API Docs",
       theme: "saturn",
-      authentication: {
-        preferredSecurityScheme: "Bearer",
-      },
     }),
   );
 }

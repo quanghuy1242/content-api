@@ -251,7 +251,7 @@ export async function request(
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const req = new Request(`http://localhost${path}`, { ...init, headers });
+  const req = new Request(`http://localhost/api${path}`, { ...init, headers });
   const ctx = createExecutionContext();
   const res = await app.fetch(
     req,

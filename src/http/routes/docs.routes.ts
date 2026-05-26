@@ -14,11 +14,12 @@ export function registerDocsRoutes(app: OpenAPIHono<AppEnv>) {
       title: "Content API",
       version: "0.1.0",
     },
+    servers: [{ url: "/api" }],
   });
   app.get(
     "/reference",
     Scalar({
-      url: "/openapi.json",
+      url: "./openapi.json",
       pageTitle: "Content API Docs",
       theme: "saturn",
     }),

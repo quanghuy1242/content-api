@@ -123,7 +123,7 @@ wrangler r2 bucket notification create content-api-media \
 {
   "vars": {
     "AUTH_ISSUER": "https://id.quanghuy.dev/api/auth",
-    "AUTH_AUDIENCE": "https://content-api.quanghuy.dev",
+    "AUTH_AUDIENCE": "https://content.quanghuy.dev",
     "AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
     "AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
     "ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",

@@ -3,6 +3,14 @@
 	"name": "content-api",
 	"main": "src/main.ts",
 	"compatibility_date": "2026-05-17",
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [
+		{
+			"pattern": "content.quanghuy.dev",
+			"custom_domain": true
+		}
+	],
 	"r2_buckets": [
 		{
 			"binding": "MEDIA_R2",
@@ -19,7 +27,7 @@
   ],
 	"vars": {
 		"AUTH_ISSUER": "https://id.quanghuy.dev/api/auth",
-		"AUTH_AUDIENCE": "https://content-api.quanghuy.dev",
+		"AUTH_AUDIENCE": "https://content.quanghuy.dev",
 		"AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
 		"AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
 		"ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",

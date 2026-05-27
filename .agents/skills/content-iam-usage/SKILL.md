@@ -1,6 +1,6 @@
 ---
 name: content-iam-usage
-description: Source of truth for using and extending Content IAM in the content-api repo and for interacting with the `id` (auth) project. Use this skill whenever adding/changing a permission, role, principal, policy binding/denial, scope check, principal-validation call, IAM mutation use case, or IAM-aware route in content-api. Self-contained — do not depend on `/home/quanghuy1242/pjs/auth/docs` or `docs/007_content-iam-policy-binding-model.md` while working; this skill captures the contract.
+description: Source of truth for using and extending Content IAM in the content-api repo and for interacting with the `id` (auth) project. Use this skill whenever adding/changing a permission, role, principal, policy binding/denial, scope check, SCIM directory call, IAM mutation use case, or IAM-aware route in content-api. Self-contained — do not depend on `/home/quanghuy1242/pjs/auth/docs` or `docs/007_content-iam-policy-binding-model.md` while working; this skill captures the contract.
 ---
 
 # Content IAM Usage (content-api)
@@ -11,7 +11,7 @@ This skill is the authoritative usage guide for **Content IAM** in `content-api`
 - the token claim contract `content-api` accepts from `id`,
 - naming conventions for permissions, roles, principals, resources, and routes,
 - the patterns for adding a permission, role, resource type, IAM mutation, or guarded action,
-- the principal-validation contract used during durable IAM writes.
+- the SCIM directory contract used during durable IAM writes.
 
 Do not invent new patterns. Match the existing files first; if unsure, read the referenced source paths in this skill, not external docs.
 
@@ -26,7 +26,7 @@ Do not invent new patterns. Match the existing files first; if unsure, read the 
 - resource-server audiences and resource-server-bound OAuth **scopes** (`content:read`, `content:write`, `content:share`);
 - JWT signing + JWKS (`AUTH_JWKS_URL`);
 - token issuance for PKCE, refresh, and M2M flows;
-- **authenticated exact-ID principal validation** for durable references (`/api/auth/principal-validation/**`).
+- **authenticated exact-ID principal validation** for durable references (SCIM directory + OAuth client picker).
 
 `content-api` owns:
 
@@ -44,7 +44,7 @@ Do not invent new patterns. Match the existing files first; if unsure, read the 
 `id` never decides whether `user_x` may update `book_y`. `content-api` never decides whether `user_x` is in `org_y`. Cross only through:
 
 1. JWT claims on the request (read-only assertions from `id`);
-2. the principal-validation HTTP API (write-time exact-ID checks).
+2. the SCIM directory HTTP API (write-time exact-ID checks).
 
 Never invent a third channel (no shared DB, no scraping `id` admin endpoints, no cached membership beyond the JWT lifetime).
 
@@ -258,30 +258,32 @@ Common pitfalls:
 
 ---
 
-## 8. Principal Validation API (Calling Back To `id`)
+## 8. SCIM Directory (Calling Back To `id`)
 
 Used only by **durable** IAM writes to verify that referenced principals exist with the right shape. Never call this from a hot-path policy check.
 
 Configuration (already present in [src/config/env.ts](../../../src/config/env.ts)):
 
-- `ID_PRINCIPAL_VALIDATION_URL` — base URL of the `id` core worker (e.g. `https://id.example.com`).
-- `ID_PRINCIPAL_VALIDATION_TOKEN_URL` (optional) — defaults to `<base>/api/auth/oauth2/token`.
-- `ID_PRINCIPAL_VALIDATION_CLIENT_ID` / `ID_PRINCIPAL_VALIDATION_CLIENT_SECRET` — the dedicated M2M client provisioned in `id`.
-- `ID_PRINCIPAL_VALIDATION_AUDIENCE` — the principal-validation API's audience in `id` (NOT the content-api audience).
-- `ID_PRINCIPAL_VALIDATION_SCOPE` — must be `identity:principals:validate`.
-- `ID_PRINCIPAL_VALIDATION_TOKEN_CACHE` — KV namespace used by `ClientCredentialsTokenProvider` to cache the validator's own M2M token.
+- `ID_SCIM_URL` — base URL of the `id` core worker (e.g. `https://id.example.com`).
+- `ID_SCIM_TOKEN_URL` (optional) — defaults to `<base>/api/auth/oauth2/token`.
+- `ID_SCIM_CLIENT_ID` / `ID_SCIM_CLIENT_SECRET` — the dedicated M2M client provisioned in `id`.
+- `ID_SCIM_AUDIENCE` — the SCIM directory API's audience in `id` (NOT the content-api audience).
+- `ID_SCIM_SCOPE` — must be `identity:directory:read oauth:clients:read`.
+- `ID_SCIM_TOKEN_CACHE` — KV namespace used by `ClientCredentialsTokenProvider` to cache the M2M token.
 
-Adapter: [src/infrastructure/identity/id-content-principal-directory.ts](../../../src/infrastructure/identity/id-content-principal-directory.ts).
+Adapter: [src/infrastructure/identity/scim-content-principal-directory.ts](../../../src/infrastructure/identity/scim-content-principal-directory.ts).
 
 Interface: [src/domain/iam/content-principal-directory.ts](../../../src/domain/iam/content-principal-directory.ts).
 
-| Method | Validates | Call it for |
-|---|---|---|
-| `validateUser({ userId })` | User exists in `id` | Ordinary external direct-user binding (collaborator without org membership) |
-| `validateUserInOrganization({ userId, orgId })` | User exists **and is a current member** of `orgId` | Owner / sharing_manager / `org.content_admin` user targets, sensitive book bindings |
-| `validateTeamInOrganization({ teamId, orgId })` | Team exists and `team.organizationId === orgId` | Any team binding |
-| `validateServiceAccountForOrganization({ clientId, orgId, resource })` | Client enabled + has `oauthClientOrganizationGrant` for `orgId` and the **public** `resource` audience | Service-account binding; pass the **public** content-api audience (`AUTH_AUDIENCE`) here — `id` resolves it to its internal `resourceServerId` |
-| `validateOrganizationAdministrator({ userId, orgId })` | User is a current Better Auth `owner`/`admin` of `orgId` | Bootstrap or recovery of the first local `org.content_admin` binding only |
+| Method | SCIM/OAuth call | Validates | Call it for |
+|---|---|---|---|
+| `validateUser({ userId })` | `GET /scim/v2/Users/:id` | User exists in `id` | Ordinary external direct-user binding (collaborator without org membership) |
+| `validateUserInOrganization({ userId, orgId })` | `GET /scim/v2/tenants/:orgId/Users/:id` | User exists **and is a current member** of `orgId` | Owner / sharing_manager / `org.content_admin` user targets, sensitive book bindings |
+| `validateTeamInOrganization({ teamId, orgId })` | `GET /scim/v2/tenants/:orgId/Groups/:id` | Team exists and `team.organizationId === orgId` | Any team binding |
+| `validateServiceAccountForOrganization({ clientId, orgId, resource })` | `GET /admin/oauth-clients/lookup?client_id=&org_id=&resource=` | Client enabled + has grant for `orgId` and the **public** `resource` audience | Service-account binding; pass the **public** content-api audience (`AUTH_AUDIENCE`) here — `id` resolves it to its internal `resourceServerId` |
+| `validateOrganizationAdministrator({ userId, orgId })` | `GET /scim/v2/tenants/:orgId/Groups?filter=id eq "org-admins" and members.value eq ":id"` | User is a current Better Auth `owner`/`admin` of `orgId` | Bootstrap or recovery of the first local `org.content_admin` binding only |
+
+All calls use GET with the same M2M bearer token. Token scope: `identity:directory:read oauth:clients:read`. Token audience: `{idBaseUrl}/system`.
 
 Rules:
 
@@ -342,7 +344,7 @@ Local files (do not chase external docs):
 
 - [references/token-contract.md](references/token-contract.md) — full claim contract for workspace, direct-share, and M2M tokens; failure modes; refresh behavior.
 - [references/recipes.md](references/recipes.md) — worked examples: gating a new route, adding a chapter resource end-to-end, bootstrapping the first org admin.
-- [references/id-project-map.md](references/id-project-map.md) — the parts of `~/pjs/auth` you need to coordinate with when adding a scope, audience, M2M grant, or principal-validation method.
+- [references/id-project-map.md](references/id-project-map.md) — the parts of `~/pjs/auth` you need to coordinate with when adding a scope, audience, M2M grant, or SCIM directory method.
 
 Code anchors (preferred reading order if confused):
 
@@ -352,7 +354,7 @@ Code anchors (preferred reading order if confused):
 4. [src/application/content-iam/create-policy-binding.usecase.ts](../../../src/application/content-iam/create-policy-binding.usecase.ts) — canonical IAM mutation use case.
 5. [src/application/books/update-book.usecase.ts](../../../src/application/books/update-book.usecase.ts) — canonical IAM-aware feature use case.
 6. [src/http/routes/content-iam.routes.ts](../../../src/http/routes/content-iam.routes.ts) — org-scoped IAM routes.
-7. [src/infrastructure/identity/id-content-principal-directory.ts](../../../src/infrastructure/identity/id-content-principal-directory.ts) — principal-validation adapter.
+7. [src/infrastructure/identity/scim-content-principal-directory.ts](../../../src/infrastructure/identity/scim-content-principal-directory.ts) — SCIM directory adapter.
 
 ---
 
@@ -367,6 +369,6 @@ Code anchors (preferred reading order if confused):
 | Add a new resource type | Extend `ContentResourceType`, add a `*Resource(...)` helper, list ancestors nearest-first |
 | Bind a principal to a role on a resource | Use `CreatePolicyBindingUseCase` (org or book) — never write the row directly |
 | Block an actor from a permission | Use `CreatePolicyDenialUseCase`; denial always wins |
-| Verify a user/team/SA target exists in `id` | Call the matching `ContentPrincipalDirectory` method (§8) |
+| Verify a user/team/SA target exists in `id` | Call the matching `ContentPrincipalDirectory` method (§8 — SCIM directory) |
 | Change OAuth scope set | Coordinate in `~/pjs/auth` first; `content-api` only consumes |
 | Make a hot-path call to `id` | **Don't.** Read JWT claims; live within the 15-minute SLA |

@@ -90,12 +90,12 @@ export class ClientCredentialsTokenProvider {
       body,
     });
     if (!response.ok) {
-      throw new UnauthorizedError("Principal validation M2M token request failed");
+      throw new UnauthorizedError("SCIM directory M2M token request failed");
     }
 
     const payload = await response.json() as TokenResponse;
     if (typeof payload.access_token !== "string" || !payload.access_token) {
-      throw new UnauthorizedError("Principal validation M2M token response was invalid");
+      throw new UnauthorizedError("SCIM directory M2M token response was invalid");
     }
 
     const expiresIn = typeof payload.expires_in === "number" && Number.isFinite(payload.expires_in)
@@ -111,7 +111,7 @@ export class ClientCredentialsTokenProvider {
   private cacheKey() {
     return [
       "content-api",
-      "principal-validation-token",
+      "scim-directory-token",
       this.config.clientId,
       this.config.audience,
       this.config.scope,

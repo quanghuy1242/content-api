@@ -52,7 +52,7 @@ Auth is implemented as an OAuth2 resource server:
 - user actors use `sub` directly as `users.id`; content-api fills new local profile/authorship projections from available `id` token facts without erasing stored fields when optional profile claims are absent
 - direct-share user tokens have no `org_id`, no team authority, and cannot carry `content:share`
 - M2M tokens authenticate as service-account actors through `azp`/`client_id`, without implicit admin authority
-- Content IAM durable policy writes validate target users, teams, and service accounts through `id` principal-validation endpoints using an auto-refreshed client-credentials M2M token; hot-path object checks stay local
+- Content IAM durable policy writes validate target users, teams, and service accounts through `id`'s SCIM directory and OAuth client picker using an auto-refreshed client-credentials M2M token; hot-path object checks stay local
 - Content IAM protects sensitive delegation, custom-role tenant isolation, optimistic role updates, disabled-role binding lifecycle, first-admin bootstrap, last-admin revocation, and bounded denied-mutation audit storage through policy and D1 write guards
 - Book product routes require local `org.create_book`, atomically create one direct owner binding, support explicit-owner service-account imports, and gate private reads/updates through Content IAM
 
@@ -126,9 +126,9 @@ wrangler r2 bucket notification create content-api-media \
     "AUTH_AUDIENCE": "https://content.quanghuy.dev",
     "AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
     "AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
-    "ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
-    "ID_PRINCIPAL_VALIDATION_AUDIENCE": "https://id.quanghuy.dev/principal-validation",
-    "ID_PRINCIPAL_VALIDATION_SCOPE": "identity:principals:validate",
+    "ID_SCIM_URL": "https://id.quanghuy.dev",
+    "ID_SCIM_AUDIENCE": "https://id.quanghuy.dev/system",
+    "ID_SCIM_SCOPE": "identity:directory:read oauth:clients:read",
     "R2_BUCKET_NAME": "content-api-media",
     "MAX_IMAGE_UPLOAD_BYTES": "10485760",
     "UPLOAD_URL_TTL_SECONDS": "300"
@@ -142,7 +142,7 @@ Create `.dev.vars` from the committed example:
 cp .dev.vars.example .dev.vars
 ```
 
-Set `ID_PRINCIPAL_VALIDATION_CLIENT_ID` and `ID_PRINCIPAL_VALIDATION_CLIENT_SECRET` in `.dev.vars` or as Cloudflare secrets. The Worker exchanges them at `ID_PRINCIPAL_VALIDATION_TOKEN_URL` when configured, or at `/api/auth/oauth2/token` under `ID_PRINCIPAL_VALIDATION_URL`, for a principal-validation audience token with `identity:principals:validate`.
+Set `ID_SCIM_CLIENT_ID` and `ID_SCIM_CLIENT_SECRET` in `.dev.vars` or as Cloudflare secrets. The Worker exchanges them at `ID_SCIM_TOKEN_URL` when configured, or at `/api/auth/oauth2/token` under `ID_SCIM_URL`, for a SCIM directory audience token with `identity:directory:read oauth:clients:read`.
 
 4. Apply local migrations:
 
@@ -199,7 +199,7 @@ Current automated coverage includes:
 - media upload lifecycle, idempotent create replay, and queue ack/retry behavior
 - happy paths across posts, media, users, books, and Content IAM resources
 - `id`-shaped user, direct-share, and service-account token fixtures
-- Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M principal-validation fetch/cache, and denial-precedence coverage
+- Content IAM bootstrap races, last-admin races, binding idempotency/concurrency, protected delegation, tenant-isolated roles, effective binding views, bounded denial auditing, ownership-transfer concurrency, M2M SCIM directory fetch/cache, and denial-precedence coverage
 - Book root creation, atomic owner binding, idempotent create replay/concurrency, direct-share root rejection, M2M explicit-owner import, private reads/updates, and public published reads
 - Content lifecycle plugin (`draft → scheduled → published → archived`): generic publish/unpublish/schedule/archive use cases, post + book HTTP coverage (200/400/403/409 paths), `scheduledAt`-must-be-future guard, terminal archived-update/stale-save conflicts, `PATCH` rejection of lifecycle fields, scheduled-publish cron driver against real D1 with frozen clock, no-`can*`-during-cron spy, and compare-and-set race coverage
 
@@ -220,8 +220,8 @@ Required GitHub secrets:
 - `R2_ACCOUNT_ID` — Cloudflare account ID exposed to the Worker for presigned upload signing
 - `R2_ACCESS_KEY_ID` — R2 access key for presigned upload URLs
 - `R2_SECRET_ACCESS_KEY` — R2 secret key for presigned upload URLs
-- `ID_PRINCIPAL_VALIDATION_CLIENT_ID` — `id` OAuth client used only for principal-validation M2M calls
-- `ID_PRINCIPAL_VALIDATION_CLIENT_SECRET` — secret for the principal-validation OAuth client
+- `ID_SCIM_CLIENT_ID` — `id` OAuth client used only for SCIM directory M2M calls
+- `ID_SCIM_CLIENT_SECRET` — secret for the SCIM directory OAuth client
 
 ## Not Implemented
 

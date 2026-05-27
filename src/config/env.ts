@@ -6,12 +6,12 @@ const envSchema = z.object({
   AUTH_AUDIENCE: z.string().min(1),
   AUTH_JWKS_URL: z.url(),
   AUTH_REQUIRED_SCOPE: z.string().min(1),
-  ID_PRINCIPAL_VALIDATION_URL: z.url(),
-  ID_PRINCIPAL_VALIDATION_TOKEN_URL: z.url().optional(),
-  ID_PRINCIPAL_VALIDATION_CLIENT_ID: z.string().min(1),
-  ID_PRINCIPAL_VALIDATION_CLIENT_SECRET: z.string().min(1),
-  ID_PRINCIPAL_VALIDATION_AUDIENCE: z.string().min(1),
-  ID_PRINCIPAL_VALIDATION_SCOPE: z.string().min(1),
+  ID_SCIM_URL: z.url(),
+  ID_SCIM_TOKEN_URL: z.url().optional(),
+  ID_SCIM_CLIENT_ID: z.string().min(1),
+  ID_SCIM_CLIENT_SECRET: z.string().min(1),
+  ID_SCIM_AUDIENCE: z.string().min(1),
+  ID_SCIM_SCOPE: z.string().min(1),
   R2_ACCOUNT_ID: z.string().min(1),
   R2_BUCKET_NAME: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),
@@ -28,13 +28,13 @@ export type AppBindings = {
   AUTH_AUDIENCE: string;
   AUTH_JWKS_URL: string;
   AUTH_REQUIRED_SCOPE: string;
-  ID_PRINCIPAL_VALIDATION_URL: string;
-  ID_PRINCIPAL_VALIDATION_TOKEN_URL?: string;
-  ID_PRINCIPAL_VALIDATION_CLIENT_ID: string;
-  ID_PRINCIPAL_VALIDATION_CLIENT_SECRET: string;
-  ID_PRINCIPAL_VALIDATION_AUDIENCE: string;
-  ID_PRINCIPAL_VALIDATION_SCOPE: string;
-  ID_PRINCIPAL_VALIDATION_TOKEN_CACHE?: KVNamespace;
+  ID_SCIM_URL: string;
+  ID_SCIM_TOKEN_URL?: string;
+  ID_SCIM_CLIENT_ID: string;
+  ID_SCIM_CLIENT_SECRET: string;
+  ID_SCIM_AUDIENCE: string;
+  ID_SCIM_SCOPE: string;
+  ID_SCIM_TOKEN_CACHE?: KVNamespace;
   R2_ACCOUNT_ID: string;
   R2_BUCKET_NAME: string;
   R2_ACCESS_KEY_ID: string;

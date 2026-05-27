@@ -66,7 +66,7 @@ The suite runs in ~10 s. Several optimizations keep it there; violating any one 
 
 **`setupBeforeEach` runs the minimal seed** — `seed()` does a single `env.DB.batch()` combining all DELETEs and INSERTs. Do not split it back into two sequential batches. R2 fixture objects are seeded once (`r2Seeded` flag) because nothing deletes them between tests.
 
-**`bootstrapContentIamAdmin()` is direct D1, not HTTP** — it calls `seedBootstrapAdmin()` which writes two rows (bootstrap org record + `system:org.content_admin` binding) directly into D1. Never revert it to an HTTP request; that adds ~44 × 300 ms of JWT-sign + JWT-verify + principal-validation overhead per test. Tests that explicitly test the bootstrap HTTP endpoint call `request("/organizations/…/content-iam/bootstrap", …)` directly and are unaffected.
+**`bootstrapContentIamAdmin()` is direct D1, not HTTP** — it calls `seedBootstrapAdmin()` which writes two rows (bootstrap org record + `system:org.content_admin` binding) directly into D1. Never revert it to an HTTP request; that adds ~44 × 300 ms of JWT-sign + JWT-verify + SCIM directory overhead per test. Tests that explicitly test the bootstrap HTTP endpoint call `request("/organizations/…/content-iam/bootstrap", …)` directly and are unaffected.
 
 **`ensureSystemCatalog()` runs once per Worker** — `DrizzleContentRoleRepository` has a module-level `catalogSynced` flag. The method fires on every write use case (create post/book/category/media/binding/role) but the ~200-statement catalog batch only executes once per Worker lifetime. Workers restart on deployment, resetting the flag. Do not remove the flag or call the method unconditionally.
 

@@ -268,6 +268,18 @@
       "tool": "fallow",
       "files": "src/domain/posts/post.entity.ts|src/domain/users/user.entity.ts",
       "reason": "Entity getter + update pattern — mandated consistency across entity classes"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/identity/scim-content-principal-directory.ts",
+      "rule": "code-quality/duplicate-block",
+      "reason": "SCIM adapter get/getText methods — identical auth logic with different return types, extracting adds indirection in a small adapter"
+    },
+    {
+      "tool": "aislop",
+      "file": "src/infrastructure/repositories/drizzle-content-role.repository.ts",
+      "rule": "ai-slop/narrative-comment",
+      "reason": "JSDoc at architectural boundary — required by JSDoc Standard for CrudAdapter callers"
     }
   ]
 }

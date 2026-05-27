@@ -17,18 +17,18 @@ import { clearClientCredentialsTokenMemoryCache } from "@/infrastructure/identit
 const AUTH_ISSUER = "https://id.test/api/auth";
 const AUTH_AUDIENCE = "https://content-api.test";
 const AUTH_JWKS_URL = "https://id.test/api/auth/jwks";
-const ID_PRINCIPAL_VALIDATION_URL = "https://id.test";
-const ID_PRINCIPAL_VALIDATION_TOKEN_URL = "https://id.test/api/auth/oauth2/token";
-const ID_PRINCIPAL_VALIDATION_CLIENT_ID = "content-api-principal-validation";
-const ID_PRINCIPAL_VALIDATION_CLIENT_SECRET = "principal-validation-secret";
-const ID_PRINCIPAL_VALIDATION_AUDIENCE = "https://id.test/principal-validation";
-const ID_PRINCIPAL_VALIDATION_SCOPE = "identity:principals:validate";
-const ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN = "principal-validation-access-token";
+const ID_SCIM_URL = "https://id.test";
+const ID_SCIM_TOKEN_URL = "https://id.test/api/auth/oauth2/token";
+const ID_SCIM_CLIENT_ID = "content-api-scim-directory";
+const ID_SCIM_CLIENT_SECRET = "scim-directory-secret";
+const ID_SCIM_AUDIENCE = "https://id.test/system";
+const ID_SCIM_SCOPE = "identity:directory:read oauth:clients:read";
+const ID_SCIM_ACCESS_TOKEN = "scim-directory-access-token";
 
 let privateKey: CryptoKey;
 let publicJwk: JWK;
 // Live binding — readable by importers, reset by setupBeforeEach, incremented by fetchImpl.
-export let principalValidationTokenRequests = 0;
+export let scimTokenRequests = 0;
 
 export const app = createApp({
   fetchImpl: async (input, init) => {
@@ -36,8 +36,8 @@ export const app = createApp({
     if (url === AUTH_JWKS_URL) {
       return Response.json({ keys: [publicJwk] });
     }
-    if (url === ID_PRINCIPAL_VALIDATION_TOKEN_URL) {
-      principalValidationTokenRequests += 1;
+    if (url === ID_SCIM_TOKEN_URL) {
+      scimTokenRequests += 1;
       const bodyText = typeof init?.body === "string"
         ? init.body
         : init?.body instanceof URLSearchParams
@@ -46,33 +46,95 @@ export const app = createApp({
       const form = new URLSearchParams(bodyText);
       if (
         form.get("grant_type") !== "client_credentials" ||
-        form.get("client_id") !== ID_PRINCIPAL_VALIDATION_CLIENT_ID ||
-        form.get("client_secret") !== ID_PRINCIPAL_VALIDATION_CLIENT_SECRET ||
-        form.get("resource") !== ID_PRINCIPAL_VALIDATION_AUDIENCE ||
-        form.get("scope") !== ID_PRINCIPAL_VALIDATION_SCOPE
+        form.get("client_id") !== ID_SCIM_CLIENT_ID ||
+        form.get("client_secret") !== ID_SCIM_CLIENT_SECRET ||
+        form.get("resource") !== ID_SCIM_AUDIENCE ||
+        form.get("scope") !== ID_SCIM_SCOPE
       ) {
         return Response.json({ error: "invalid_client" }, { status: 401 });
       }
       return Response.json({
-        access_token: ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN,
+        access_token: ID_SCIM_ACCESS_TOKEN,
         token_type: "Bearer",
         expires_in: 3600,
       });
     }
-    if (url.startsWith(`${ID_PRINCIPAL_VALIDATION_URL}/api/auth/principal-validation/`)) {
-      if (init?.headers && new Headers(init.headers).get("authorization") !== `Bearer ${ID_PRINCIPAL_VALIDATION_ACCESS_TOKEN}`) {
-        return Response.json({ valid: false }, { status: 401 });
+    // Mock SCIM + OAuth picker endpoints
+    if (
+      url.startsWith(`${ID_SCIM_URL}/api/auth/scim/v2/`) ||
+      url.startsWith(`${ID_SCIM_URL}/api/auth/admin/oauth-clients/`)
+    ) {
+      if (init?.headers && new Headers(init.headers).get("authorization") !== `Bearer ${ID_SCIM_ACCESS_TOKEN}`) {
+        return Response.json({}, { status: 401 });
       }
-      const bodyText = typeof init?.body === "string"
-        ? init.body
-        : input instanceof Request
-          ? await input.clone().text()
-          : "{}";
-      const body = JSON.parse(bodyText) as Record<string, string>;
-      if (Object.values(body).some((value) => value.startsWith("missing-") || value === "wrong-org")) {
-        return Response.json({ valid: false }, { status: 404 });
+      const parsedUrl = typeof url === "string" ? new URL(url) : new URL(url);
+      const pathname = parsedUrl.pathname;
+      const searchParams = parsedUrl.searchParams;
+      const pathSegments = pathname.split("/");
+      const lastSegment = pathSegments[pathSegments.length - 1] || "";
+
+      // OAuth client picker lookup
+      if (pathname === "/api/auth/admin/oauth-clients/lookup") {
+        const clientId = searchParams.get("client_id");
+        const orgId = searchParams.get("org_id");
+        if (!clientId || !orgId) {
+          return Response.json({ error: "invalid_request" }, { status: 400 });
+        }
+        if (clientId.startsWith("missing-") || clientId === "wrong-org" || orgId === "wrong-org") {
+          return Response.json({}, { status: 404 });
+        }
+        return Response.json({ id: clientId, name: clientId, referenceId: orgId });
       }
-      return Response.json({ valid: true });
+
+      // SCIM group filter for org-admins membership check
+      if (pathname.includes("/Groups") && searchParams.has("filter")) {
+        const filter = searchParams.get("filter") ?? "";
+        if (filter.includes("org-admins")) {
+          const userIdMatch = filter.match(/members\.value eq "([^"]+)"/);
+          const userId = userIdMatch ? userIdMatch[1] : null;
+          const orgId = pathSegments[pathSegments.indexOf("tenants") + 1];
+          if (
+            !userId ||
+            !orgId ||
+            userId.startsWith("missing-") ||
+            userId === "wrong-org" ||
+            orgId.startsWith("missing-") ||
+            orgId === "wrong-org"
+          ) {
+            return Response.json({
+              schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+              totalResults: 0,
+              Resources: [],
+            });
+          }
+          return Response.json({
+            schemas: ["urn:ietf:params:scim:api:messages:2.0:ListResponse"],
+            totalResults: 1,
+            Resources: [{
+              id: "org-admins",
+              displayName: "Organization Administrators",
+              members: [{ value: userId, display: userId }],
+            }],
+          });
+        }
+      }
+
+      // Sentinel values for "not found"
+      if (lastSegment.startsWith("missing-") || lastSegment === "wrong-org") {
+        return Response.json({}, { status: 404 });
+      }
+
+      // SCIM user endpoints (global and tenant-scoped)
+      if (pathname.includes("/Users")) {
+        return Response.json({ id: lastSegment, userName: lastSegment, active: true });
+      }
+
+      // SCIM group direct lookup
+      if (pathname.includes("/Groups")) {
+        return Response.json({ id: lastSegment, displayName: lastSegment });
+      }
+
+      return Response.json({}, { status: 404 });
     }
     return fetch(input);
   },
@@ -261,12 +323,12 @@ export async function request(
       AUTH_AUDIENCE,
       AUTH_JWKS_URL,
       AUTH_REQUIRED_SCOPE: "content:read content:write content:share",
-      ID_PRINCIPAL_VALIDATION_URL,
-      ID_PRINCIPAL_VALIDATION_TOKEN_URL,
-      ID_PRINCIPAL_VALIDATION_CLIENT_ID,
-      ID_PRINCIPAL_VALIDATION_CLIENT_SECRET,
-      ID_PRINCIPAL_VALIDATION_AUDIENCE,
-      ID_PRINCIPAL_VALIDATION_SCOPE,
+      ID_SCIM_URL,
+      ID_SCIM_TOKEN_URL,
+      ID_SCIM_CLIENT_ID,
+      ID_SCIM_CLIENT_SECRET,
+      ID_SCIM_AUDIENCE,
+      ID_SCIM_SCOPE,
     },
     ctx,
   );
@@ -282,7 +344,7 @@ export async function countRows(sql: string, ...bindings: unknown[]) {
 }
 
 // Writes the bootstrap state directly into D1, bypassing the HTTP round-trip,
-// JWT verification, and principal-validation fetch. Functionally equivalent for
+// JWT verification, and SCIM directory fetch. Functionally equivalent for
 // tests that just need an admin-capable token — not for tests that assert on
 // the bootstrap endpoint's own HTTP behavior (those call request() directly).
 export async function seedBootstrapAdmin(userId = "user-alice", orgId = "org-main") {
@@ -352,6 +414,6 @@ export async function setupBeforeAll() {
 // Run before each test: clears all data and re-inserts the base fixture.
 export async function setupBeforeEach() {
   clearClientCredentialsTokenMemoryCache();
-  principalValidationTokenRequests = 0;
+  scimTokenRequests = 0;
   await seed();
 }

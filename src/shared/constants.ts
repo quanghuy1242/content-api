@@ -13,6 +13,9 @@ export const HTTP_STATUS_INTERNAL_ERROR = 500;
 export const DEFAULT_PAGE_LIMIT = 20;
 export const MAX_PAGE_LIMIT = 100;
 
+/** Well-known SCIM group id for organization administrators. */
+export const SCIM_ORG_ADMINS_GROUP_ID = "org-admins" as const;
+
 /** Validation field length limits. */
 export const MAX_NAME_LENGTH = 255;
 export const MAX_SLUG_LENGTH = 120;

@@ -52,7 +52,7 @@ import { LocalContentPolicy } from "@/domain/iam/content-policy";
 import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
 import { ClientCredentialsTokenProvider } from "@/infrastructure/identity/client-credentials-token-provider";
-import { IdContentPrincipalDirectory } from "@/infrastructure/identity/id-content-principal-directory";
+import { ScimContentPrincipalDirectory } from "@/infrastructure/identity/scim-content-principal-directory";
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
 import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
 import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
@@ -101,18 +101,18 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
     policyBindingRepository,
     (roleId) => contentRoleRepository.findPermissionKeys(roleId),
   );
-  const principalValidationTokenProvider = new ClientCredentialsTokenProvider({
-    tokenUrl: config.ID_PRINCIPAL_VALIDATION_TOKEN_URL ?? new URL("/api/auth/oauth2/token", config.ID_PRINCIPAL_VALIDATION_URL).toString(),
-    clientId: config.ID_PRINCIPAL_VALIDATION_CLIENT_ID,
-    clientSecret: config.ID_PRINCIPAL_VALIDATION_CLIENT_SECRET,
-    audience: config.ID_PRINCIPAL_VALIDATION_AUDIENCE,
-    scope: config.ID_PRINCIPAL_VALIDATION_SCOPE,
-    cache: env.ID_PRINCIPAL_VALIDATION_TOKEN_CACHE,
+  const scimTokenProvider = new ClientCredentialsTokenProvider({
+    tokenUrl: config.ID_SCIM_TOKEN_URL ?? new URL("/api/auth/oauth2/token", config.ID_SCIM_URL).toString(),
+    clientId: config.ID_SCIM_CLIENT_ID,
+    clientSecret: config.ID_SCIM_CLIENT_SECRET,
+    audience: config.ID_SCIM_AUDIENCE,
+    scope: config.ID_SCIM_SCOPE,
+    cache: env.ID_SCIM_TOKEN_CACHE,
     fetchImpl: options?.fetchImpl,
   });
-  const principalDirectory = new IdContentPrincipalDirectory({
-    baseUrl: config.ID_PRINCIPAL_VALIDATION_URL,
-    accessTokenProvider: principalValidationTokenProvider,
+  const principalDirectory = new ScimContentPrincipalDirectory({
+    idBaseUrl: config.ID_SCIM_URL,
+    accessTokenProvider: scimTokenProvider,
     fetchImpl: options?.fetchImpl,
   });
   const mediaStorage = new R2ObjectStorage(env.MEDIA_R2);

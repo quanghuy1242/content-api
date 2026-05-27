@@ -5,7 +5,7 @@ import { assertContentPermissionKey, BUILT_IN_CONTENT_ROLES } from "@/domain/iam
 import {
   bootstrapContentIamAdmin,
   countRows,
-  principalValidationTokenRequests,
+  scimTokenRequests,
   request,
   seedBookOwner,
   setupBeforeAll,
@@ -147,7 +147,7 @@ it("rejects assigning disabled roles", async () => {
   expect(disabledBindRes.status).toBe(400);
 });
 
-it("returns 400 when Content IAM principal validation fails for durable writes", async () => {
+  it("returns 400 when Content IAM SCIM principal validation fails for durable writes", async () => {
   const token = await bootstrapContentIamAdmin();
   await seedBookOwner();
 
@@ -185,7 +185,7 @@ it("returns 400 when Content IAM principal validation fails for durable writes",
   expect(wrongOrgTeamRes.status).toBe(400);
 });
 
-it("uses M2M client credentials for principal validation and caches the token", async () => {
+  it("uses M2M client credentials for SCIM directory and caches the token", async () => {
   const token = await bootstrapContentIamAdmin();
   await seedBookOwner();
 
@@ -212,7 +212,7 @@ it("uses M2M client credentials for principal validation and caches the token", 
     }),
   });
   expect(denialRes.status).toBe(201);
-  expect(principalValidationTokenRequests).toBe(1);
+  expect(scimTokenRequests).toBe(1);
 });
 
 it("rejects bootstrap after a local organization Content IAM admin exists", async () => {

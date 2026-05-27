@@ -30,9 +30,9 @@
 		"AUTH_AUDIENCE": "https://content.quanghuy.dev",
 		"AUTH_JWKS_URL": "https://id.quanghuy.dev/api/auth/jwks",
 		"AUTH_REQUIRED_SCOPE": "content:read content:write content:share",
-		"ID_PRINCIPAL_VALIDATION_URL": "https://id.quanghuy.dev",
-		"ID_PRINCIPAL_VALIDATION_AUDIENCE": "https://id.quanghuy.dev/principal-validation",
-		"ID_PRINCIPAL_VALIDATION_SCOPE": "identity:principals:validate",
+		"ID_SCIM_URL": "https://id.quanghuy.dev",
+		"ID_SCIM_AUDIENCE": "https://id.quanghuy.dev/system",
+		"ID_SCIM_SCOPE": "identity:directory:read oauth:clients:read",
 		"R2_BUCKET_NAME": "content-api-media",
 		"MAX_IMAGE_UPLOAD_BYTES": "10485760",
 		"UPLOAD_URL_TTL_SECONDS": "300"

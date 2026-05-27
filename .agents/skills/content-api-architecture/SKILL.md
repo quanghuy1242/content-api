@@ -60,7 +60,7 @@ content-api/
 │   │   │   ├── drizzle-<resource>.repository.ts        # Implements domain repo; uses CrudAdapter, never raw this.db.insert/update/delete
 │   │   │   ├── drizzle-<resource>-<flow>.workflow.ts   # Implements workflow port; ONLY place allowed to call db.batch(...)
 │   │   │   └── mappers/<resource>.mapper.ts            # Row ↔ entity; ONLY place that calls Entity.reconstitute(...); cannot import application/http/composition
-│   │   ├── identity/                     # `id` (auth) adapters: principal-validation client, client-credentials token provider
+│   │   ├── identity/                     # `id` (auth) adapters: SCIM directory client, client-credentials token provider
 │   │   ├── images/                       # Cloudflare Images service adapter
 │   │   └── storage/                      # R2 object storage adapter + presigned-URL signer
 │   │

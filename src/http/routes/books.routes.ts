@@ -367,6 +367,7 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -379,6 +380,7 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
       resource: { type: "book", id: params.bookId },
       bindingId: params.bindingId,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
@@ -407,6 +409,7 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyDenial(result.denial), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -419,6 +422,7 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
       resource: { type: "book", id: params.bookId },
       denialId: params.denialId,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
@@ -434,6 +438,7 @@ export function registerBookRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({
       currentOwner: presentPolicyBinding(result.currentOwner),

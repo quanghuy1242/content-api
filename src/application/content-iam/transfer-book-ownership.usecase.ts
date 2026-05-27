@@ -19,6 +19,8 @@ import {
   requireIdempotencyKey,
 } from "@/domain/iam/idempotent-content-iam";
 import { loadBookResource } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export type TransferBookOwnershipInput = {
   expectedCurrentOwnerUserId: string;
@@ -34,6 +36,7 @@ export class TransferBookOwnershipUseCase {
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -42,7 +45,9 @@ export class TransferBookOwnershipUseCase {
     idempotencyKey?: string;
     input: TransferBookOwnershipInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = await loadBookResource(this.books, params.bookId);
     const currentOwner = await this.bindings.findActiveBookOwner({
       orgId: resource.orgId,

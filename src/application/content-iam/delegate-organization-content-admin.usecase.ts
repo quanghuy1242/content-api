@@ -15,6 +15,8 @@ import {
   requireIdempotencyKey,
 } from "@/domain/iam/idempotent-content-iam";
 import { organizationResource } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export type DelegateOrganizationContentAdminInput = {
   userId: string;
@@ -28,6 +30,7 @@ export class DelegateOrganizationContentAdminUseCase {
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly contentPolicy: ContentPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -36,7 +39,9 @@ export class DelegateOrganizationContentAdminUseCase {
     idempotencyKey?: string;
     input: DelegateOrganizationContentAdminInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = organizationResource(params.orgId);
     await this.roles.ensureSystemCatalog();
     try {

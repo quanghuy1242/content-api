@@ -27,6 +27,8 @@
     "ID_SCIM_CLIENT_SECRET": "scim-directory-secret",
     "ID_SCIM_AUDIENCE": "https://id.test/system",
     "ID_SCIM_SCOPE": "identity:directory:read oauth:clients:read",
+    "ID_INTROSPECTION_CLIENT_ID": "content-api-resource-server",
+    "ID_INTROSPECTION_CLIENT_SECRET": "introspection-secret",
     "R2_ACCOUNT_ID": "local-account",
     "R2_BUCKET_NAME": "content-api-media",
     "R2_ACCESS_KEY_ID": "local-access-key",

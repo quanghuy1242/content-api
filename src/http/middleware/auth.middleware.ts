@@ -11,8 +11,10 @@ export async function optionalAuthMiddleware(c: Context, next: Next) {
 
   if (header) {
     c.set("actor", await authUseCase.execute(header));
+    c.set("bearerToken", header.slice("Bearer ".length).trim());
   } else {
     c.set("actor", null);
+    c.set("bearerToken", null);
   }
 
   await next();

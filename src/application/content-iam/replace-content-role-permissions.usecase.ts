@@ -14,6 +14,8 @@ import {
   requireIdempotencyKey,
 } from "@/domain/iam/idempotent-content-iam";
 import { organizationResource } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export type ReplaceContentRolePermissionsInput = {
   expectedVersion: number;
@@ -27,6 +29,7 @@ export class ReplaceContentRolePermissionsUseCase {
     private readonly idempotency: IdempotencyRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -36,7 +39,9 @@ export class ReplaceContentRolePermissionsUseCase {
     idempotencyKey?: string;
     input: ReplaceContentRolePermissionsInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     await this.roles.ensureSystemCatalog();
     const role = await this.roles.findById(params.roleId);
     if (!role || role.namespaceId !== params.orgId) throw new NotFoundError("Content role not found");

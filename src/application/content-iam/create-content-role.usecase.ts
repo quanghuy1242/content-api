@@ -19,6 +19,8 @@ import {
   requireIdempotencyKey,
 } from "@/domain/iam/idempotent-content-iam";
 import { organizationResource } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export type CreateContentRoleInput = {
   key: string;
@@ -34,6 +36,7 @@ export class CreateContentRoleUseCase {
     private readonly idempotency: IdempotencyRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -42,7 +45,9 @@ export class CreateContentRoleUseCase {
     idempotencyKey?: string;
     input: CreateContentRoleInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     await this.roles.ensureSystemCatalog();
     const permissions = await this.validatePermissions(params.input.permissions);
     const resource = organizationResource(params.orgId);

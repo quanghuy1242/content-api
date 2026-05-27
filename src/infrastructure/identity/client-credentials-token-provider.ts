@@ -90,12 +90,12 @@ export class ClientCredentialsTokenProvider {
       body,
     });
     if (!response.ok) {
-      throw new UnauthorizedError("SCIM directory M2M token request failed");
+      throw new UnauthorizedError("M2M token request failed");
     }
 
     const payload = await response.json() as TokenResponse;
     if (typeof payload.access_token !== "string" || !payload.access_token) {
-      throw new UnauthorizedError("SCIM directory M2M token response was invalid");
+      throw new UnauthorizedError("M2M token response was invalid");
     }
 
     const expiresIn = typeof payload.expires_in === "number" && Number.isFinite(payload.expires_in)

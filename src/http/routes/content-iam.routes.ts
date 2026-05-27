@@ -272,6 +272,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -284,6 +285,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       resource: { type: "org", id: params.orgId },
       bindingId: params.bindingId,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
@@ -312,6 +314,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyDenial(result.denial), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -324,6 +327,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       resource: { type: "org", id: params.orgId },
       denialId: params.denialId,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
@@ -353,6 +357,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       reason: body.reason,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -368,6 +373,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({ data: presentPolicyBinding(result.binding), auditEventId: result.event.id }, HTTP_STATUS_CREATED);
   });
@@ -381,6 +387,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       bindingId: params.bindingId,
       adminRevocation: true,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });
@@ -409,6 +416,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({
       data: presentContentRole({ role: result.role, permissions: result.permissions }),
@@ -428,6 +436,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       idempotencyKey: headers["idempotency-key"],
       input: body,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.json({
       data: presentContentRole({ role: result.role, permissions: result.permissions }),
@@ -443,6 +452,7 @@ export function registerContentIamRoutes(app: OpenAPIHono<AppEnv>) {
       orgId: params.orgId,
       roleId: params.roleId,
       requestId: c.get("requestId"),
+      bearerToken: c.get("bearerToken")!,
     });
     return c.body(null, HTTP_STATUS_NO_CONTENT);
   });

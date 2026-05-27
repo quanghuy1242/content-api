@@ -1,5 +1,7 @@
 import type { Actor } from "@/domain/auth/actor";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 import type { ContentIamMutationWorkflow } from "@/domain/iam/content-iam-mutation.workflow";
 import type { ContentPrincipalDirectory } from "@/domain/iam/content-principal-directory";
 import type { ContentRoleRepository } from "@/domain/iam/content-role.repository";
@@ -23,6 +25,7 @@ export class BootstrapOrganizationContentAdminUseCase {
     private readonly idempotency: IdempotencyRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly principalDirectory: ContentPrincipalDirectory,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -32,7 +35,9 @@ export class BootstrapOrganizationContentAdminUseCase {
     idempotencyKey?: string;
     reason?: string | null;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = organizationResource(params.orgId);
     if (
       params.actor.type !== "user" ||

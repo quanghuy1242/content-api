@@ -7,6 +7,8 @@ import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import { organizationResource } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export class DisableContentRoleUseCase {
   constructor(
@@ -14,9 +16,11 @@ export class DisableContentRoleUseCase {
     private readonly bindings: PolicyBindingRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
-  async execute(params: { actor: Actor; orgId: string; roleId: string; requestId?: string }) {
+  async execute(params: { actor: Actor; orgId: string; roleId: string; requestId?: string; bearerToken: string }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     await this.roles.ensureSystemCatalog();
     const role = await this.roles.findById(params.roleId);
     if (!role || role.namespaceId !== params.orgId) throw new NotFoundError("Content role not found");

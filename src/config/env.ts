@@ -12,6 +12,8 @@ const envSchema = z.object({
   ID_SCIM_CLIENT_SECRET: z.string().min(1),
   ID_SCIM_AUDIENCE: z.string().min(1),
   ID_SCIM_SCOPE: z.string().min(1),
+  ID_INTROSPECTION_CLIENT_ID: z.string().min(1),
+  ID_INTROSPECTION_CLIENT_SECRET: z.string().min(1),
   R2_ACCOUNT_ID: z.string().min(1),
   R2_BUCKET_NAME: z.string().min(1),
   R2_ACCESS_KEY_ID: z.string().min(1),
@@ -35,6 +37,8 @@ export type AppBindings = {
   ID_SCIM_AUDIENCE: string;
   ID_SCIM_SCOPE: string;
   ID_SCIM_TOKEN_CACHE?: KVNamespace;
+  ID_INTROSPECTION_CLIENT_ID: string;
+  ID_INTROSPECTION_CLIENT_SECRET: string;
   R2_ACCOUNT_ID: string;
   R2_BUCKET_NAME: string;
   R2_ACCESS_KEY_ID: string;

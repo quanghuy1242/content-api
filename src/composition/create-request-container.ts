@@ -53,6 +53,7 @@ import { UserPolicy } from "@/domain/users/user.policy";
 import { createDb } from "@/infrastructure/db/client";
 import { ClientCredentialsTokenProvider } from "@/infrastructure/identity/client-credentials-token-provider";
 import { ScimContentPrincipalDirectory } from "@/infrastructure/identity/scim-content-principal-directory";
+import { IdIntrospectionAdapter } from "@/infrastructure/identity/id-introspection-adapter";
 import { DrizzleCategoryRepository } from "@/infrastructure/repositories/drizzle-category.repository";
 import { DrizzleCategoryCreateWorkflow } from "@/infrastructure/repositories/drizzle-category-create.workflow";
 import { DrizzleBookRepository } from "@/infrastructure/repositories/drizzle-book.repository";
@@ -113,6 +114,12 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
   const principalDirectory = new ScimContentPrincipalDirectory({
     idBaseUrl: config.ID_SCIM_URL,
     accessTokenProvider: scimTokenProvider,
+    fetchImpl: options?.fetchImpl,
+  });
+  const introspection = new IdIntrospectionAdapter({
+    idIntrospectionUrl: config.ID_SCIM_URL,
+    clientId: config.ID_INTROSPECTION_CLIENT_ID,
+    clientSecret: config.ID_INTROSPECTION_CLIENT_SECRET,
     fetchImpl: options?.fetchImpl,
   });
   const mediaStorage = new R2ObjectStorage(env.MEDIA_R2);
@@ -222,6 +229,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         idempotencyRepository,
         contentIamMutationWorkflow,
         principalDirectory,
+        introspection,
       ),
       delegateOrganizationAdmin: new DelegateOrganizationContentAdminUseCase(
         contentRoleRepository,
@@ -229,6 +237,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentIamMutationWorkflow,
         principalDirectory,
         contentPolicy,
+        introspection,
       ),
       listBindings: new ListPolicyBindingsUseCase(bookRepository, policyBindingRepository, contentPolicy),
       createBinding: new CreatePolicyBindingUseCase(
@@ -239,12 +248,14 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         principalDirectory,
         contentAdministrationPolicy,
         config.AUTH_AUDIENCE,
+        introspection,
       ),
       revokeBinding: new RevokePolicyBindingUseCase(
         bookRepository,
         policyBindingRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
+        introspection,
       ),
       listDenials: new ListPolicyDenialsUseCase(bookRepository, policyDenialRepository, contentPolicy),
       createDenial: new CreatePolicyDenialUseCase(
@@ -254,12 +265,14 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         principalDirectory,
         contentAdministrationPolicy,
         config.AUTH_AUDIENCE,
+        introspection,
       ),
       revokeDenial: new RevokePolicyDenialUseCase(
         bookRepository,
         policyDenialRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
+        introspection,
       ),
       listEvents: new ListPolicyEventsUseCase(bookRepository, policyEventRepository, contentPolicy),
       transferOwnership: new TransferBookOwnershipUseCase(
@@ -269,6 +282,7 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         contentIamMutationWorkflow,
         principalDirectory,
         contentAdministrationPolicy,
+        introspection,
       ),
       listRoles: new ListContentRolesUseCase(contentRoleRepository, contentPolicy),
       createRole: new CreateContentRoleUseCase(
@@ -276,18 +290,21 @@ export function createRequestContainer(env: AppBindings, options?: { fetchImpl?:
         idempotencyRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
+        introspection,
       ),
       replaceRolePermissions: new ReplaceContentRolePermissionsUseCase(
         contentRoleRepository,
         idempotencyRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
+        introspection,
       ),
       disableRole: new DisableContentRoleUseCase(
         contentRoleRepository,
         policyBindingRepository,
         contentIamMutationWorkflow,
         contentAdministrationPolicy,
+        introspection,
       ),
       roles: contentRoleRepository,
     },

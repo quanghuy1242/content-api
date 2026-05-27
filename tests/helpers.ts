@@ -24,11 +24,18 @@ const ID_SCIM_CLIENT_SECRET = "scim-directory-secret";
 const ID_SCIM_AUDIENCE = "https://id.test/system";
 const ID_SCIM_SCOPE = "identity:directory:read oauth:clients:read";
 const ID_SCIM_ACCESS_TOKEN = "scim-directory-access-token";
+const ID_INTROSPECTION_CLIENT_ID = "content-api-resource-server";
+const ID_INTROSPECTION_CLIENT_SECRET = "introspection-secret";
 
 let privateKey: CryptoKey;
 let publicJwk: JWK;
 // Live binding — readable by importers, reset by setupBeforeEach, incremented by fetchImpl.
 export let scimTokenRequests = 0;
+// Controls what the introspection mock returns; reset to "active" by setupBeforeEach.
+let introspectionBehavior: "active" | "inactive" | "transport_error" = "active";
+export function setIntrospectionBehavior(b: "active" | "inactive" | "transport_error") {
+  introspectionBehavior = b;
+}
 
 export const app = createApp({
   fetchImpl: async (input, init) => {
@@ -37,7 +44,6 @@ export const app = createApp({
       return Response.json({ keys: [publicJwk] });
     }
     if (url === ID_SCIM_TOKEN_URL) {
-      scimTokenRequests += 1;
       const bodyText = typeof init?.body === "string"
         ? init.body
         : init?.body instanceof URLSearchParams
@@ -53,6 +59,7 @@ export const app = createApp({
       ) {
         return Response.json({ error: "invalid_client" }, { status: 401 });
       }
+      scimTokenRequests += 1;
       return Response.json({
         access_token: ID_SCIM_ACCESS_TOKEN,
         token_type: "Bearer",
@@ -135,6 +142,17 @@ export const app = createApp({
       }
 
       return Response.json({}, { status: 404 });
+    }
+    // Mock RFC 7662 token introspection via HTTP Basic auth
+    if (url === "https://id.test/api/auth/oauth2/introspect") {
+      if (introspectionBehavior === "transport_error") {
+        throw new Error("Simulated introspection transport failure");
+      }
+      const expectedBasic = `Basic ${btoa(`${ID_INTROSPECTION_CLIENT_ID}:${ID_INTROSPECTION_CLIENT_SECRET}`)}`;
+      if (init?.headers && new Headers(init.headers).get("authorization") !== expectedBasic) {
+        return Response.json({ active: false }, { status: 401 });
+      }
+      return Response.json({ active: introspectionBehavior === "active" });
     }
     return fetch(input);
   },
@@ -329,6 +347,8 @@ export async function request(
       ID_SCIM_CLIENT_SECRET,
       ID_SCIM_AUDIENCE,
       ID_SCIM_SCOPE,
+      ID_INTROSPECTION_CLIENT_ID,
+      ID_INTROSPECTION_CLIENT_SECRET,
     },
     ctx,
   );
@@ -415,5 +435,6 @@ export async function setupBeforeAll() {
 export async function setupBeforeEach() {
   clearClientCredentialsTokenMemoryCache();
   scimTokenRequests = 0;
+  introspectionBehavior = "active";
   await seed();
 }

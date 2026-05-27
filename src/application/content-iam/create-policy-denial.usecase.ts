@@ -16,6 +16,8 @@ import {
   requireIdempotencyKey,
 } from "@/domain/iam/idempotent-content-iam";
 import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export type CreatePolicyDenialInput = {
   principal: PrincipalRef;
@@ -33,6 +35,7 @@ export class CreatePolicyDenialUseCase {
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly administrationPolicy: ContentAdministrationPolicy,
     private readonly contentApiAudience: string,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -41,7 +44,9 @@ export class CreatePolicyDenialUseCase {
     idempotencyKey?: string;
     input: CreatePolicyDenialInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = await loadContentResource(this.books, params.resource);
     assertContentPermissionKey(params.input.permission);
     try {

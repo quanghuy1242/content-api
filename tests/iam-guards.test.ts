@@ -8,6 +8,7 @@ import {
   issueWorkspaceShareToken,
   request,
   seedBookOwner,
+  setIntrospectionBehavior,
   setupBeforeAll,
   setupBeforeEach,
 } from "./helpers";
@@ -316,5 +317,58 @@ it("can recreate expired Content IAM bindings after cleanup", async () => {
     "system:book.reader",
     "book-main",
   )).toBe(1);
+});
+
+it("Gate B: denies authority-changing mutations when introspection returns inactive", async () => {
+  const token = await bootstrapContentIamAdmin();
+  setIntrospectionBehavior("inactive");
+
+  const bootstrapRes = await request("/organizations/org-main/content-iam/bootstrap", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({ userId: "user-alice" }),
+  });
+  expect(bootstrapRes.status).toBe(401);
+
+  const bindingRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(bindingRes.status).toBe(401);
+
+  const roleRes = await request("/organizations/org-main/content-roles", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      key: "inactive-test-role",
+      name: "Inactive Test Role",
+      assignableResourceType: "book",
+      permissions: ["book.read"],
+    }),
+  });
+  expect(roleRes.status).toBe(401);
+});
+
+it("Gate B: denies authority-changing mutations when introspection transport fails", async () => {
+  const token = await bootstrapContentIamAdmin();
+  setIntrospectionBehavior("transport_error");
+
+  const bindingRes = await request("/books/book-main/policy-bindings", {
+    method: "POST",
+    token,
+    headers: { "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify({
+      principal: { type: "user", id: "user-bob" },
+      roleId: "system:book.reader",
+    }),
+  });
+  expect(bindingRes.status).toBe(401);
 });
 });

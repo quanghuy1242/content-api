@@ -7,6 +7,8 @@ import { recordDeniedPolicyMutation } from "@/domain/iam/audit-denied-mutation";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import { NotFoundError } from "@/shared/errors";
 import { loadContentResource, type ContentResourceInput } from "@/domain/iam/resource-loader";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 
 export class RevokePolicyDenialUseCase {
   constructor(
@@ -14,9 +16,11 @@ export class RevokePolicyDenialUseCase {
     private readonly denials: PolicyDenialRepository,
     private readonly workflow: ContentIamMutationWorkflow,
     private readonly administrationPolicy: ContentAdministrationPolicy,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
-  async execute(params: { actor: Actor; resource: ContentResourceInput; denialId: string; requestId?: string }) {
+  async execute(params: { actor: Actor; resource: ContentResourceInput; denialId: string; requestId?: string; bearerToken: string }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = await loadContentResource(this.books, params.resource);
     const denial = await this.denials.findById(params.denialId);
     if (!denial || denial.resourceType !== resource.type || denial.resourceId !== resource.id) {

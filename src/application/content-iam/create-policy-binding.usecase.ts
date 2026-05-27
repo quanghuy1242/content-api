@@ -9,6 +9,8 @@ import type { ContentRole } from "@/domain/iam/content-role.entity";
 import { PolicyBinding } from "@/domain/iam/policy-binding.entity";
 import { PolicyEvent } from "@/domain/iam/policy-event.entity";
 import type { IdempotencyRepository } from "@/domain/idempotency/idempotency.repository";
+import type { IntrospectPresentedToken } from "@/domain/auth/introspection-port";
+import { assertTokenActive } from "@/application/content-iam/assert-token-active";
 import { NotFoundError, ValidationError } from "@/shared/errors";
 import {
   BOOK_POLICY_BINDINGS_CREATE_ROUTE,
@@ -41,6 +43,7 @@ export class CreatePolicyBindingUseCase {
     private readonly principalDirectory: ContentPrincipalDirectory,
     private readonly administrationPolicy: ContentAdministrationPolicy,
     private readonly contentApiAudience: string,
+    private readonly introspection: IntrospectPresentedToken,
   ) {}
 
   async execute(params: {
@@ -49,7 +52,9 @@ export class CreatePolicyBindingUseCase {
     idempotencyKey?: string;
     input: CreatePolicyBindingInput;
     requestId?: string;
+    bearerToken: string;
   }) {
+    await assertTokenActive(this.introspection, params.bearerToken);
     const resource = await loadContentResource(this.books, params.resource);
     await this.roles.ensureSystemCatalog();
     const role = await this.roles.findById(params.input.roleId);

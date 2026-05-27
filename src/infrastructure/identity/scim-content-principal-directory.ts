@@ -71,7 +71,15 @@ export class ScimContentPrincipalDirectory implements ContentPrincipalDirectory 
   }
 
   private async get(path: string): Promise<void> {
-    const url = this.resolveUrl(path);
+    await this.fetchGet(path);
+  }
+
+  private async getText(url: string): Promise<string> {
+    return (await this.fetchGet(url)).text();
+  }
+
+  private async fetchGet(urlOrPath: string): Promise<Response> {
+    const url = this.resolveUrl(urlOrPath);
     const token = await this.config.accessTokenProvider.getAccessToken();
     const response = await this.fetchImpl(url, {
       method: "GET",
@@ -85,24 +93,7 @@ export class ScimContentPrincipalDirectory implements ContentPrincipalDirectory 
         status: response.status,
       });
     }
-  }
-
-  private async getText(url: string): Promise<string> {
-    const resolved = this.resolveUrl(url);
-    const token = await this.config.accessTokenProvider.getAccessToken();
-    const response = await this.fetchImpl(resolved, {
-      method: "GET",
-      headers: {
-        authorization: `Bearer ${token}`,
-        accept: "application/scim+json, application/json",
-      },
-    });
-    if (!response.ok) {
-      throw new ValidationError("SCIM principal directory lookup failed", {
-        status: response.status,
-      });
-    }
-    return response.text();
+    return response;
   }
 
   private resolveUrl(path: string): string {

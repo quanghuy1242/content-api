@@ -9,6 +9,7 @@ export type AppEnv = {
   Variables: {
     requestId: string;
     actor: Actor | null;
+    bearerToken: string | null;
     container: AppContainer;
   };
 };
